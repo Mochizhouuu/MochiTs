@@ -20,6 +20,8 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      # setup-gradle menyediakan binary Gradle langsung sehingga tidak
+      # butuh gradle-wrapper.jar di repo.
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -50,10 +52,10 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           gradle assembleRelease \
-            -Pandroid.injected.signing.store.file=mochits-release.jks \
-            -Pandroid.injected.signing.store.password=$KEYSTORE_PASSWORD \
-            -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
-            -Pandroid.injected.signing.key.password=$KEY_PASSWORD
+            -PMOCHITS_STORE_FILE="$GITHUB_WORKSPACE/app/mochits-release.jks" \
+            -PMOCHITS_STORE_PASSWORD="$KEYSTORE_PASSWORD" \
+            -PMOCHITS_KEY_ALIAS="$KEY_ALIAS" \
+            -PMOCHITS_KEY_PASSWORD="$KEY_PASSWORD"
 
       - name: Upload APK Release sebagai artifact
         uses: actions/upload-artifact@v4
