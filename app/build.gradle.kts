@@ -26,11 +26,10 @@ android {
     // agar password/alias/keystore tidak pernah ditulis langsung di file Gradle.
     signingConfigs {
         create("release") {
-            val storeFilePath = project.findProperty("android.injected.signing.store.file") as String?
-            val storePwd = project.findProperty("android.injected.signing.store.password") as String?
-            val keyAliasProp = project.findProperty("android.injected.signing.key.alias") as String?
-            val keyPwd = project.findProperty("android.injected.signing.key.password") as String?
-
+            val storeFilePath = project.findProperty("MOCHITS_STORE_FILE") as String?
+            val storePwd = project.findProperty("MOCHITS_STORE_PASSWORD") as String?
+            val keyAliasProp = project.findProperty("MOCHITS_KEY_ALIAS") as String?
+            val keyPwd = project.findProperty("MOCHITS_KEY_PASSWORD") as String?
             if (storeFilePath != null) {
                 storeFile = project.file(storeFilePath)
                 storePassword = storePwd
