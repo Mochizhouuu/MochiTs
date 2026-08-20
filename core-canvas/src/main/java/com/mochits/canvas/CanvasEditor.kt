@@ -1,7 +1,8 @@
 package com.mochits.canvas
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,11 +13,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -25,15 +27,18 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.abs
 
 /**
  * Canvas non-destruktif: base image ditampilkan via [imageContent] yang
  * disuntikkan dari luar module, mendukung pinch-zoom & pan, dan text
  * layer yang bisa di-drag posisinya.
  *
- * Drag teks memakai state.scale TERKINI (via rememberUpdatedState) agar
- * delta gerakan jari selalu dikonversi dengan faktor zoom yang benar
- * saat itu juga, bukan nilai scale basi dari komposisi sebelumnya.
+ * KUNCI PERBAIKAN: pointerInput teks dipasang dengan PointerEventPass.Initial
+ * dan meng-consume position change SEBELUM event itu diteruskan ke parent
+ * (yang berjalan di pass Main). Ini mencegah pinch-zoom/pan canvas ikut
+ * bereaksi terhadap jari yang sedang dipakai men-drag teks — akar dari
+ * gejala "teks mental-mental" sebelumnya.
  */
 @Composable
 fun CanvasEditor(
@@ -97,11 +102,6 @@ private fun DraggableTextLayer(
     val offsetX = layer.relativeX * canvasSize.width
     val offsetY = layer.relativeY * canvasSize.height
 
-    // Selalu baca nilai scale TERBARU di dalam callback gesture (yang
-    // dibuat sekali oleh pointerInput), tanpa perlu me-restart gesture
-    // detector tiap scale berubah.
-    val scaleState = rememberUpdatedState(currentScale)
-
     Box(
         modifier = Modifier
             .offset { IntOffset(offsetX.toInt(), offsetY.toInt()) }
@@ -110,12 +110,35 @@ private fun DraggableTextLayer(
                 if (isSelected) Color.Black.copy(alpha = 0.15f) else Color.Transparent
             )
             .pointerInput(layer.id) {
-                detectDragGestures(
-                    onDragStart = { onSelect() }
-                ) { change, dragAmount ->
-                    change.consume()
-                    val scale = scaleState.value.coerceAtLeast(0.01f)
-                    onDragBy(dragAmount.x / scale, dragAmount.y / scale)
+                // Pass Initial: diproses SEBELUM parent (yang pakai pass Main
+                // secara default di detectTransformGestures), lalu di-consume
+                // supaya parent tidak lagi menerima event yang sama.
+                awaitEachGesture {
+                    val down = awaitFirstDown(pass = PointerEventPass.Initial)
+                    down.consume()
+                    onSelect()
+
+                    var previous = down.position
+                    val scale = currentScale.coerceAtLeast(0.01f)
+
+                    while (true) {
+                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                        val change: PointerInputChange =
+                            event.changes.firstOrNull { it.id == down.id } ?: break
+
+                        if (!change.pressed) {
+                            change.consume()
+                            break
+                        }
+
+                        val dx = change.position.x - previous.x
+                        val dy = change.position.y - previous.y
+                        if (abs(dx) > 0f || abs(dy) > 0f) {
+                            onDragBy(dx / scale, dy / scale)
+                            previous = change.position
+                        }
+                        change.consume()
+                    }
                 }
             }
     ) {
