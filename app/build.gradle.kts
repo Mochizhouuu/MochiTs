@@ -1,70 +1,129 @@
-name: Android Build & Sign
+// :app — Entry point, navigasi, DI wiring, UI screen
+// (Home, Page Manager, Canvas Editor, Export).
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("com.google.dagger.hilt.android")
+    id("com.google.devtools.ksp")
+}
 
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:
+android {
+    namespace = "com.mochits.app"
+    compileSdk = 34
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout kode
-        uses: actions/checkout@v4
+    defaultConfig {
+        applicationId = "com.mochits.app"
+        minSdk = 24
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0"
 
-      - name: Setup JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-      # setup-gradle menyediakan binary Gradle langsung sehingga tidak
-      # butuh gradle-wrapper.jar di repo.
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.7'
+        // ABI splitting: hasilkan APK terpisah per arsitektur CPU, bukan satu
+        // APK gemuk yang membawa native library (OpenCV, TFLite) untuk semua
+        // arsitektur sekaligus. arm64-v8a mencakup mayoritas HP Android modern.
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+        }
+    }
 
-      - name: Jalankan unit test seluruh module
-        run: gradle test
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            isUniversalApk = true // tetap sediakan 1 APK "universal" untuk fallback/testing
+        }
+    }
 
-      - name: Build APK Debug
-        run: gradle assembleDebug
+    // Signing config release: parameter -P (project property) diberikan oleh
+    // workflow CI/CD (lihat .github/workflows/android-build.yml), dibaca di sini
+    // agar password/alias/keystore tidak pernah ditulis langsung di file Gradle.
+    signingConfigs {
+        create("release") {
+            val storeFilePath = project.findProperty("MOCHITS_STORE_FILE") as String?
+            val storePwd = project.findProperty("MOCHITS_STORE_PASSWORD") as String?
+            val keyAliasProp = project.findProperty("MOCHITS_KEY_ALIAS") as String?
+            val keyPwd = project.findProperty("MOCHITS_KEY_PASSWORD") as String?
 
-      - name: Upload APK Debug sebagai artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: mochits-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+            if (storeFilePath != null) {
+                // storeFilePath dikirim sebagai path ABSOLUT dari workflow CI/CD
+                // (lihat android-build.yml) — File(String) dengan path absolut
+                // tidak lagi bergantung pada working directory Gradle daemon.
+                storeFile = File(storeFilePath)
+                storePassword = storePwd
+                keyAlias = keyAliasProp
+                keyPassword = keyPwd
+            }
+        }
+    }
 
-      - name: Decode keystore dari GitHub Secrets
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        run: |
-          echo "$KEYSTORE_BASE64" | base64 --decode > app/mochits-release.jks
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            signingConfig = signingConfigs.getByName("release")
+        }
+        getByName("debug") {
+            // menggunakan debug keystore bawaan Android SDK secara otomatis
+        }
+    }
 
-      - name: Build APK Release (signed)
-        env:
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: |
-          gradle assembleRelease \
-            -PMOCHITS_STORE_FILE="$GITHUB_WORKSPACE/app/mochits-release.jks" \
-            -PMOCHITS_STORE_PASSWORD="$KEYSTORE_PASSWORD" \
-            -PMOCHITS_KEY_ALIAS="$KEY_ALIAS" \
-            -PMOCHITS_KEY_PASSWORD="$KEY_PASSWORD"
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
 
-      - name: Upload APK Release sebagai artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: mochits-release
-          # ABI splitting menghasilkan beberapa APK (per arsitektur + universal),
-          # jadi ambil semua file .apk yang dihasilkan, bukan satu nama tetap.
-          path: app/build/outputs/apk/release/*.apk
+    kotlinOptions {
+        jvmTarget = "17"
+    }
 
-      - name: Hapus file keystore sementara
-        if: always()
-        run: rm -f app/mochits-release.jks
+    buildFeatures {
+        compose = true
+    }
+
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.5.14"
+    }
+
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+}
+
+dependencies {
+    implementation(project(":core-canvas"))
+    implementation(project(":core-imaging"))
+    implementation(project(":core-inpaint-ml"))
+    implementation(project(":core-text"))
+    implementation(project(":core-project"))
+    implementation(project(":core-common"))
+
+    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
+    implementation("androidx.activity:activity-compose:1.9.1")
+    implementation(platform("androidx.compose:compose-bom:2024.06.00"))
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-graphics")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.navigation:navigation-compose:2.7.7")
+
+    // Dependency Injection
+    implementation("com.google.dagger:hilt-android:2.51.1")
+    ksp("com.google.dagger:hilt-compiler:2.51.1")
+
+    // Async/Concurrency
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testImplementation("app.cash.turbine:turbine:1.1.0")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+    debugImplementation("androidx.compose.ui:ui-tooling")
+}
