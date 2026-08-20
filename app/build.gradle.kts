@@ -32,7 +32,7 @@ android {
             val keyPwd = project.findProperty("android.injected.signing.key.password") as String?
 
             if (storeFilePath != null) {
-                storeFile = file(storeFilePath)
+                storeFile = project.file(storeFilePath)
                 storePassword = storePwd
                 keyAlias = keyAliasProp
                 keyPassword = keyPwd
