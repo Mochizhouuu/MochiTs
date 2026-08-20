@@ -61,7 +61,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mochits-release
-          path: app/build/outputs/apk/release/app-release.apk
+          # ABI splitting menghasilkan beberapa APK (per arsitektur + universal),
+          # jadi ambil semua file .apk yang dihasilkan, bukan satu nama tetap.
+          path: app/build/outputs/apk/release/*.apk
 
       - name: Hapus file keystore sementara
         if: always()
