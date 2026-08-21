@@ -1,24 +1,33 @@
 package com.mochits.app.editor
 
 import android.graphics.BitmapFactory
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.mochits.canvas.CanvasEditor
 import com.mochits.canvas.CanvasEditorState
+import com.mochits.canvas.CanvasTextLayer
+import com.mochits.text.TextStyleConfig
 
 /**
  * Editor screen: menampilkan base image project (long-strip/webtoon) di
  * dalam [CanvasEditor] — mendukung scroll vertikal natural, pinch-zoom,
- * dan text layer sederhana yang bisa di-drag. Efek teks & fitur
- * seleksi/inpainting akan ditambahkan pada tahap berikutnya.
+ * text layer yang bisa di-drag, dan panel style (warna, stroke, shadow)
+ * yang muncul saat sebuah teks dipilih.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -27,9 +36,6 @@ fun EditorScreen(
     baseImagePath: String,
     onBack: () -> Unit
 ) {
-    // Ukuran asli gambar WAJIB diketahui lebih dulu — posisi text layer
-    // di CanvasEditorState disimpan dalam piksel gambar asli, bukan
-    // piksel layar (lihat komentar di CanvasEditorState/CanvasEditor).
     var intrinsicSize by remember(baseImagePath) {
         mutableStateOf<Pair<Int, Int>?>(null)
     }
@@ -52,6 +58,8 @@ fun EditorScreen(
     var showAddTextDialog by remember { mutableStateOf(false) }
     var addTextAtViewportCenter by remember { mutableStateOf<((String) -> Unit)?>(null) }
 
+    val selectedLayer = canvasState?.textLayers?.find { it.id == canvasState.selectedLayerId }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -71,22 +79,42 @@ fun EditorScreen(
             }
         }
     ) { padding ->
-        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-            if (canvasState == null) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-            } else {
-                CanvasEditor(
-                    state = canvasState,
-                    modifier = Modifier.fillMaxSize(),
-                    onReady = { addTextFn -> addTextAtViewportCenter = addTextFn }
-                ) { path, contentScale, imgModifier ->
-                    AsyncImage(
-                        model = path,
-                        contentDescription = projectName,
-                        contentScale = contentScale,
-                        modifier = imgModifier
-                    )
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                if (canvasState == null) {
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                } else {
+                    CanvasEditor(
+                        state = canvasState,
+                        modifier = Modifier.fillMaxSize(),
+                        onReady = { addTextFn -> addTextAtViewportCenter = addTextFn }
+                    ) { path, contentScale, imgModifier ->
+                        AsyncImage(
+                            model = path,
+                            contentDescription = projectName,
+                            contentScale = contentScale,
+                            modifier = imgModifier
+                        )
+                    }
                 }
+            }
+
+            // Panel style muncul di bawah canvas saat ada teks terpilih —
+            // tidak menutupi gambar, dan langsung terlihat efeknya di atas
+            // karena mengubah state layer secara langsung.
+            if (canvasState != null && selectedLayer != null) {
+                TextStylePanel(
+                    layer = selectedLayer,
+                    onStyleChange = { newStyle ->
+                        canvasState.updateLayerStyle(selectedLayer.id, newStyle)
+                    },
+                    onDelete = {
+                        canvasState.deleteLayer(selectedLayer.id)
+                    },
+                    onDone = {
+                        canvasState.selectLayer(null)
+                    }
+                )
             }
         }
     }
@@ -96,14 +124,111 @@ fun EditorScreen(
             onConfirm = { text ->
                 showAddTextDialog = false
                 if (text.isNotBlank()) {
-                    // Tambah di tengah area yang sedang terlihat, bukan
-                    // tengah gambar keseluruhan (lihat CanvasEditor.onReady).
                     addTextAtViewportCenter?.invoke(text)
                 }
             },
             onDismiss = { showAddTextDialog = false }
         )
     }
+}
+
+private val presetColors = listOf(
+    0xFF000000.toInt(), // hitam
+    0xFFFFFFFF.toInt(), // putih
+    0xFFE53935.toInt(), // merah
+    0xFF1E88E5.toInt(), // biru
+    0xFFFDD835.toInt(), // kuning
+    0xFF43A047.toInt()  // hijau
+)
+
+@Composable
+private fun TextStylePanel(
+    layer: CanvasTextLayer,
+    onStyleChange: (TextStyleConfig) -> Unit,
+    onDelete: () -> Unit,
+    onDone: () -> Unit
+) {
+    val style = layer.style
+
+    Surface(tonalElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Warna teks", modifier = Modifier.weight(1f))
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Default.Delete, contentDescription = "Hapus teks")
+                }
+                TextButton(onClick = onDone) { Text("Selesai") }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                presetColors.forEach { colorArgb ->
+                    ColorSwatch(
+                        colorArgb = colorArgb,
+                        isSelected = style.colorArgb == colorArgb,
+                        onClick = { onStyleChange(style.copy(colorArgb = colorArgb)) }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Stroke (outline)", modifier = Modifier.weight(1f))
+                Switch(
+                    checked = style.strokeEnabled,
+                    onCheckedChange = { onStyleChange(style.copy(strokeEnabled = it)) }
+                )
+            }
+            if (style.strokeEnabled) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    presetColors.forEach { colorArgb ->
+                        ColorSwatch(
+                            colorArgb = colorArgb,
+                            isSelected = style.strokeColorArgb == colorArgb,
+                            onClick = { onStyleChange(style.copy(strokeColorArgb = colorArgb)) }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Shadow", modifier = Modifier.weight(1f))
+                Switch(
+                    checked = style.shadowEnabled,
+                    onCheckedChange = { onStyleChange(style.copy(shadowEnabled = it)) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ColorSwatch(colorArgb: Int, isSelected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(32.dp)
+            .clip(CircleShape)
+            .background(Color(colorArgb))
+            .then(
+                if (isSelected) {
+                    Modifier.background(Color.Gray.copy(alpha = 0.3f))
+                } else Modifier
+            )
+            .clickable(onClick = onClick)
+    )
 }
 
 @Composable
