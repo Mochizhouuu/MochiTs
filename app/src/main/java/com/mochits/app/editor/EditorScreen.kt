@@ -50,6 +50,7 @@ fun EditorScreen(
     } else null
 
     var showAddTextDialog by remember { mutableStateOf(false) }
+    var addTextAtViewportCenter by remember { mutableStateOf<((String) -> Unit)?>(null) }
 
     Scaffold(
         topBar = {
@@ -76,7 +77,8 @@ fun EditorScreen(
             } else {
                 CanvasEditor(
                     state = canvasState,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    onReady = { addTextFn -> addTextAtViewportCenter = addTextFn }
                 ) { path, contentScale, imgModifier ->
                     AsyncImage(
                         model = path,
@@ -93,7 +95,11 @@ fun EditorScreen(
         AddTextDialog(
             onConfirm = { text ->
                 showAddTextDialog = false
-                if (text.isNotBlank()) canvasState.addTextLayer(text)
+                if (text.isNotBlank()) {
+                    // Tambah di tengah area yang sedang terlihat, bukan
+                    // tengah gambar keseluruhan (lihat CanvasEditor.onReady).
+                    addTextAtViewportCenter?.invoke(text)
+                }
             },
             onDismiss = { showAddTextDialog = false }
         )
