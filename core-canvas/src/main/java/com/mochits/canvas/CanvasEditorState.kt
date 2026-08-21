@@ -40,13 +40,12 @@ class CanvasEditorState(
         scale = newScale.coerceIn(0.5f, 4f)
     }
 
-    fun addTextLayer(text: String) {
+    fun addTextLayer(text: String, xInImagePx: Float, yInImagePx: Float) {
         val newLayer = CanvasTextLayer(
             id = "text-${System.currentTimeMillis()}",
             text = text,
-            // Diletakkan di tengah gambar (dalam koordinat piksel gambar asli)
-            xInImagePx = intrinsicWidthPx / 2f,
-            yInImagePx = intrinsicHeightPx / 2f
+            xInImagePx = xInImagePx.coerceIn(0f, intrinsicWidthPx.toFloat()),
+            yInImagePx = yInImagePx.coerceIn(0f, intrinsicHeightPx.toFloat())
         )
         textLayers.add(newLayer)
         selectedLayerId = newLayer.id
