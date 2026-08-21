@@ -34,6 +34,7 @@ android {
 
 dependencies {
     implementation(project(":core-common"))
+    implementation(project(":core-text"))
 
     implementation("androidx.core:core-ktx:1.13.1")
     implementation(platform("androidx.compose:compose-bom:2024.06.00"))
