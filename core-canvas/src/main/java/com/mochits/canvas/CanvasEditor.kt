@@ -134,20 +134,16 @@ fun CanvasEditor(
                                         val newScrollY =
                                             (contentY * ratio - focus.y).roundToInt()
 
+                                        // Digabung dalam 1 coroutine berurutan (bukan
+                                        // 2 launch terpisah) supaya scrollTo() X dan Y
+                                        // dieksekusi pada frame yang sama, setelah
+                                        // updateScale() di atas benar-benar diterapkan.
                                         coroutineScope.launch {
                                             horizontalScrollState.scrollTo(
-                                                newScrollX.coerceIn(
-                                                    0,
-                                                    horizontalScrollState.maxValue
-                                                )
+                                                newScrollX.coerceAtLeast(0)
                                             )
-                                        }
-                                        coroutineScope.launch {
                                             verticalScrollState.scrollTo(
-                                                newScrollY.coerceIn(
-                                                    0,
-                                                    verticalScrollState.maxValue
-                                                )
+                                                newScrollY.coerceAtLeast(0)
                                             )
                                         }
                                     }
