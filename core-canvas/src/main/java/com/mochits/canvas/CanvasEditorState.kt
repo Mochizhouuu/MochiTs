@@ -6,20 +6,29 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.geometry.Offset
 
 /**
- * State non-destruktif untuk Canvas Editor: base image tidak pernah
- * dimodifikasi langsung — zoom/pan hanya transformasi tampilan, dan
- * text layer adalah data terpisah yang di-composite saat render.
+ * State non-destruktif untuk Canvas Editor. Base image tidak pernah
+ * dimodifikasi langsung — zoom hanya transformasi tampilan.
+ *
+ * PENTING: posisi text layer ([CanvasTextLayer.xInImagePx]/[yInImagePx])
+ * disimpan dalam KOORDINAT PIKSEL GAMBAR ASLI (bukan viewport layar,
+ * bukan pula skala 0f..1f). Ini wajib untuk gambar long-strip/webtoon
+ * yang jauh lebih tinggi dari layar dan di-scroll — posisi teks harus
+ * "menempel" ke titik tertentu pada gambar itu sendiri, bukan ke area
+ * layar yang sedang terlihat.
  */
 @Stable
-class CanvasEditorState(baseImagePath: String) {
+class CanvasEditorState(
+    baseImagePath: String,
+    intrinsicWidthPx: Int,
+    intrinsicHeightPx: Int
+) {
     val baseImagePath: String = baseImagePath
+    val intrinsicWidthPx: Int = intrinsicWidthPx.coerceAtLeast(1)
+    val intrinsicHeightPx: Int = intrinsicHeightPx.coerceAtLeast(1)
 
     var scale by mutableFloatStateOf(1f)
-        private set
-    var offset by mutableStateOf(Offset.Zero)
         private set
 
     val textLayers = mutableStateListOf<CanvasTextLayer>()
@@ -27,33 +36,31 @@ class CanvasEditorState(baseImagePath: String) {
     var selectedLayerId by mutableStateOf<String?>(null)
         private set
 
-    fun onTransform(zoomChange: Float, panChange: Offset) {
-        scale = (scale * zoomChange).coerceIn(0.5f, 5f)
-        offset += panChange
-    }
-
-    fun resetTransform() {
-        scale = 1f
-        offset = Offset.Zero
+    fun setScale(newScale: Float) {
+        scale = newScale.coerceIn(0.5f, 4f)
     }
 
     fun addTextLayer(text: String) {
         val newLayer = CanvasTextLayer(
             id = "text-${System.currentTimeMillis()}",
             text = text,
-            relativeX = 0.5f,
-            relativeY = 0.5f
+            // Diletakkan di tengah gambar (dalam koordinat piksel gambar asli)
+            xInImagePx = intrinsicWidthPx / 2f,
+            yInImagePx = intrinsicHeightPx / 2f
         )
         textLayers.add(newLayer)
         selectedLayerId = newLayer.id
     }
 
-    fun updateLayerPosition(id: String, relativeX: Float, relativeY: Float) {
+    fun moveLayerBy(id: String, deltaXInImagePx: Float, deltaYInImagePx: Float) {
         val index = textLayers.indexOfFirst { it.id == id }
         if (index != -1) {
-            textLayers[index] = textLayers[index].copy(
-                relativeX = relativeX.coerceIn(0f, 1f),
-                relativeY = relativeY.coerceIn(0f, 1f)
+            val current = textLayers[index]
+            textLayers[index] = current.copy(
+                xInImagePx = (current.xInImagePx + deltaXInImagePx)
+                    .coerceIn(0f, intrinsicWidthPx.toFloat()),
+                yInImagePx = (current.yInImagePx + deltaYInImagePx)
+                    .coerceIn(0f, intrinsicHeightPx.toFloat())
             )
         }
     }
