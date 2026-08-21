@@ -28,6 +28,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -219,15 +220,17 @@ private fun DraggableTextLayer(
         val extraPx = fontSizePx * 0.5f
         val (textWidthPx, textHeightPx) = com.mochits.text.measureStyledText(layer.text, fontSizePx)
 
-        val widthDp = with(LocalDensity.current) { (textWidthPx + extraPx * 2).toDp() }
-        val heightDp = with(LocalDensity.current) { (textHeightPx + extraPx * 2).toDp() }
+        val density = LocalDensity.current
+        val widthDp = with(density) { (textWidthPx + extraPx * 2).toDp() }
+        val heightDp = with(density) { (textHeightPx + extraPx * 2).toDp() }
+        val extraDp = with(density) { extraPx.toDp() }
 
         com.mochits.text.StyledText(
             text = layer.text,
             fontSizePx = fontSizePx,
             style = layer.style,
             modifier = Modifier
-                .padding(with(LocalDensity.current) { extraPx.toDp() })
+                .padding(extraDp)
                 .size(width = widthDp, height = heightDp)
         )
     }
