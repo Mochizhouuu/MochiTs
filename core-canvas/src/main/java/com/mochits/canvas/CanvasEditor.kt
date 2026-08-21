@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -30,42 +31,58 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
  * Canvas untuk gambar long-strip (webtoon): gambar ditampilkan dalam
- * ukuran (intrinsicSize * scale) sesungguhnya di dalam area yang bisa
- * di-scroll vertikal secara natural.
+ * ukuran (intrinsicSize * scale) sesungguhnya, bisa di-scroll (1 jari)
+ * dan di-zoom (2 jari, dengan titik pinch tetap "diam" di layar —
+ * zoom-to-point) secara terpisah tanpa saling mengganggu.
  *
- * Dibungkus [BoxWithConstraints] agar tahu lebar viewport SEBENARNYA
- * (maxWidth) — dipakai untuk menghitung padding horizontal manual
- * ketika gambar (setelah di-scale) lebih SEMPIT dari layar, sehingga
- * gambar selalu tampak di tengah alih-alih nempel ke kiri.
- * Modifier.horizontalScroll tidak meng-center konten yang lebih kecil
- * dari viewport secara otomatis — makanya perlu dihitung manual di sini.
+ * [onRequestAddTextAtViewportCenter] dipanggil oleh pemanggil (mis.
+ * tombol tambah teks di :app) untuk menambah teks tepat di TENGAH
+ * AREA YANG SEDANG TERLIHAT di layar saat ini — bukan tengah gambar
+ * keseluruhan, yang pada gambar panjang seringkali di luar pandangan.
  */
 @Composable
 fun CanvasEditor(
     state: CanvasEditorState,
     modifier: Modifier = Modifier,
+    onReady: (addTextAtViewportCenter: (String) -> Unit) -> Unit = {},
     imageContent: @Composable (path: String, contentScale: ContentScale, modifier: Modifier) -> Unit
 ) {
     BoxWithConstraints(modifier = modifier) {
         val viewportWidthDp = maxWidth
+        val viewportHeightDp = maxHeight
         val verticalScrollState = rememberScrollState()
         val horizontalScrollState = rememberScrollState()
         val density = LocalDensity.current
+        val coroutineScope = rememberCoroutineScope()
 
         val displayWidthDp = with(density) { (state.intrinsicWidthPx * state.scale).toDp() }
         val displayHeightDp = with(density) { (state.intrinsicHeightPx * state.scale).toDp() }
 
-        // Jika gambar lebih sempit dari viewport, beri padding kiri-kanan
-        // yang sama agar tampak di tengah. Jika lebih lebar (bisa
-        // discroll), padding 0 dan horizontalScroll yang bekerja.
         val horizontalPadding = if (displayWidthDp < viewportWidthDp) {
             (viewportWidthDp - displayWidthDp) / 2
         } else {
             0.dp
+        }
+
+        // Expose fungsi tambah-teks-di-tengah-viewport ke pemanggil.
+        onReady { text ->
+            val scrollX = horizontalScrollState.value.toFloat()
+            val scrollY = verticalScrollState.value.toFloat()
+            val paddingPx = with(density) { horizontalPadding.toPx() }
+            // Titik tengah viewport, dikonversi dari piksel LAYAR (termasuk
+            // offset scroll & padding centering) ke piksel GAMBAR ASLI.
+            val centerScreenX = scrollX + with(density) { viewportWidthDp.toPx() } / 2f - paddingPx
+            val centerScreenY = scrollY + with(density) { viewportHeightDp.toPx() } / 2f
+            state.addTextLayer(
+                text,
+                xInImagePx = centerScreenX / state.scale,
+                yInImagePx = centerScreenY / state.scale
+            )
         }
 
         Box(
@@ -83,24 +100,61 @@ fun CanvasEditor(
                             val pressed = event.changes.filter { it.pressed }
 
                             if (pressed.size >= 2) {
-                                // Dua jari: pinch-zoom. Consume supaya scroll
-                                // tidak ikut bereaksi terhadap gerakan ini.
                                 val p1 = pressed[0].position
                                 val p2 = pressed[1].position
                                 val distance = kotlin.math.hypot(
                                     (p1.x - p2.x).toDouble(),
                                     (p1.y - p2.y).toDouble()
                                 ).toFloat()
+                                val focus = androidx.compose.ui.geometry.Offset(
+                                    (p1.x + p2.x) / 2f,
+                                    (p1.y + p2.y) / 2f
+                                )
 
                                 if (previousDistance > 0f) {
                                     val zoomChange = distance / previousDistance
-                                    state.updateScale(state.scale * zoomChange)
+                                    val oldScale = state.scale
+                                    val newScale = (oldScale * zoomChange).coerceIn(0.5f, 4f)
+
+                                    if (newScale != oldScale) {
+                                        // ZOOM-TO-POINT: titik fokus pinch (dalam
+                                        // koordinat konten, termasuk scroll saat
+                                        // ini) harus tetap berada di posisi layar
+                                        // yang sama setelah scale berubah. Maka
+                                        // scroll offset disesuaikan sebanding
+                                        // dengan rasio perubahan scale.
+                                        val contentX = horizontalScrollState.value + focus.x
+                                        val contentY = verticalScrollState.value + focus.y
+                                        val ratio = newScale / oldScale
+
+                                        state.updateScale(newScale)
+
+                                        val newScrollX =
+                                            (contentX * ratio - focus.x).roundToInt()
+                                        val newScrollY =
+                                            (contentY * ratio - focus.y).roundToInt()
+
+                                        coroutineScope.launch {
+                                            horizontalScrollState.scrollTo(
+                                                newScrollX.coerceIn(
+                                                    0,
+                                                    horizontalScrollState.maxValue
+                                                )
+                                            )
+                                        }
+                                        coroutineScope.launch {
+                                            verticalScrollState.scrollTo(
+                                                newScrollY.coerceIn(
+                                                    0,
+                                                    verticalScrollState.maxValue
+                                                )
+                                            )
+                                        }
+                                    }
                                 }
                                 previousDistance = distance
                                 pressed.forEach { it.consume() }
                             } else {
-                                // 1 jari: reset, JANGAN consume — biarkan
-                                // diteruskan ke verticalScroll/horizontalScroll.
                                 previousDistance = 0f
                             }
 
