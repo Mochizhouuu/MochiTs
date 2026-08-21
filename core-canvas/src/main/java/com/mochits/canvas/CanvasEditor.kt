@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -27,10 +26,8 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -215,9 +212,23 @@ private fun DraggableTextLayer(
                 }
             }
     ) {
-        BasicText(
+        val fontSizePx = with(LocalDensity.current) {
+            (layer.fontSizeSp * scaleState.value).sp.toPx()
+        }
+        // Ekstra padding agar stroke/shadow tidak terpotong di tepi Canvas.
+        val extraPx = fontSizePx * 0.5f
+        val (textWidthPx, textHeightPx) = com.mochits.text.measureStyledText(layer.text, fontSizePx)
+
+        val widthDp = with(LocalDensity.current) { (textWidthPx + extraPx * 2).toDp() }
+        val heightDp = with(LocalDensity.current) { (textHeightPx + extraPx * 2).toDp() }
+
+        com.mochits.text.StyledText(
             text = layer.text,
-            style = TextStyle(fontSize = (layer.fontSizeSp * scaleState.value).sp, color = Color.Black)
+            fontSizePx = fontSizePx,
+            style = layer.style,
+            modifier = Modifier
+                .padding(with(LocalDensity.current) { extraPx.toDp() })
+                .size(width = widthDp, height = heightDp)
         )
     }
 }
