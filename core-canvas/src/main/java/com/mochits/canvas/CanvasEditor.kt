@@ -6,6 +6,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -36,12 +37,12 @@ import kotlin.math.roundToInt
  * ukuran (intrinsicSize * scale) sesungguhnya di dalam area yang bisa
  * di-scroll vertikal secara natural.
  *
- * KUNCI: pinch-zoom HANYA diproses saat pointer count >= 2 (dua jari),
- * dan TIDAK meng-consume apa pun saat cuma 1 jari — sehingga
- * Modifier.verticalScroll/horizontalScroll bawaan tetap bisa
- * memproses drag satu jari secara normal. Sebelumnya gesture zoom
- * memakai detectTransformGestures yang menyerap SEMUA pointer event
- * (termasuk 1 jari), sehingga scroll tidak pernah berjalan.
+ * Dibungkus [BoxWithConstraints] agar tahu lebar viewport SEBENARNYA
+ * (maxWidth) — dipakai untuk menghitung padding horizontal manual
+ * ketika gambar (setelah di-scale) lebih SEMPIT dari layar, sehingga
+ * gambar selalu tampak di tengah alih-alih nempel ke kiri.
+ * Modifier.horizontalScroll tidak meng-center konten yang lebih kecil
+ * dari viewport secara otomatis — makanya perlu dihitung manual di sini.
  */
 @Composable
 fun CanvasEditor(
@@ -49,76 +50,90 @@ fun CanvasEditor(
     modifier: Modifier = Modifier,
     imageContent: @Composable (path: String, contentScale: ContentScale, modifier: Modifier) -> Unit
 ) {
-    val verticalScrollState = rememberScrollState()
-    val horizontalScrollState = rememberScrollState()
-    val density = LocalDensity.current
+    BoxWithConstraints(modifier = modifier) {
+        val viewportWidthDp = maxWidth
+        val verticalScrollState = rememberScrollState()
+        val horizontalScrollState = rememberScrollState()
+        val density = LocalDensity.current
 
-    val displayWidthDp = with(density) { (state.intrinsicWidthPx * state.scale).toDp() }
-    val displayHeightDp = with(density) { (state.intrinsicHeightPx * state.scale).toDp() }
+        val displayWidthDp = with(density) { (state.intrinsicWidthPx * state.scale).toDp() }
+        val displayHeightDp = with(density) { (state.intrinsicHeightPx * state.scale).toDp() }
 
-    Box(
-        modifier = modifier
-            .verticalScroll(verticalScrollState)
-            .horizontalScroll(horizontalScrollState)
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown(pass = PointerEventPass.Initial)
-                    var previousDistance = 0f
+        // Jika gambar lebih sempit dari viewport, beri padding kiri-kanan
+        // yang sama agar tampak di tengah. Jika lebih lebar (bisa
+        // discroll), padding 0 dan horizontalScroll yang bekerja.
+        val horizontalPadding = if (displayWidthDp < viewportWidthDp) {
+            (viewportWidthDp - displayWidthDp) / 2
+        } else {
+            0.dp
+        }
 
-                    while (true) {
-                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                        val pressed = event.changes.filter { it.pressed }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(verticalScrollState)
+                .horizontalScroll(horizontalScrollState)
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown(pass = PointerEventPass.Initial)
+                        var previousDistance = 0f
 
-                        if (pressed.size >= 2) {
-                            // Dua jari: pinch-zoom. Consume supaya scroll tidak
-                            // ikut bereaksi terhadap gerakan dua jari ini.
-                            val p1 = pressed[0].position
-                            val p2 = pressed[1].position
-                            val distance = kotlin.math.hypot(
-                                (p1.x - p2.x).toDouble(),
-                                (p1.y - p2.y).toDouble()
-                            ).toFloat()
+                        while (true) {
+                            val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                            val pressed = event.changes.filter { it.pressed }
 
-                            if (previousDistance > 0f) {
-                                val zoomChange = distance / previousDistance
-                                state.updateScale(state.scale * zoomChange)
+                            if (pressed.size >= 2) {
+                                // Dua jari: pinch-zoom. Consume supaya scroll
+                                // tidak ikut bereaksi terhadap gerakan ini.
+                                val p1 = pressed[0].position
+                                val p2 = pressed[1].position
+                                val distance = kotlin.math.hypot(
+                                    (p1.x - p2.x).toDouble(),
+                                    (p1.y - p2.y).toDouble()
+                                ).toFloat()
+
+                                if (previousDistance > 0f) {
+                                    val zoomChange = distance / previousDistance
+                                    state.updateScale(state.scale * zoomChange)
+                                }
+                                previousDistance = distance
+                                pressed.forEach { it.consume() }
+                            } else {
+                                // 1 jari: reset, JANGAN consume — biarkan
+                                // diteruskan ke verticalScroll/horizontalScroll.
+                                previousDistance = 0f
                             }
-                            previousDistance = distance
-                            pressed.forEach { it.consume() }
-                        } else {
-                            // 1 jari (atau 0): reset, JANGAN consume — biarkan
-                            // event diteruskan ke verticalScroll/horizontalScroll.
-                            previousDistance = 0f
-                        }
 
-                        if (event.changes.none { it.pressed }) break
+                            if (event.changes.none { it.pressed }) break
+                        }
                     }
                 }
-            }
-    ) {
-        Box(
-            modifier = Modifier.size(width = displayWidthDp, height = displayHeightDp)
+                .padding(horizontal = horizontalPadding)
         ) {
-            imageContent(
-                state.baseImagePath,
-                ContentScale.FillBounds,
-                Modifier.fillMaxSize()
-            )
-
-            state.textLayers.forEach { layer ->
-                DraggableTextLayer(
-                    layer = layer,
-                    scale = state.scale,
-                    isSelected = state.selectedLayerId == layer.id,
-                    onSelect = { state.selectLayer(layer.id) },
-                    onDragBy = { deltaXPx, deltaYPx ->
-                        state.moveLayerBy(
-                            layer.id,
-                            deltaXPx / state.scale,
-                            deltaYPx / state.scale
-                        )
-                    }
+            Box(
+                modifier = Modifier.size(width = displayWidthDp, height = displayHeightDp)
+            ) {
+                imageContent(
+                    state.baseImagePath,
+                    ContentScale.FillBounds,
+                    Modifier.fillMaxSize()
                 )
+
+                state.textLayers.forEach { layer ->
+                    DraggableTextLayer(
+                        layer = layer,
+                        scale = state.scale,
+                        isSelected = state.selectedLayerId == layer.id,
+                        onSelect = { state.selectLayer(layer.id) },
+                        onDragBy = { deltaXPx, deltaYPx ->
+                            state.moveLayerBy(
+                                layer.id,
+                                deltaXPx / state.scale,
+                                deltaYPx / state.scale
+                            )
+                        }
+                    )
+                }
             }
         }
     }
