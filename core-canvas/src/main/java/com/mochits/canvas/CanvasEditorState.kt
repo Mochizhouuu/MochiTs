@@ -36,7 +36,7 @@ class CanvasEditorState(
     var selectedLayerId by mutableStateOf<String?>(null)
         private set
 
-    fun setScale(newScale: Float) {
+    fun updateScale(newScale: Float) {
         scale = newScale.coerceIn(0.5f, 4f)
     }
 
