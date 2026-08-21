@@ -63,7 +63,7 @@ fun CanvasEditor(
             .horizontalScroll(horizontalScrollState)
             .pointerInput(Unit) {
                 detectTransformGestures { _, _, zoomChange, _ ->
-                    state.setScale(state.scale * zoomChange)
+                    state.updateScale(state.scale * zoomChange)
                 }
             }
     ) {
