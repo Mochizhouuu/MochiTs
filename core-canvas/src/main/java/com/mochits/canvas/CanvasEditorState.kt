@@ -79,4 +79,11 @@ class CanvasEditorState(
             textLayers[index] = textLayers[index].copy(text = newText)
         }
     }
+
+    fun updateLayerStyle(id: String, newStyle: com.mochits.text.TextStyleConfig) {
+        val index = textLayers.indexOfFirst { it.id == id }
+        if (index != -1) {
+            textLayers[index] = textLayers[index].copy(style = newStyle)
+        }
+    }
 }
