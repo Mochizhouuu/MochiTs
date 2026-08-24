@@ -55,6 +55,12 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun renameProject(id: String, newName: String) {
+        viewModelScope.launch {
+            projectRepository.renameProject(id, newName)
+        }
+    }
+
     fun deleteProject(id: String) {
         viewModelScope.launch {
             projectRepository.deleteProject(id)

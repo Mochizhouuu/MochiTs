@@ -5,6 +5,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.ui.graphics.Color
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -12,22 +14,35 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.mochits.app.editor.EditorScreen
 import com.mochits.app.home.HomeScreen
+import com.mochits.app.settings.SettingsScreen
 import dagger.hilt.android.AndroidEntryPoint
 import java.net.URLDecoder
 import java.net.URLEncoder
 
-/**
- * Entry point navigasi utama: Home (list project) <-> Editor.
- * Canvas Editor sesungguhnya akan menggantikan EditorScreen placeholder
- * di tahap pengembangan berikutnya.
- */
+private val MochiSoftDarkColorScheme = darkColorScheme(
+    primary = Color(0xFF8B85FF),
+    onPrimary = Color(0xFF0F0E26),
+    primaryContainer = Color(0xFF2F2C54),
+    onPrimaryContainer = Color(0xFFE2E0FF),
+    secondary = Color(0xFF64B5F6),
+    onSecondary = Color(0xFF003258),
+    background = Color(0xFF121318),
+    onBackground = Color(0xFFE3E2E6),
+    surface = Color(0xFF1A1B22),
+    onSurface = Color(0xFFE3E2E6),
+    surfaceVariant = Color(0xFF282A36),
+    onSurfaceVariant = Color(0xFFC4C5D0),
+    surfaceTint = Color(0xFF8B85FF),
+    outline = Color(0xFF444655)
+)
+
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
-                Surface {
+            MaterialTheme(colorScheme = MochiSoftDarkColorScheme) {
+                Surface(color = MaterialTheme.colorScheme.background) {
                     MochiTsNavHost()
                 }
             }
@@ -36,6 +51,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private const val ROUTE_HOME = "home"
+private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_EDITOR = "editor/{projectId}/{projectName}/{baseImagePath}"
 
 @androidx.compose.runtime.Composable
@@ -49,7 +65,15 @@ private fun MochiTsNavHost() {
                     val encodedPath = URLEncoder.encode(project.baseImagePath, "UTF-8")
                     val encodedName = URLEncoder.encode(project.name, "UTF-8")
                     navController.navigate("editor/${project.id}/$encodedName/$encodedPath")
+                },
+                onOpenSettings = {
+                    navController.navigate(ROUTE_SETTINGS)
                 }
+            )
+        }
+        composable(ROUTE_SETTINGS) {
+            SettingsScreen(
+                onBack = { navController.popBackStack() }
             )
         }
         composable(
@@ -69,7 +93,8 @@ private fun MochiTsNavHost() {
             EditorScreen(
                 projectName = name,
                 baseImagePath = path,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onOpenSettings = { navController.navigate(ROUTE_SETTINGS) }
             )
         }
     }

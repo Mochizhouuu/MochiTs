@@ -3,11 +3,19 @@ package com.mochits.app.editor
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -19,7 +27,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.mochits.canvas.CanvasEditor
 import com.mochits.canvas.CanvasEditorState
@@ -28,17 +38,14 @@ import com.mochits.common.OperationResult
 import com.mochits.imaging.TeleaInpainterImpl
 import com.mochits.inpaint.LamaInpaintEngineImpl
 import com.mochits.inpaint.ModelManager
-import com.mochits.text.TextStyleConfig
+import com.mochits.text.*
 import kotlinx.coroutines.launch
 import java.io.File
-import java.io.FileOutputStream
 
-enum class EditorToolMode {
-    VIEW_PAN,
-    MASK_BRUSH,
-    MASK_LASSO,
-    MASK_MAGIC_WAND,
-    COLOR_EYEDROPPER
+enum class EditorTab {
+    TEXT,
+    INPAINT,
+    LAYERS
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -52,10 +59,24 @@ fun EditorScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    var activeToolMode by remember { mutableStateOf(EditorToolMode.VIEW_PAN) }
+    val fontManager = remember { FontManager(context) }
+    val presetManager = remember { TextPresetManager(context) }
+
+    var installedFonts by remember { mutableStateOf(fontManager.getInstalledFonts()) }
+    var availablePresets by remember { mutableStateOf(presetManager.getPresets()) }
+
     var currentBaseBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var currentMaskBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var selectedEyedropperColor by remember { mutableStateOf<Int?>(null) }
+
+    var activeTab by remember { mutableStateOf(EditorTab.TEXT) }
+    var isDockExpanded by remember { mutableStateOf(true) }
+
+    var showAddTextDialog by remember { mutableStateOf(false) }
+    var showEditTextDialog by remember { mutableStateOf<CanvasTextLayer?>(null) }
+    var showSavePresetDialog by remember { mutableStateOf<TextStyleConfig?>(null) }
+    var showInpaintDialog by remember { mutableStateOf(false) }
+
+    var addTextAtViewportCenter by remember { mutableStateOf<((String) -> Unit)?>(null) }
 
     var intrinsicSize by remember(baseImagePath) {
         mutableStateOf<Pair<Int, Int>?>(null)
@@ -82,16 +103,23 @@ fun EditorScreen(
         }
     } else null
 
-    var showAddTextDialog by remember { mutableStateOf(false) }
-    var showInpaintDialog by remember { mutableStateOf(false) }
-    var addTextAtViewportCenter by remember { mutableStateOf<((String) -> Unit)?>(null) }
-
     val selectedLayer = canvasState?.textLayers?.find { it.id == canvasState.selectedLayerId }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(projectName) },
+                title = {
+                    Column {
+                        Text(projectName, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                        if (canvasState != null) {
+                            Text(
+                                "Zoom: ${(canvasState.scale * 100).toInt()}% | Layer Teks: ${canvasState.textLayers.size}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
@@ -116,33 +144,23 @@ fun EditorScreen(
                     }) {
                         Icon(Icons.Default.SaveAlt, contentDescription = "Ekspor Gambar")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
-        },
-        floatingActionButton = {
-            if (canvasState != null) {
-                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FloatingActionButton(
-                        onClick = { showInpaintDialog = true },
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer
-                    ) {
-                        Icon(Icons.Default.AutoFixHigh, contentDescription = "Inpaint Mask")
-                    }
-                    FloatingActionButton(onClick = { showAddTextDialog = true }) {
-                        Icon(Icons.Default.TextFields, contentDescription = "Tambah teks")
-                    }
-                }
-            }
         }
     ) { padding ->
-        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            // Mode Selector Bar (Photoshop Compact Mobile Style)
-            EditorToolBar(
-                activeMode = activeToolMode,
-                onModeSelected = { activeToolMode = it }
-            )
-
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+        ) {
+            // Main Interactive Canvas Area
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
                 if (canvasState == null || currentBaseBitmap == null) {
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 } else {
@@ -161,21 +179,149 @@ fun EditorScreen(
                 }
             }
 
-            if (canvasState != null && selectedLayer != null) {
-                TextStylePanel(
-                    layer = selectedLayer,
-                    onStyleChange = { newStyle ->
-                        canvasState.updateLayerStyle(selectedLayer.id, newStyle)
-                    },
-                    onDelete = {
-                        canvasState.deleteLayer(selectedLayer.id)
-                    },
-                    onDone = {
-                        canvasState.selectLayer(null)
+            // Bottom Dock Control Panel (Clean, Non-floating, Collapsible)
+            if (canvasState != null) {
+                Surface(
+                    tonalElevation = 8.dp,
+                    color = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column {
+                        // Dock Header & Tab Switcher Bar
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            TabButton(
+                                icon = Icons.Default.TextFields,
+                                label = "Teks",
+                                isSelected = activeTab == EditorTab.TEXT,
+                                onClick = {
+                                    activeTab = EditorTab.TEXT
+                                    isDockExpanded = true
+                                }
+                            )
+                            TabButton(
+                                icon = Icons.Default.AutoFixHigh,
+                                label = "Inpaint",
+                                isSelected = activeTab == EditorTab.INPAINT,
+                                onClick = {
+                                    activeTab = EditorTab.INPAINT
+                                    isDockExpanded = true
+                                }
+                            )
+                            TabButton(
+                                icon = Icons.Default.Layers,
+                                label = "Layer (${canvasState.textLayers.size})",
+                                isSelected = activeTab == EditorTab.LAYERS,
+                                onClick = {
+                                    activeTab = EditorTab.LAYERS
+                                    isDockExpanded = true
+                                }
+                            )
+
+                            Spacer(modifier = Modifier.weight(1f))
+
+                            // Collapse / Expand Toggle Button
+                            IconButton(onClick = { isDockExpanded = !isDockExpanded }) {
+                                Icon(
+                                    if (isDockExpanded) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
+                                    contentDescription = if (isDockExpanded) "Sembunyikan Menu" else "Tampilkan Menu",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
+                        // Collapsible Dock Content
+                        AnimatedVisibility(
+                            visible = isDockExpanded,
+                            enter = expandVertically(),
+                            exit = shrinkVertically()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 280.dp)
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                when (activeTab) {
+                                    EditorTab.TEXT -> TextTabContent(
+                                        selectedLayer = selectedLayer,
+                                        installedFonts = installedFonts,
+                                        availablePresets = availablePresets,
+                                        onAddTextClick = { showAddTextDialog = true },
+                                        onEditTextClick = { layer -> showEditTextDialog = layer },
+                                        onStyleChange = { newStyle ->
+                                            selectedLayer?.let { canvasState.updateLayerStyle(it.id, newStyle) }
+                                        },
+                                        onFontSizeChange = { newSize ->
+                                            selectedLayer?.let { canvasState.updateLayerFontSize(it.id, newSize) }
+                                        },
+                                        onApplyPreset = { preset ->
+                                            selectedLayer?.let { canvasState.updateLayerStyle(it.id, preset.style) }
+                                        },
+                                        onSavePresetClick = {
+                                            selectedLayer?.let { showSavePresetDialog = it.style }
+                                        },
+                                        onDeleteLayer = {
+                                            selectedLayer?.let { canvasState.deleteLayer(it.id) }
+                                        }
+                                    )
+                                    EditorTab.INPAINT -> InpaintTabContent(
+                                        onTriggerInpaint = { showInpaintDialog = true }
+                                    )
+                                    EditorTab.LAYERS -> LayerListTabContent(
+                                        layers = canvasState.textLayers,
+                                        selectedId = canvasState.selectedLayerId,
+                                        onSelectLayer = { canvasState.selectLayer(it) },
+                                        onDeleteLayer = { canvasState.deleteLayer(it) }
+                                    )
+                                }
+                            }
+                        }
                     }
-                )
+                }
             }
         }
+    }
+
+    if (showAddTextDialog && canvasState != null) {
+        AddTextDialog(
+            onConfirm = { text ->
+                showAddTextDialog = false
+                if (text.isNotBlank()) {
+                    addTextAtViewportCenter?.invoke(text)
+                }
+            },
+            onDismiss = { showAddTextDialog = false }
+        )
+    }
+
+    showEditTextDialog?.let { layer ->
+        EditTextDialog(
+            initialText = layer.text,
+            onConfirm = { newText ->
+                showEditTextDialog = null
+                if (canvasState != null && newText.isNotBlank()) {
+                    canvasState.updateLayerText(layer.id, newText)
+                }
+            },
+            onDismiss = { showEditTextDialog = null }
+        )
+    }
+
+    showSavePresetDialog?.let { style ->
+        SavePresetDialog(
+            onConfirm = { name ->
+                showSavePresetDialog = null
+                val created = presetManager.savePreset(name, style)
+                availablePresets = presetManager.getPresets()
+                Toast.makeText(context, "Preset '${created.name}' tersimpan!", Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { showSavePresetDialog = null }
+        )
     }
 
     if (showInpaintDialog && currentBaseBitmap != null && currentMaskBitmap != null) {
@@ -215,68 +361,359 @@ fun EditorScreen(
             onDismiss = { showInpaintDialog = false }
         )
     }
-
-    if (showAddTextDialog && canvasState != null) {
-        AddTextDialog(
-            onConfirm = { text ->
-                showAddTextDialog = false
-                if (text.isNotBlank()) {
-                    addTextAtViewportCenter?.invoke(text)
-                }
-            },
-            onDismiss = { showAddTextDialog = false }
-        )
-    }
 }
 
 @Composable
-private fun EditorToolBar(
-    activeMode: EditorToolMode,
-    onModeSelected: (EditorToolMode) -> Unit
+private fun TabButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
 ) {
-    Surface(tonalElevation = 2.dp, modifier = Modifier.fillMaxWidth()) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(20.dp),
+        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+        modifier = Modifier.padding(end = 4.dp)
+    ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceAround,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { onModeSelected(EditorToolMode.VIEW_PAN) }) {
-                Icon(
-                    Icons.Default.PanTool,
-                    contentDescription = "Pan/Zoom",
-                    tint = if (activeMode == EditorToolMode.VIEW_PAN) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelMedium,
+                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+private val presetColors = listOf(
+    0xFF000000.toInt(),
+    0xFFFFFFFF.toInt(),
+    0xFFE53935.toInt(),
+    0xFF1E88E5.toInt(),
+    0xFFFDD835.toInt(),
+    0xFF43A047.toInt(),
+    0xFF8E24AA.toInt(),
+    0xFFFF6D00.toInt()
+)
+
+@Composable
+private fun TextTabContent(
+    selectedLayer: CanvasTextLayer?,
+    installedFonts: List<CustomFontItem>,
+    availablePresets: List<TextStylePreset>,
+    onAddTextClick: () -> Unit,
+    onEditTextClick: (CanvasTextLayer) -> Unit,
+    onStyleChange: (TextStyleConfig) -> Unit,
+    onFontSizeChange: (Float) -> Unit,
+    onApplyPreset: (TextStylePreset) -> Unit,
+    onSavePresetClick: () -> Unit,
+    onDeleteLayer: () -> Unit
+) {
+    val scrollState = rememberScrollState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(scrollState),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // Quick Action Bar: Add Text Button + Selected Layer Status
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Button(
+                onClick = onAddTextClick,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Tambah Teks Baru")
+            }
+
+            if (selectedLayer != null) {
+                Spacer(modifier = Modifier.width(8.dp))
+                OutlinedButton(onClick = { onEditTextClick(selectedLayer) }) {
+                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Edit Isi Teks")
+                }
+                IconButton(onClick = onDeleteLayer) {
+                    Icon(Icons.Default.Delete, contentDescription = "Hapus Layer", tint = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+
+        if (selectedLayer != null) {
+            val style = selectedLayer.style
+
+            // Font Size Slider & Controls
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Ukuran Teks (${selectedLayer.fontSizeSp.toInt()} sp)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { onFontSizeChange(selectedLayer.fontSizeSp - 2f) }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Default.Remove, contentDescription = "Kecilkan")
+                        }
+                        IconButton(onClick = { onFontSizeChange(selectedLayer.fontSizeSp + 2f) }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Default.Add, contentDescription = "Besarkan")
+                        }
+                    }
+                    Slider(
+                        value = selectedLayer.fontSizeSp,
+                        onValueChange = onFontSizeChange,
+                        valueRange = 10f..150f,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
+            // Typography Format Buttons: Bold, Italic, Underline, Strikethrough & Alignment
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                FormatToggleButton(
+                    text = "B",
+                    isSelected = style.isBold,
+                    onClick = { onStyleChange(style.copy(isBold = !style.isBold)) }
+                )
+                FormatToggleButton(
+                    text = "I",
+                    isSelected = style.isItalic,
+                    onClick = { onStyleChange(style.copy(isItalic = !style.isItalic)) }
+                )
+                FormatToggleButton(
+                    text = "U",
+                    isSelected = style.isUnderline,
+                    onClick = { onStyleChange(style.copy(isUnderline = !style.isUnderline)) }
+                )
+                FormatToggleButton(
+                    text = "S",
+                    isSelected = style.isStrikethrough,
+                    onClick = { onStyleChange(style.copy(isStrikethrough = !style.isStrikethrough)) }
+                )
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                IconButton(onClick = { onStyleChange(style.copy(alignment = TextAlignment.LEFT)) }) {
+                    Icon(
+                        Icons.Default.FormatAlignLeft, contentDescription = null,
+                        tint = if (style.alignment == TextAlignment.LEFT) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(onClick = { onStyleChange(style.copy(alignment = TextAlignment.CENTER)) }) {
+                    Icon(
+                        Icons.Default.FormatAlignCenter, contentDescription = null,
+                        tint = if (style.alignment == TextAlignment.CENTER) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(onClick = { onStyleChange(style.copy(alignment = TextAlignment.RIGHT)) }) {
+                    Icon(
+                        Icons.Default.FormatAlignRight, contentDescription = null,
+                        tint = if (style.alignment == TextAlignment.RIGHT) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Presets Bar (Balon Dialog, Kotak Narasi, Bisik-bisik, SFX)
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Preset Style", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+                    TextButton(onClick = onSavePresetClick) {
+                        Icon(Icons.Default.BookmarkAdd, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Simpan Style Ini", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(availablePresets, key = { it.id }) { preset ->
+                        FilterChip(
+                            selected = false,
+                            onClick = { onApplyPreset(preset) },
+                            label = { Text(preset.name) }
+                        )
+                    }
+                }
+            }
+
+            // Custom Font Family Picker
+            if (installedFonts.isNotEmpty()) {
+                Column {
+                    Text("Font Family", style = MaterialTheme.typography.labelLarge)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item {
+                            FilterChip(
+                                selected = style.fontPath == null,
+                                onClick = { onStyleChange(style.copy(fontPath = null)) },
+                                label = { Text("System Default") }
+                            )
+                        }
+                        items(installedFonts, key = { it.path }) { font ->
+                            FilterChip(
+                                selected = style.fontPath == font.path,
+                                onClick = { onStyleChange(style.copy(fontPath = font.path)) },
+                                label = { Text(font.name) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Color Swatches
+            Column {
+                Text("Warna Teks", style = MaterialTheme.typography.labelLarge)
+                Spacer(modifier = Modifier.height(4.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(presetColors, key = { it }) { colorArgb ->
+                        ColorSwatch(
+                            colorArgb = colorArgb,
+                            isSelected = style.colorArgb == colorArgb,
+                            onClick = { onStyleChange(style.copy(colorArgb = colorArgb)) }
+                        )
+                    }
+                }
+            }
+
+            // Options: Stroke, Glow, Shadow
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text("Stroke (Outline)", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                Switch(
+                    checked = style.strokeEnabled,
+                    onCheckedChange = { onStyleChange(style.copy(strokeEnabled = it)) }
                 )
             }
-            IconButton(onClick = { onModeSelected(EditorToolMode.MASK_BRUSH) }) {
-                Icon(
-                    Icons.Default.Brush,
-                    contentDescription = "Brush Mask",
-                    tint = if (activeMode == EditorToolMode.MASK_BRUSH) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                )
-            }
-            IconButton(onClick = { onModeSelected(EditorToolMode.MASK_LASSO) }) {
-                Icon(
-                    Icons.Default.Gesture,
-                    contentDescription = "Lasso Select",
-                    tint = if (activeMode == EditorToolMode.MASK_LASSO) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                )
-            }
-            IconButton(onClick = { onModeSelected(EditorToolMode.MASK_MAGIC_WAND) }) {
-                Icon(
-                    Icons.Default.AutoAwesome,
-                    contentDescription = "Magic Wand",
-                    tint = if (activeMode == EditorToolMode.MASK_MAGIC_WAND) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                )
-            }
-            IconButton(onClick = { onModeSelected(EditorToolMode.COLOR_EYEDROPPER) }) {
-                Icon(
-                    Icons.Default.Colorize,
-                    contentDescription = "Pipet Warna",
-                    tint = if (activeMode == EditorToolMode.COLOR_EYEDROPPER) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text("Glow (Bersinar)", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                Switch(
+                    checked = style.glowEnabled,
+                    onCheckedChange = { onStyleChange(style.copy(glowEnabled = it)) }
                 )
             }
         }
     }
+}
+
+@Composable
+private fun FormatToggleButton(
+    text: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(8.dp),
+        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.size(36.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun InpaintTabContent(
+    onTriggerInpaint: () -> Unit
+) {
+    Column(
+        modifier = Modifier.padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Pembersih Background / Inpainting", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Gunakan Telea atau AI LaMa Inpaint untuk menghapus teks lama atau balon dialog pada komik.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Button(onClick = onTriggerInpaint, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Default.AutoFixHigh, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Jalankan Inpaint pada Masker")
+        }
+    }
+}
+
+@Composable
+private fun LayerListTabContent(
+    layers: List<CanvasTextLayer>,
+    selectedId: String?,
+    onSelectLayer: (String) -> Unit,
+    onDeleteLayer: (String) -> Unit
+) {
+    if (layers.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+            Text("Belum ada layer teks pada gambar ini.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    } else {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            layers.forEach { layer ->
+                val isSelected = layer.id == selectedId
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelectLayer(layer.id) }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.TextFields, contentDescription = null, tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = layer.text,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = { onDeleteLayer(layer.id) }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Hapus Layer", tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ColorSwatch(colorArgb: Int, isSelected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(34.dp)
+            .clip(CircleShape)
+            .background(Color(colorArgb))
+            .border(
+                width = if (isSelected) 2.5.dp else 1.dp,
+                color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.5f),
+                shape = CircleShape
+            )
+            .clickable(onClick = onClick)
+    )
 }
 
 @Composable
@@ -305,104 +742,6 @@ private fun InpaintOptionDialog(
     )
 }
 
-private val presetColors = listOf(
-    0xFF000000.toInt(),
-    0xFFFFFFFF.toInt(),
-    0xFFE53935.toInt(),
-    0xFF1E88E5.toInt(),
-    0xFFFDD835.toInt(),
-    0xFF43A047.toInt()
-)
-
-@Composable
-private fun TextStylePanel(
-    layer: CanvasTextLayer,
-    onStyleChange: (TextStyleConfig) -> Unit,
-    onDelete: () -> Unit,
-    onDone: () -> Unit
-) {
-    val style = layer.style
-
-    Surface(tonalElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Warna Teks", modifier = Modifier.weight(1f))
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Hapus teks")
-                }
-                TextButton(onClick = onDone) { Text("Selesai") }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                presetColors.forEach { colorArgb ->
-                    ColorSwatch(
-                        colorArgb = colorArgb,
-                        isSelected = style.colorArgb == colorArgb,
-                        onClick = { onStyleChange(style.copy(colorArgb = colorArgb)) }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Options: Stroke, Glow, Motion Blur, Gradient
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Stroke", modifier = Modifier.weight(1f))
-                Switch(
-                    checked = style.strokeEnabled,
-                    onCheckedChange = { onStyleChange(style.copy(strokeEnabled = it)) }
-                )
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Glow (Bersinar)", modifier = Modifier.weight(1f))
-                Switch(
-                    checked = style.glowEnabled,
-                    onCheckedChange = { onStyleChange(style.copy(glowEnabled = it)) }
-                )
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Motion Blur", modifier = Modifier.weight(1f))
-                Switch(
-                    checked = style.motionBlurEnabled,
-                    onCheckedChange = { onStyleChange(style.copy(motionBlurEnabled = it)) }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ColorSwatch(colorArgb: Int, isSelected: Boolean, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(32.dp)
-            .clip(CircleShape)
-            .background(Color(colorArgb))
-            .then(
-                if (isSelected) {
-                    Modifier.background(Color.Gray.copy(alpha = 0.3f))
-                } else Modifier
-            )
-            .clickable(onClick = onClick)
-    )
-}
-
 @Composable
 private fun AddTextDialog(
     onConfirm: (String) -> Unit,
@@ -418,12 +757,68 @@ private fun AddTextDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Batal") }
         },
-        title = { Text("Teks baru") },
+        title = { Text("Tambah Teks Baru") },
         text = {
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
-                placeholder = { Text("Tulis teks...") }
+                placeholder = { Text("Tulis teks komik di sini...") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    )
+}
+
+@Composable
+private fun EditTextDialog(
+    initialText: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var text by remember { mutableStateOf(initialText) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = { onConfirm(text) }) { Text("Simpan") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Batal") }
+        },
+        title = { Text("Ubah Isi Teks") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    )
+}
+
+@Composable
+private fun SavePresetDialog(
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = { onConfirm(name.ifBlank { "Style Custom" }) }) { Text("Simpan") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Batal") }
+        },
+        title = { Text("Simpan Preset Style") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                singleLine = true,
+                placeholder = { Text("Contoh: Style Balon Karakter A") },
+                modifier = Modifier.fillMaxWidth()
             )
         }
     )

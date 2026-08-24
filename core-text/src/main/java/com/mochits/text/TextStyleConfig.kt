@@ -7,8 +7,18 @@ package com.mochits.text
  * native Android agar stroke/shadow bisa dikontrol presisi (BasicText
  * bawaan Compose tidak mendukung stroke+fill dua lapis).
  */
+enum class TextAlignment {
+    LEFT, CENTER, RIGHT
+}
+
 data class TextStyleConfig(
     val colorArgb: Int = 0xFF000000.toInt(), // hitam default
+    val isBold: Boolean = false,
+    val isItalic: Boolean = false,
+    val isUnderline: Boolean = false,
+    val isStrikethrough: Boolean = false,
+    val alignment: TextAlignment = TextAlignment.LEFT,
+    val fontPath: String? = null, // Path ke file font custom (.ttf/.otf)
     val strokeEnabled: Boolean = false,
     val strokeWidthPx: Float = 4f,
     val strokeColorArgb: Int = 0xFFFFFFFF.toInt(), // putih default
