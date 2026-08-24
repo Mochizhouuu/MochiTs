@@ -10,9 +10,9 @@ sealed class TextEffect {
     data class Stroke(val widthPx: Float, val colorArgb: Int) : TextEffect()
     data class Shadow(val dx: Float, val dy: Float, val radius: Float, val colorArgb: Int) : TextEffect()
     data class Glow(val radius: Float, val colorArgb: Int) : TextEffect()
-    data class Gradient(val colors: List<Int>, val angleDegrees: Float) : TextEffect()
-    data class MotionBlur(val angleDegrees: Float, val distancePx: Float) : TextEffect()
-    data class Warp(val curveStrength: Float) : TextEffect()
+    data class Gradient(val colors: List<Int>, val angleDegrees: Float = 0f) : TextEffect()
+    data class MotionBlur(val angleDegrees: Float, val distancePx: Float, val samples: Int = 5) : TextEffect()
+    data class Curve(val curveRadius: Float) : TextEffect()
     data class Perspective(val matrixValues: FloatArray) : TextEffect()
 }
 

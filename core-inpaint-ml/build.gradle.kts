@@ -36,6 +36,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("org.tensorflow:tensorflow-lite:2.16.1")
     implementation("org.tensorflow:tensorflow-lite-gpu:2.16.1")
+    implementation("org.tensorflow:tensorflow-lite-gpu-api:2.16.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
