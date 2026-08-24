@@ -16,5 +16,15 @@ data class TextStyleConfig(
     val shadowDx: Float = 4f,
     val shadowDy: Float = 4f,
     val shadowRadius: Float = 6f,
-    val shadowColorArgb: Int = 0x80000000.toInt() // hitam transparan default
+    val shadowColorArgb: Int = 0x80000000.toInt(), // hitam transparan default
+    val glowEnabled: Boolean = false,
+    val glowRadius: Float = 12f,
+    val glowColorArgb: Int = 0xFFFFEA00.toInt(), // kuning default
+    val motionBlurEnabled: Boolean = false,
+    val motionBlurAngle: Float = 0f,
+    val motionBlurDistance: Float = 8f,
+    val gradientEnabled: Boolean = false,
+    val gradientColors: List<Int> = listOf(0xFFFF0000.toInt(), 0xFF0000FF.toInt()),
+    val curveEnabled: Boolean = false,
+    val curveRadius: Float = 150f
 )
