@@ -30,9 +30,35 @@ fun StyledText(
         drawIntoCanvas { canvas ->
             val nativeCanvas = canvas.nativeCanvas
 
+            val baseTypeface = if (style.fontPath != null) {
+                try {
+                    Typeface.createFromFile(style.fontPath)
+                } catch (e: Exception) {
+                    Typeface.DEFAULT
+                }
+            } else {
+                Typeface.DEFAULT
+            }
+
+            val tfStyle = when {
+                style.isBold && style.isItalic -> Typeface.BOLD_ITALIC
+                style.isBold -> Typeface.BOLD
+                style.isItalic -> Typeface.ITALIC
+                else -> Typeface.NORMAL
+            }
+
+            val finalTypeface = Typeface.create(baseTypeface, tfStyle)
+
             val basePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 textSize = fontSizePx
-                typeface = Typeface.DEFAULT
+                typeface = finalTypeface
+                isUnderlineText = style.isUnderline
+                isStrikeThruText = style.isStrikethrough
+                textAlign = when (style.alignment) {
+                    TextAlignment.LEFT -> Paint.Align.LEFT
+                    TextAlignment.CENTER -> Paint.Align.CENTER
+                    TextAlignment.RIGHT -> Paint.Align.RIGHT
+                }
             }
 
             val baselineY = fontSizePx * 1.2f

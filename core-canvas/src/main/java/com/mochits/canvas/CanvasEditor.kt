@@ -1,6 +1,7 @@
 package com.mochits.canvas
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -12,15 +13,16 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -32,17 +34,8 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-/**
- * Canvas untuk gambar long-strip (webtoon): gambar ditampilkan dalam
- * ukuran (intrinsicSize * scale) sesungguhnya, bisa di-scroll (1 jari)
- * dan di-zoom (2 jari, dengan titik pinch tetap "diam" di layar —
- * zoom-to-point) secara terpisah tanpa saling mengganggu.
- *
- * [onRequestAddTextAtViewportCenter] dipanggil oleh pemanggil (mis.
- * tombol tambah teks di :app) untuk menambah teks tepat di TENGAH
- * AREA YANG SEDANG TERLIHAT di layar saat ini — bukan tengah gambar
- * keseluruhan, yang pada gambar panjang seringkali di luar pandangan.
- */
+private val SELECTION_COLOR = Color(0xFF8B85FF)
+
 @Composable
 fun CanvasEditor(
     state: CanvasEditorState,
@@ -67,13 +60,10 @@ fun CanvasEditor(
             0.dp
         }
 
-        // Expose fungsi tambah-teks-di-tengah-viewport ke pemanggil.
         onReady { text ->
             val scrollX = horizontalScrollState.value.toFloat()
             val scrollY = verticalScrollState.value.toFloat()
             val paddingPx = with(density) { horizontalPadding.toPx() }
-            // Titik tengah viewport, dikonversi dari piksel LAYAR (termasuk
-            // offset scroll & padding centering) ke piksel GAMBAR ASLI.
             val centerScreenX = scrollX + with(density) { viewportWidthDp.toPx() } / 2f - paddingPx
             val centerScreenY = scrollY + with(density) { viewportHeightDp.toPx() } / 2f
             state.addTextLayer(
@@ -115,12 +105,6 @@ fun CanvasEditor(
                                     val newScale = (oldScale * zoomChange).coerceIn(0.5f, 4f)
 
                                     if (newScale != oldScale) {
-                                        // ZOOM-TO-POINT: titik fokus pinch (dalam
-                                        // koordinat konten, termasuk scroll saat
-                                        // ini) harus tetap berada di posisi layar
-                                        // yang sama setelah scale berubah. Maka
-                                        // scroll offset disesuaikan sebanding
-                                        // dengan rasio perubahan scale.
                                         val contentX = horizontalScrollState.value + focus.x
                                         val contentY = verticalScrollState.value + focus.y
                                         val ratio = newScale / oldScale
@@ -132,10 +116,6 @@ fun CanvasEditor(
                                         val newScrollY =
                                             (contentY * ratio - focus.y).roundToInt()
 
-                                        // Digabung dalam 1 coroutine berurutan (bukan
-                                        // 2 launch terpisah) supaya scrollTo() X dan Y
-                                        // dieksekusi pada frame yang sama, setelah
-                                        // updateScale() di atas benar-benar diterapkan.
                                         coroutineScope.launch {
                                             horizontalScrollState.scrollTo(
                                                 newScrollX.coerceAtLeast(0)
@@ -179,6 +159,9 @@ fun CanvasEditor(
                                 deltaXPx / state.scale,
                                 deltaYPx / state.scale
                             )
+                        },
+                        onResizeFontSize = { deltaSp ->
+                            state.updateLayerFontSize(layer.id, layer.fontSizeSp + deltaSp)
                         }
                     )
                 }
@@ -193,7 +176,8 @@ private fun DraggableTextLayer(
     scale: Float,
     isSelected: Boolean,
     onSelect: () -> Unit,
-    onDragBy: (deltaXPx: Float, deltaYPx: Float) -> Unit
+    onDragBy: (deltaXPx: Float, deltaYPx: Float) -> Unit,
+    onResizeFontSize: (deltaSp: Float) -> Unit
 ) {
     val screenX = layer.xInImagePx * scale
     val screenY = layer.yInImagePx * scale
@@ -202,9 +186,16 @@ private fun DraggableTextLayer(
     Box(
         modifier = Modifier
             .offset { IntOffset(screenX.roundToInt(), screenY.roundToInt()) }
-            .padding(8.dp)
-            .background(
-                if (isSelected) Color.Black.copy(alpha = 0.15f) else Color.Transparent
+            .then(
+                if (isSelected) {
+                    Modifier
+                        .border(
+                            width = 1.5.dp,
+                            color = SELECTION_COLOR,
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                        .background(SELECTION_COLOR.copy(alpha = 0.08f))
+                } else Modifier
             )
             .pointerInput(layer.id) {
                 detectDragGestures(onDragStart = { onSelect() }) { change, dragAmount ->
@@ -216,7 +207,6 @@ private fun DraggableTextLayer(
         val fontSizePx = with(LocalDensity.current) {
             (layer.fontSizeSp * scaleState.value).sp.toPx()
         }
-        // Ekstra padding agar stroke/shadow tidak terpotong di tepi Canvas.
         val extraPx = fontSizePx * 0.5f
         val (textWidthPx, textHeightPx) = com.mochits.text.measureStyledText(layer.text, fontSizePx)
 
@@ -233,5 +223,25 @@ private fun DraggableTextLayer(
                 .padding(extraDp)
                 .size(width = widthDp, height = heightDp)
         )
+
+        // Corner Resize Handle when selected
+        if (isSelected) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .offset(x = 6.dp, y = 6.dp)
+                    .size(18.dp)
+                    .clip(CircleShape)
+                    .background(SELECTION_COLOR)
+                    .border(1.dp, Color.White, CircleShape)
+                    .pointerInput(layer.id + "_resize") {
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            val delta = (dragAmount.x + dragAmount.y) / 4f
+                            onResizeFontSize(delta)
+                        }
+                    }
+            )
+        }
     }
 }
