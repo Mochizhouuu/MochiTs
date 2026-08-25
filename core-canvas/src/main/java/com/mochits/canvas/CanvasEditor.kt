@@ -40,6 +40,11 @@ private val SELECTION_COLOR = Color(0xFF8B85FF)
 fun CanvasEditor(
     state: CanvasEditorState,
     modifier: Modifier = Modifier,
+    maskBitmap: android.graphics.Bitmap? = null,
+    isMaskingActive: Boolean = false,
+    maskToolMode: String = "PAN_ZOOM",
+    onMaskStrokeComplete: ((List<Pair<Float, Float>>) -> Unit)? = null,
+    onMaskTap: ((Float, Float) -> Unit)? = null,
     onReady: (addTextAtViewportCenter: (String) -> Unit) -> Unit = {},
     imageContent: @Composable (path: String, contentScale: ContentScale, modifier: Modifier) -> Unit
 ) {
@@ -51,11 +56,24 @@ fun CanvasEditor(
         val density = LocalDensity.current
         val coroutineScope = rememberCoroutineScope()
 
+        androidx.compose.runtime.LaunchedEffect(viewportWidthDp) {
+            val viewportPx = with(density) { viewportWidthDp.toPx() }
+            if (viewportPx > 0) {
+                state.setInitialFitScale(viewportPx)
+            }
+        }
+
         val displayWidthDp = with(density) { (state.intrinsicWidthPx * state.scale).toDp() }
         val displayHeightDp = with(density) { (state.intrinsicHeightPx * state.scale).toDp() }
 
         val horizontalPadding = if (displayWidthDp < viewportWidthDp) {
             (viewportWidthDp - displayWidthDp) / 2
+        } else {
+            0.dp
+        }
+
+        val verticalPadding = if (displayHeightDp < viewportHeightDp) {
+            (viewportHeightDp - displayHeightDp) / 2
         } else {
             0.dp
         }
@@ -102,19 +120,35 @@ fun CanvasEditor(
                                 if (previousDistance > 0f) {
                                     val zoomChange = distance / previousDistance
                                     val oldScale = state.scale
-                                    val newScale = (oldScale * zoomChange).coerceIn(0.5f, 4f)
+                                    val newScale = (oldScale * zoomChange).coerceIn(0.1f, 5.0f)
 
                                     if (newScale != oldScale) {
-                                        val contentX = horizontalScrollState.value + focus.x
-                                        val contentY = verticalScrollState.value + focus.y
+                                        val paddingXPx = with(density) { horizontalPadding.toPx() }
+                                        val paddingYPx = with(density) { verticalPadding.toPx() }
+
+                                        val contentX = horizontalScrollState.value + focus.x - paddingXPx
+                                        val contentY = verticalScrollState.value + focus.y - paddingYPx
                                         val ratio = newScale / oldScale
 
                                         state.updateScale(newScale)
 
+                                        val viewportWidthPx = with(density) { viewportWidthDp.toPx() }
+                                        val viewportHeightPx = with(density) { viewportHeightDp.toPx() }
+                                        val newDisplayWidthPx = state.intrinsicWidthPx * newScale
+                                        val newDisplayHeightPx = state.intrinsicHeightPx * newScale
+
+                                        val newPaddingXPx = if (newDisplayWidthPx < viewportWidthPx) {
+                                            (viewportWidthPx - newDisplayWidthPx) / 2f
+                                        } else 0f
+
+                                        val newPaddingYPx = if (newDisplayHeightPx < viewportHeightPx) {
+                                            (viewportHeightPx - newDisplayHeightPx) / 2f
+                                        } else 0f
+
                                         val newScrollX =
-                                            (contentX * ratio - focus.x).roundToInt()
+                                            (contentX * ratio - focus.x + newPaddingXPx).roundToInt()
                                         val newScrollY =
-                                            (contentY * ratio - focus.y).roundToInt()
+                                            (contentY * ratio - focus.y + newPaddingYPx).roundToInt()
 
                                         coroutineScope.launch {
                                             horizontalScrollState.scrollTo(
@@ -136,16 +170,70 @@ fun CanvasEditor(
                         }
                     }
                 }
-                .padding(horizontal = horizontalPadding)
+                .padding(horizontal = horizontalPadding, vertical = verticalPadding)
         ) {
             Box(
-                modifier = Modifier.size(width = displayWidthDp, height = displayHeightDp)
+                modifier = Modifier
+                    .size(width = displayWidthDp, height = displayHeightDp)
+                    .then(
+                        if (isMaskingActive && maskToolMode != "PAN_ZOOM") {
+                            Modifier.pointerInput(maskToolMode, state.scale) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(pass = PointerEventPass.Initial)
+                                    down.consume()
+                                    val points = mutableListOf<Pair<Float, Float>>()
+                                    val startImgX = down.position.x / state.scale
+                                    val startImgY = down.position.y / state.scale
+                                    points.add(startImgX to startImgY)
+
+                                    var isMultiTouch = false
+                                    while (true) {
+                                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                                        val pressed = event.changes.filter { it.pressed }
+
+                                        if (pressed.size >= 2) {
+                                            isMultiTouch = true
+                                            break
+                                        }
+
+                                        if (pressed.size == 1) {
+                                            val change = pressed[0]
+                                            change.consume()
+                                            val imgX = change.position.x / state.scale
+                                            val imgY = change.position.y / state.scale
+                                            points.add(imgX to imgY)
+                                        }
+
+                                        if (event.changes.none { it.pressed }) break
+                                    }
+
+                                    if (!isMultiTouch) {
+                                        if (maskToolMode == "MAGIC_WAND" || maskToolMode == "COLOR_PIPETTE") {
+                                            onMaskTap?.invoke(startImgX, startImgY)
+                                        } else {
+                                            onMaskStrokeComplete?.invoke(points)
+                                        }
+                                    }
+                                }
+                            }
+                        } else Modifier
+                    )
             ) {
                 imageContent(
                     state.baseImagePath,
                     ContentScale.FillBounds,
                     Modifier.fillMaxSize()
                 )
+
+                if (maskBitmap != null) {
+                    coil.compose.AsyncImage(
+                        model = maskBitmap,
+                        contentDescription = "Masker Overlay",
+                        contentScale = ContentScale.FillBounds,
+                        alpha = 0.5f,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
 
                 state.textLayers.forEach { layer ->
                     DraggableTextLayer(

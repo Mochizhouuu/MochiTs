@@ -37,7 +37,14 @@ class CanvasEditorState(
         private set
 
     fun updateScale(newScale: Float) {
-        scale = newScale.coerceIn(0.5f, 4f)
+        scale = newScale.coerceIn(0.1f, 5.0f)
+    }
+
+    fun setInitialFitScale(viewportWidthPx: Float) {
+        if (intrinsicWidthPx > 0) {
+            val fitScale = (viewportWidthPx / intrinsicWidthPx.toFloat()).coerceIn(0.1f, 1.0f)
+            scale = fitScale
+        }
     }
 
     fun addTextLayer(text: String, xInImagePx: Float, yInImagePx: Float) {
