@@ -35,6 +35,7 @@ fun SettingsScreen(
     val coroutineScope = rememberCoroutineScope()
 
     var showFontNameDialog by remember { mutableStateOf<Uri?>(null) }
+    var locationInput by remember(uiState.exportLocation) { mutableStateOf(uiState.exportLocation) }
 
     // Launcher for Font file (.ttf, .otf)
     val fontPickerLauncher = rememberLauncherForActivityResult(
@@ -82,8 +83,47 @@ fun SettingsScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Section 1: Font Manager
+                // Section 1: Pengaturan Lokasi Output & Ekspor Gambar
                 item {
+                    SectionHeader(title = "Pengaturan Output Ekspor", icon = Icons.Default.FolderSpecial)
+                }
+
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("Lokasi Direktori Simpan Hasil", style = MaterialTheme.typography.titleSmall)
+                            OutlinedTextField(
+                                value = locationInput,
+                                onValueChange = {
+                                    locationInput = it
+                                    viewModel.setExportLocation(it)
+                                },
+                                singleLine = true,
+                                label = { Text("Sub-folder Penyimpanan Galeri") },
+                                placeholder = { Text("Pictures/MochiTs") },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            HorizontalDivider()
+
+                            Text("Kualitas Hasil Ekspor Gambar (${uiState.exportQuality}%)", style = MaterialTheme.typography.titleSmall)
+                            Slider(
+                                value = uiState.exportQuality.toFloat(),
+                                onValueChange = { viewModel.setExportQuality(it.toInt()) },
+                                valueRange = 50f..100f,
+                                steps = 9,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
+
+                // Section 2: Font Manager
+                item {
+                    Spacer(modifier = Modifier.height(4.dp))
                     SectionHeader(title = "Manajemen Font (Custom Fonts)", icon = Icons.Default.FontDownload)
                 }
 
@@ -140,9 +180,9 @@ fun SettingsScreen(
                     }
                 }
 
-                // Section 2: Backup & Restore Projek
+                // Section 3: Backup & Restore Projek
                 item {
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     SectionHeader(title = "Backup & Restore Projek", icon = Icons.Default.Backup)
                 }
 
@@ -187,10 +227,10 @@ fun SettingsScreen(
                     }
                 }
 
-                // Section 3: Model Inpaint AI
+                // Section 4: Engine & Model Inpainting AI
                 item {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    SectionHeader(title = "Model Inpainting AI (LaMa)", icon = Icons.Default.AutoFixHigh)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    SectionHeader(title = "Mesin Pembersih Inpainting", icon = Icons.Default.AutoFixHigh)
                 }
 
                 item {
@@ -198,16 +238,33 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                     ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            // Telea Status
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("1. Telea Inpainter (OpenCV)", style = MaterialTheme.typography.titleSmall)
+                                    Text(
+                                        "Mesin bawaan aplikasi. Cepat dan siap digunakan 100% tanpa perlu mengunduh file tambahan.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            }
+
+                            HorizontalDivider()
+
+                            // LaMa Status & Download
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("Model Neural Network LaMa INT8", style = MaterialTheme.typography.titleSmall)
+                                    Text("2. LaMa AI Neural Network (.tflite)", style = MaterialTheme.typography.titleSmall)
                                     Text(
-                                        text = if (downloadState.isDownloaded) "Status: Terunduh & Siap" else "Status: Belum diunduh (opsional)",
-                                        style = MaterialTheme.typography.bodySmall
+                                        text = if (downloadState.isDownloaded) "Status: Terunduh & Siap Digunakan" else "Status: Belum diunduh (Model Opsional AI)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
 
@@ -232,12 +289,10 @@ fun SettingsScreen(
                             }
 
                             if (downloadState.isDownloading) {
-                                Spacer(modifier = Modifier.height(8.dp))
                                 LinearProgressIndicator(
                                     progress = { downloadState.progressPercent / 100f },
                                     modifier = Modifier.fillMaxWidth()
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = "Mengunduh... ${downloadState.progressPercent}%",
                                     style = MaterialTheme.typography.bodySmall
