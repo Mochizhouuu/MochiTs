@@ -425,7 +425,6 @@ fun EditorScreen(
                         selectedLayer = selectedLayer,
                         installedFonts = installedFonts,
                         availablePresets = availablePresets,
-                        onAddTextClick = { showAddTextDialog = true },
                         onEditTextClick = { layer -> showEditTextDialog = layer },
                         onStyleChange = { newStyle ->
                             selectedLayer?.let { canvasState.updateLayerStyle(it.id, newStyle) }
@@ -812,7 +811,6 @@ private fun TextTabContent(
     selectedLayer: CanvasTextLayer?,
     installedFonts: List<CustomFontItem>,
     availablePresets: List<TextStylePreset>,
-    onAddTextClick: () -> Unit,
     onEditTextClick: (CanvasTextLayer) -> Unit,
     onStyleChange: (TextStyleConfig) -> Unit,
     onFontSizeChange: (Float) -> Unit,
