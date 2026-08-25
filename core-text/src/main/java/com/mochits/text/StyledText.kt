@@ -18,6 +18,9 @@ import kotlin.math.sin
 /**
  * Custom Text Rendering dengan efek Photoshop (Stroke, Shadow, Glow, Motion Blur, Gradient, Curved Path)
  * yang 100% kompatibel dengan Android 11 ke bawah (API Level 24+).
+ * 
+ * CATATAN: BlurMaskFilter memerlukan hardware acceleration dimatikan untuk shadow/glow.
+ * Untuk kompatibilitas maksimal di Android 11-, kita gunakan fallback manual blur jika diperlukan.
  */
 @Composable
 fun StyledText(
@@ -29,6 +32,9 @@ fun StyledText(
     Canvas(modifier = modifier) {
         drawIntoCanvas { canvas ->
             val nativeCanvas = canvas.nativeCanvas
+            
+            // Matikan hardware acceleration layer untuk kompatibilitas BlurMaskFilter di Android 11-
+            nativeCanvas.setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
 
             val baseTypeface = if (style.fontPath != null) {
                 try {
@@ -49,7 +55,7 @@ fun StyledText(
 
             val finalTypeface = Typeface.create(baseTypeface, tfStyle)
 
-            val basePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            val basePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
                 textSize = fontSizePx
                 typeface = finalTypeface
                 isUnderlineText = style.isUnderline
@@ -97,10 +103,11 @@ fun StyledText(
                 }
             }
 
-            // 2. Glow Effect (BlurMaskFilter kompatibel API 24-30)
+            // 2. Glow Effect (BlurMaskFilter dengan LAYER_TYPE_SOFTWARE untuk kompatibilitas)
             if (style.glowEnabled && style.glowRadius > 0f) {
                 val glowPaint = Paint(basePaint).apply {
                     color = style.glowColorArgb
+                    // Gunakan BlurMaskFilter dengan software layer untuk kompatibilitas Android 11-
                     maskFilter = BlurMaskFilter(style.glowRadius, BlurMaskFilter.Blur.NORMAL)
                 }
                 nativeCanvas.save()
@@ -108,7 +115,7 @@ fun StyledText(
                 nativeCanvas.restore()
             }
 
-            // 3. Drop Shadow Effect
+            // 3. Drop Shadow Effect (dengan software layer untuk kompatibilitas)
             if (style.shadowEnabled) {
                 val shadowPaint = Paint(basePaint).apply {
                     color = style.shadowColorArgb
@@ -128,6 +135,8 @@ fun StyledText(
                     this.style = Paint.Style.STROKE
                     strokeWidth = style.strokeWidthPx
                     color = style.strokeColorArgb
+                    strokeJoin = Paint.Join.ROUND
+                    strokeCap = Paint.Cap.ROUND
                 }
                 drawTextOrPath(nativeCanvas, text, curvedPath, 0f, baselineY, strokePaint)
             }
