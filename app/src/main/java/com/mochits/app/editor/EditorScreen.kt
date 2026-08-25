@@ -69,6 +69,7 @@ fun EditorScreen(
 
     val fontManager = remember { FontManager(context) }
     val presetManager = remember { TextPresetManager(context) }
+    val maskSelectionTools = remember { com.mochits.imaging.MaskSelectionToolsImpl() }
 
     var installedFonts by remember { mutableStateOf(fontManager.getInstalledFonts()) }
     var availablePresets by remember { mutableStateOf(presetManager.getPresets()) }
@@ -179,6 +180,65 @@ fun EditorScreen(
                     CanvasEditor(
                         state = canvasState,
                         modifier = Modifier.fillMaxSize(),
+                        maskBitmap = currentMaskBitmap,
+                        isMaskingActive = activeTab == EditorTab.INPAINT_MASK,
+                        maskToolMode = activeMaskTool.name,
+                        onMaskStrokeComplete = { strokePoints ->
+                            val baseBmp = currentBaseBitmap ?: return@CanvasEditor
+                            when (activeMaskTool) {
+                                MaskToolMode.BRUSH_MASK -> {
+                                    val res = maskSelectionTools.drawBrush(
+                                        baseBmp.width,
+                                        baseBmp.height,
+                                        currentMaskBitmap,
+                                        strokePoints,
+                                        brushRadiusPx = brushSizePx
+                                    )
+                                    if (res is OperationResult.Success) {
+                                        currentMaskBitmap = res.data
+                                    }
+                                }
+                                MaskToolMode.LASSO_SELECT -> {
+                                    val res = maskSelectionTools.lassoSelect(
+                                        baseBmp.width,
+                                        baseBmp.height,
+                                        currentMaskBitmap,
+                                        strokePoints
+                                    )
+                                    if (res is OperationResult.Success) {
+                                        currentMaskBitmap = res.data
+                                    }
+                                }
+                                else -> {}
+                            }
+                        },
+                        onMaskTap = { xPx, yPx ->
+                            val baseBmp = currentBaseBitmap ?: return@CanvasEditor
+                            when (activeMaskTool) {
+                                MaskToolMode.MAGIC_WAND -> {
+                                    val res = maskSelectionTools.magicWandSelect(
+                                        baseBmp,
+                                        currentMaskBitmap,
+                                        xPx.toInt(),
+                                        yPx.toInt(),
+                                        tolerance = wandTolerance.toInt()
+                                    )
+                                    if (res is OperationResult.Success) {
+                                        currentMaskBitmap = res.data
+                                    }
+                                }
+                                MaskToolMode.COLOR_PIPETTE -> {
+                                    val color = maskSelectionTools.sampleColor(
+                                        baseBmp,
+                                        xPx.toInt(),
+                                        yPx.toInt()
+                                    )
+                                    val hexColor = String.format("#%08X", color)
+                                    Toast.makeText(context, "Warna Terpilih: $hexColor", Toast.LENGTH_SHORT).show()
+                                }
+                                else -> {}
+                            }
+                        },
                         onReady = { addTextFn -> addTextAtViewportCenter = addTextFn }
                     ) { path, contentScale, imgModifier ->
                         AsyncImage(
