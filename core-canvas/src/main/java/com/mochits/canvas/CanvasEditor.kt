@@ -98,14 +98,16 @@ fun CanvasEditor(
                 .horizontalScroll(horizontalScrollState)
                 .pointerInput(Unit) {
                     awaitEachGesture {
-                        awaitFirstDown(pass = PointerEventPass.Initial)
+                        val downEvent = awaitFirstDown(pass = PointerEventPass.Initial)
                         var previousDistance = 0f
+                        var initialFocus = androidx.compose.ui.geometry.Offset.Unspecified
 
                         while (true) {
                             val event = awaitPointerEvent(pass = PointerEventPass.Initial)
                             val pressed = event.changes.filter { it.pressed }
 
                             if (pressed.size >= 2) {
+                                // Multi-touch zoom gesture
                                 val p1 = pressed[0].position
                                 val p2 = pressed[1].position
                                 val distance = kotlin.math.hypot(
@@ -117,12 +119,17 @@ fun CanvasEditor(
                                     (p1.y + p2.y) / 2f
                                 )
 
-                                if (previousDistance > 0f) {
+                                // Simpan fokus awal untuk referensi
+                                if (initialFocus == androidx.compose.ui.geometry.Offset.Unspecified) {
+                                    initialFocus = focus
+                                }
+
+                                if (previousDistance > 0f && previousDistance != distance) {
                                     val zoomChange = distance / previousDistance
                                     val oldScale = state.scale
                                     val newScale = (oldScale * zoomChange).coerceIn(0.1f, 5.0f)
 
-                                    if (newScale != oldScale) {
+                                    if (newScale != oldScale && kotlin.math.abs(zoomChange - 1f) > 0.01f) {
                                         val paddingXPx = with(density) { horizontalPadding.toPx() }
                                         val paddingYPx = with(density) { verticalPadding.toPx() }
 
@@ -146,9 +153,9 @@ fun CanvasEditor(
                                         } else 0f
 
                                         val newScrollX =
-                                            (contentX * ratio - focus.x + newPaddingXPx).roundToInt()
+                                            ((contentX * ratio) - focus.x + newPaddingXPx).roundToInt()
                                         val newScrollY =
-                                            (contentY * ratio - focus.y + newPaddingYPx).roundToInt()
+                                            ((contentY * ratio) - focus.y + newPaddingYPx).roundToInt()
 
                                         coroutineScope.launch {
                                             horizontalScrollState.scrollTo(
@@ -164,6 +171,7 @@ fun CanvasEditor(
                                 pressed.forEach { it.consume() }
                             } else {
                                 previousDistance = 0f
+                                initialFocus = androidx.compose.ui.geometry.Offset.Unspecified
                             }
 
                             if (event.changes.none { it.pressed }) break
@@ -182,11 +190,21 @@ fun CanvasEditor(
                                     val down = awaitFirstDown(pass = PointerEventPass.Initial)
                                     down.consume()
                                     val points = mutableListOf<Pair<Float, Float>>()
-                                    val startImgX = down.position.x / state.scale
-                                    val startImgY = down.position.y / state.scale
+                                    val scrollX = horizontalScrollState.value.toFloat()
+                                    val scrollY = verticalScrollState.value.toFloat()
+                                    val paddingXPx = with(density) { horizontalPadding.toPx() }
+                                    val paddingYPx = with(density) { verticalPadding.toPx() }
+                                    
+                                    // Hitung posisi gambar yang benar dengan mempertimbangkan scroll dan padding
+                                    val adjustedDownX = down.position.x - scrollX + paddingXPx
+                                    val adjustedDownY = down.position.y - scrollY + paddingYPx
+                                    
+                                    val startImgX = (adjustedDownX / state.scale).coerceIn(0f, state.intrinsicWidthPx.toFloat())
+                                    val startImgY = (adjustedDownY / state.scale).coerceIn(0f, state.intrinsicHeightPx.toFloat())
                                     points.add(startImgX to startImgY)
 
                                     var isMultiTouch = false
+                                    var isValidStroke = true
                                     while (true) {
                                         val event = awaitPointerEvent(pass = PointerEventPass.Initial)
                                         val pressed = event.changes.filter { it.pressed }
@@ -199,18 +217,24 @@ fun CanvasEditor(
                                         if (pressed.size == 1) {
                                             val change = pressed[0]
                                             change.consume()
-                                            val imgX = change.position.x / state.scale
-                                            val imgY = change.position.y / state.scale
+                                            
+                                            val currentScrollX = horizontalScrollState.value.toFloat()
+                                            val currentScrollY = verticalScrollState.value.toFloat()
+                                            val adjustedX = change.position.x - currentScrollX + paddingXPx
+                                            val adjustedY = change.position.y - currentScrollY + paddingYPx
+                                            
+                                            val imgX = (adjustedX / state.scale).coerceIn(0f, state.intrinsicWidthPx.toFloat())
+                                            val imgY = (adjustedY / state.scale).coerceIn(0f, state.intrinsicHeightPx.toFloat())
                                             points.add(imgX to imgY)
                                         }
 
                                         if (event.changes.none { it.pressed }) break
                                     }
 
-                                    if (!isMultiTouch) {
+                                    if (!isMultiTouch && isValidStroke && points.size >= 1) {
                                         if (maskToolMode == "MAGIC_WAND" || maskToolMode == "COLOR_PIPETTE") {
                                             onMaskTap?.invoke(startImgX, startImgY)
-                                        } else {
+                                        } else if (points.size > 1) {
                                             onMaskStrokeComplete?.invoke(points)
                                         }
                                     }
