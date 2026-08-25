@@ -44,6 +44,7 @@ fun CanvasEditor(
     isMaskingActive: Boolean = false,
     maskToolMode: String = "PAN_ZOOM",
     onMaskStrokeComplete: ((List<Pair<Float, Float>>) -> Unit)? = null,
+    onMaskStrokeDelta: ((List<Pair<Float, Float>>) -> Unit)? = null,
     onMaskTap: ((Float, Float) -> Unit)? = null,
     onReady: (addTextAtViewportCenter: (String) -> Unit) -> Unit = {},
     imageContent: @Composable (path: String, contentScale: ContentScale, modifier: Modifier) -> Unit
@@ -65,6 +66,8 @@ fun CanvasEditor(
 
         val displayWidthDp = with(density) { (state.intrinsicWidthPx * state.scale).toDp() }
         val displayHeightDp = with(density) { (state.intrinsicHeightPx * state.scale).toDp() }
+
+        val isMaskingToolActive = isMaskingActive && maskToolMode != "PAN_ZOOM"
 
         val horizontalPadding = if (displayWidthDp < viewportWidthDp) {
             (viewportWidthDp - displayWidthDp) / 2
@@ -94,8 +97,8 @@ fun CanvasEditor(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(verticalScrollState)
-                .horizontalScroll(horizontalScrollState)
+                .verticalScroll(verticalScrollState, enabled = !isMaskingToolActive)
+                .horizontalScroll(horizontalScrollState, enabled = !isMaskingToolActive)
                 .pointerInput(Unit) {
                     awaitEachGesture {
                         awaitFirstDown(pass = PointerEventPass.Initial)
@@ -187,6 +190,12 @@ fun CanvasEditor(
                                     points.add(startImgX to startImgY)
 
                                     var isMultiTouch = false
+                                    var lastPointCount = points.size
+
+                                    if (maskToolMode == "BRUSH_MASK") {
+                                        onMaskStrokeDelta?.invoke(listOf(startImgX to startImgY))
+                                    }
+
                                     while (true) {
                                         val event = awaitPointerEvent(pass = PointerEventPass.Initial)
                                         val pressed = event.changes.filter { it.pressed }
@@ -202,6 +211,12 @@ fun CanvasEditor(
                                             val imgX = change.position.x / state.scale
                                             val imgY = change.position.y / state.scale
                                             points.add(imgX to imgY)
+
+                                            if (maskToolMode == "BRUSH_MASK" && points.size > lastPointCount) {
+                                                val deltaPoints = points.subList(lastPointCount - 1, points.size).toList()
+                                                onMaskStrokeDelta?.invoke(deltaPoints)
+                                                lastPointCount = points.size
+                                            }
                                         }
 
                                         if (event.changes.none { it.pressed }) break

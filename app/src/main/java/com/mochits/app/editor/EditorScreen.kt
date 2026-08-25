@@ -183,6 +183,21 @@ fun EditorScreen(
                         maskBitmap = currentMaskBitmap,
                         isMaskingActive = activeTab == EditorTab.INPAINT_MASK,
                         maskToolMode = activeMaskTool.name,
+                        onMaskStrokeDelta = { deltaPoints ->
+                            val baseBmp = currentBaseBitmap ?: return@CanvasEditor
+                            if (activeMaskTool == MaskToolMode.BRUSH_MASK) {
+                                val res = maskSelectionTools.drawBrush(
+                                    baseBmp.width,
+                                    baseBmp.height,
+                                    currentMaskBitmap,
+                                    deltaPoints,
+                                    brushRadiusPx = brushSizePx
+                                )
+                                if (res is OperationResult.Success) {
+                                    currentMaskBitmap = res.data
+                                }
+                            }
+                        },
                         onMaskStrokeComplete = { strokePoints ->
                             val baseBmp = currentBaseBitmap ?: return@CanvasEditor
                             when (activeMaskTool) {
