@@ -44,8 +44,16 @@ import java.io.File
 
 enum class EditorTab {
     TEXT,
-    INPAINT,
+    INPAINT_MASK,
     LAYERS
+}
+
+enum class MaskToolMode {
+    PAN_ZOOM,
+    BRUSH_MASK,
+    LASSO_SELECT,
+    MAGIC_WAND,
+    COLOR_PIPETTE
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -69,6 +77,10 @@ fun EditorScreen(
     var currentMaskBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
     var activeTab by remember { mutableStateOf(EditorTab.TEXT) }
+    var activeMaskTool by remember { mutableStateOf(MaskToolMode.PAN_ZOOM) }
+    var brushSizePx by remember { mutableStateOf(30f) }
+    var wandTolerance by remember { mutableStateOf(15f) }
+
     var isDockExpanded by remember { mutableStateOf(true) }
 
     var showAddTextDialog by remember { mutableStateOf(false) }
@@ -113,7 +125,7 @@ fun EditorScreen(
                         Text(projectName, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
                         if (canvasState != null) {
                             Text(
-                                "Zoom: ${(canvasState.scale * 100).toInt()}% | Layer Teks: ${canvasState.textLayers.size}",
+                                "Zoom: ${(canvasState.scale * 100).toInt()}% | Mode Alat: ${activeMaskTool.name}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -205,10 +217,10 @@ fun EditorScreen(
                             )
                             TabButton(
                                 icon = Icons.Default.AutoFixHigh,
-                                label = "Inpaint",
-                                isSelected = activeTab == EditorTab.INPAINT,
+                                label = "Masker & Inpaint",
+                                isSelected = activeTab == EditorTab.INPAINT_MASK,
                                 onClick = {
-                                    activeTab = EditorTab.INPAINT
+                                    activeTab = EditorTab.INPAINT_MASK
                                     isDockExpanded = true
                                 }
                             )
@@ -243,7 +255,7 @@ fun EditorScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(max = 280.dp)
+                                    .heightIn(max = 290.dp)
                                     .padding(horizontal = 12.dp, vertical = 8.dp)
                             ) {
                                 when (activeTab) {
@@ -269,8 +281,20 @@ fun EditorScreen(
                                             selectedLayer?.let { canvasState.deleteLayer(it.id) }
                                         }
                                     )
-                                    EditorTab.INPAINT -> InpaintTabContent(
-                                        onTriggerInpaint = { showInpaintDialog = true }
+                                    EditorTab.INPAINT_MASK -> InpaintAndMaskTabContent(
+                                        activeMaskTool = activeMaskTool,
+                                        brushSizePx = brushSizePx,
+                                        wandTolerance = wandTolerance,
+                                        onToolSelect = { activeMaskTool = it },
+                                        onBrushSizeChange = { brushSizePx = it },
+                                        onWandToleranceChange = { wandTolerance = it },
+                                        onTriggerInpaint = { showInpaintDialog = true },
+                                        onClearMask = {
+                                            currentBaseBitmap?.let { bmp ->
+                                                currentMaskBitmap = Bitmap.createBitmap(bmp.width, bmp.height, Bitmap.Config.ARGB_8888)
+                                                Toast.makeText(context, "Masker dibersihkan!", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
                                     )
                                     EditorTab.LAYERS -> LayerListTabContent(
                                         layers = canvasState.textLayers,
@@ -428,7 +452,6 @@ private fun TextTabContent(
             .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Quick Action Bar: Add Text Button + Selected Layer Status
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
@@ -458,7 +481,6 @@ private fun TextTabContent(
         if (selectedLayer != null) {
             val style = selectedLayer.style
 
-            // Font Size Slider & Controls
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 modifier = Modifier.fillMaxWidth()
@@ -482,7 +504,6 @@ private fun TextTabContent(
                 }
             }
 
-            // Typography Format Buttons: Bold, Italic, Underline, Strikethrough & Alignment
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -531,7 +552,6 @@ private fun TextTabContent(
                 }
             }
 
-            // Presets Bar (Balon Dialog, Kotak Narasi, Bisik-bisik, SFX)
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Preset Style", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
@@ -552,7 +572,6 @@ private fun TextTabContent(
                 }
             }
 
-            // Custom Font Family Picker
             if (installedFonts.isNotEmpty()) {
                 Column {
                     Text("Font Family", style = MaterialTheme.typography.labelLarge)
@@ -576,7 +595,6 @@ private fun TextTabContent(
                 }
             }
 
-            // Color Swatches
             Column {
                 Text("Warna Teks", style = MaterialTheme.typography.labelLarge)
                 Spacer(modifier = Modifier.height(4.dp))
@@ -591,7 +609,6 @@ private fun TextTabContent(
                 }
             }
 
-            // Options: Stroke, Glow, Shadow
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Text("Stroke (Outline)", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                 Switch(
@@ -608,6 +625,150 @@ private fun TextTabContent(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun InpaintAndMaskTabContent(
+    activeMaskTool: MaskToolMode,
+    brushSizePx: Float,
+    wandTolerance: Float,
+    onToolSelect: (MaskToolMode) -> Unit,
+    onBrushSizeChange: (Float) -> Unit,
+    onWandToleranceChange: (Float) -> Unit,
+    onTriggerInpaint: () -> Unit,
+    onClearMask: () -> Unit
+) {
+    val scrollState = rememberScrollState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(scrollState),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text("Pilih Alat Masker Pembersih Balon", style = MaterialTheme.typography.titleSmall)
+
+        // Sub-toolbar Mode Alat Masker (Brush, Lasso, Magic Wand, Eyedropper, Zoom)
+        Row(
+            horizontalArrangement = Arrangement.SpaceAround,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            MaskToolIconButton(
+                icon = Icons.Default.PanTool,
+                label = "Geser/Zoom",
+                isSelected = activeMaskTool == MaskToolMode.PAN_ZOOM,
+                onClick = { onToolSelect(MaskToolMode.PAN_ZOOM) }
+            )
+            MaskToolIconButton(
+                icon = Icons.Default.Brush,
+                label = "Brush",
+                isSelected = activeMaskTool == MaskToolMode.BRUSH_MASK,
+                onClick = { onToolSelect(MaskToolMode.BRUSH_MASK) }
+            )
+            MaskToolIconButton(
+                icon = Icons.Default.Gesture,
+                label = "Lasso",
+                isSelected = activeMaskTool == MaskToolMode.LASSO_SELECT,
+                onClick = { onToolSelect(MaskToolMode.LASSO_SELECT) }
+            )
+            MaskToolIconButton(
+                icon = Icons.Default.AutoAwesome,
+                label = "Wand",
+                isSelected = activeMaskTool == MaskToolMode.MAGIC_WAND,
+                onClick = { onToolSelect(MaskToolMode.MAGIC_WAND) }
+            )
+            MaskToolIconButton(
+                icon = Icons.Default.Colorize,
+                label = "Pipet",
+                isSelected = activeMaskTool == MaskToolMode.COLOR_PIPETTE,
+                onClick = { onToolSelect(MaskToolMode.COLOR_PIPETTE) }
+            )
+        }
+
+        // Controls based on active tool mode
+        when (activeMaskTool) {
+            MaskToolMode.BRUSH_MASK -> {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("Ukuran Brush Masker (${brushSizePx.toInt()} px)", style = MaterialTheme.typography.bodyMedium)
+                        Slider(
+                            value = brushSizePx,
+                            onValueChange = onBrushSizeChange,
+                            valueRange = 5f..100f
+                        )
+                    }
+                }
+            }
+            MaskToolMode.MAGIC_WAND -> {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("Toleransi Magic Wand (${wandTolerance.toInt()})", style = MaterialTheme.typography.bodyMedium)
+                        Slider(
+                            value = wandTolerance,
+                            onValueChange = onWandToleranceChange,
+                            valueRange = 1f..50f
+                        )
+                    }
+                }
+            }
+            else -> {}
+        }
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            OutlinedButton(
+                onClick = onClearMask,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Default.CleaningServices, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Bersihkan Masker")
+            }
+
+            Button(
+                onClick = onTriggerInpaint,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Jalankan Inpaint")
+            }
+        }
+    }
+}
+
+@Composable
+private fun MaskToolIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Surface(
+            onClick = onClick,
+            shape = CircleShape,
+            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.size(44.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    icon,
+                    contentDescription = label,
+                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -629,28 +790,6 @@ private fun FormatToggleButton(
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                 color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
             )
-        }
-    }
-}
-
-@Composable
-private fun InpaintTabContent(
-    onTriggerInpaint: () -> Unit
-) {
-    Column(
-        modifier = Modifier.padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text("Pembersih Background / Inpainting", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Gunakan Telea atau AI LaMa Inpaint untuk menghapus teks lama atau balon dialog pada komik.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Button(onClick = onTriggerInpaint, modifier = Modifier.fillMaxWidth()) {
-            Icon(Icons.Default.AutoFixHigh, contentDescription = null)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Jalankan Inpaint pada Masker")
         }
     }
 }
@@ -728,7 +867,7 @@ private fun InpaintOptionDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onSelectTelea, modifier = Modifier.fillMaxWidth()) {
-                    Text("Telea Inpaint (OpenCV - Cepat)")
+                    Text("Telea Inpaint (OpenCV - Bawaan / Cepat)")
                 }
                 Button(onClick = onSelectLama, modifier = Modifier.fillMaxWidth()) {
                     Text("LaMa Inpaint (AI Neural Network)")
