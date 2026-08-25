@@ -32,9 +32,6 @@ fun StyledText(
     Canvas(modifier = modifier) {
         drawIntoCanvas { canvas ->
             val nativeCanvas = canvas.nativeCanvas
-            
-            // Matikan hardware acceleration layer untuk kompatibilitas BlurMaskFilter di Android 11-
-            nativeCanvas.setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
 
             val baseTypeface = if (style.fontPath != null) {
                 try {
