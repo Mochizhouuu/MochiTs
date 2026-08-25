@@ -113,7 +113,7 @@ fun CanvasEditor(
                 .horizontalScroll(horizontalScrollState)
                 .pointerInput(Unit) {
                     awaitEachGesture {
-                        val downEvent = awaitFirstDown(pass = PointerEventPass.Initial)
+                        awaitFirstDown(pass = PointerEventPass.Initial)
                         var previousDistance = 0f
                         var initialFocus = androidx.compose.ui.geometry.Offset.Unspecified
 
@@ -235,10 +235,10 @@ fun CanvasEditor(
                                         if (event.changes.none { it.pressed }) break
                                     }
 
-                                    if (!isMultiTouch && points.size >= 1) {
+                                    if (!isMultiTouch && points.isNotEmpty()) {
                                         if (maskToolMode == "MAGIC_WAND" || maskToolMode == "COLOR_PIPETTE") {
                                             onMaskTap?.invoke(startImgX, startImgY)
-                                        } else if (points.size > 1) {
+                                        } else {
                                             onMaskStrokeComplete?.invoke(points)
                                         }
                                     }
