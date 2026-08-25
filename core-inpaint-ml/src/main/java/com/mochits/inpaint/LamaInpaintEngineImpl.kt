@@ -121,8 +121,8 @@ class LamaInpaintEngineImpl(
             val compMaskPixels = IntArray(w * h)
             source.getPixels(origPixels, 0, w, 0, 0, w, h)
             scaledResult.getPixels(genPixels, 0, w, 0, 0, w, h)
-            val scaledMask = Bitmap.createScaledBitmap(mask, w, h, true)
-            scaledMask.getPixels(compMaskPixels, 0, w, 0, 0, w, h)
+            val compositingMask = Bitmap.createScaledBitmap(mask, w, h, true)
+            compositingMask.getPixels(compMaskPixels, 0, w, 0, 0, w, h)
 
             for (i in 0 until w * h) {
                 val m = compMaskPixels[i]
