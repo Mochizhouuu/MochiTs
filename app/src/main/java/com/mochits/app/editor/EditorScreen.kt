@@ -303,7 +303,7 @@ fun EditorScreen(
                     }
 
                     // ===== Overlay toolbar layer terpilih =====
-                    AnimatedVisibility(
+                    androidx.compose.animation.AnimatedVisibility(
                         visible = selectedLayer != null && openPanel == null,
                         enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
                         exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
@@ -591,7 +591,7 @@ fun EditorScreen(
 }
 
 @Composable
-private fun QuickToolButton(
+private fun RowScope.QuickToolButton(
     icon: ImageVector,
     label: String,
     weight: Float,
