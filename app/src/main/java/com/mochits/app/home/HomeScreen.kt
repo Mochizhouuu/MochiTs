@@ -269,9 +269,13 @@ private fun ProjectCard(
     }
 
     Card(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+        ),
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
@@ -280,7 +284,7 @@ private fun ProjectCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1f)
+                    .aspectRatio(3f / 4f)
                     .background(MaterialTheme.colorScheme.surface)
             ) {
                 AsyncImage(

@@ -101,13 +101,6 @@ class MaskSelectionToolsImpl : MaskSelectionTools {
 
                 Imgproc.floodFill(matSrc, matMask, seedPoint, newVal, null, loDiff, upDiff, flags)
 
-                // Gambar piksel mask dari OpenCV ke resultMask
-                val maskCanvas = Canvas(resultMask)
-                val paint = Paint().apply {
-                    color = Color.WHITE
-                    isAntiAlias = true
-                }
-
                 // Mat mask OpenCV menyimpan nilai 255 pada area floodfill
                 for (r in 0 until height) {
                     for (c in 0 until width) {
@@ -241,20 +234,19 @@ class MaskSelectionToolsImpl : MaskSelectionTools {
                 }
             }
 
-            val r2 = brushRadiusPx * brushRadiusPx
-            for (p in pathPoints) {
-                val cx = p.first.toInt()
-                val cy = p.second.toInt()
-                val r = brushRadiusPx.toInt() + 1
-                for (y in (cy - r).coerceAtLeast(0)..(cy + r).coerceAtMost(maskHeight - 1)) {
-                    for (x in (cx - r).coerceAtLeast(0)..(cx + r).coerceAtMost(maskWidth - 1)) {
-                        val dx = x - p.first
-                        val dy = y - p.second
-                        if (dx * dx + dy * dy <= r2) {
-                            resultMask.setPixel(x, y, if (isSubtract) 0 else Color.WHITE)
-                        }
+            // Gambar sapuan kuas via path dengan ujung membulat — satu kali render
+            // oleh Canvas (jauh lebih cepat daripada loop per-piksel).
+            if (pathPoints.size == 1) {
+                val p = pathPoints[0]
+                canvas.drawCircle(p.first, p.second, brushRadiusPx, paint)
+            } else {
+                val path = Path().apply {
+                    moveTo(pathPoints[0].first, pathPoints[0].second)
+                    for (i in 1 until pathPoints.size) {
+                        lineTo(pathPoints[i].first, pathPoints[i].second)
                     }
                 }
+                canvas.drawPath(path, paint)
             }
 
             OperationResult.Success(resultMask)

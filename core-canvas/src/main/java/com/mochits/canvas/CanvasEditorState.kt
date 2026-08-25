@@ -3,6 +3,7 @@ package com.mochits.canvas
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -17,6 +18,9 @@ import androidx.compose.runtime.setValue
  * yang jauh lebih tinggi dari layar dan di-scroll — posisi teks harus
  * "menempel" ke titik tertentu pada gambar itu sendiri, bukan ke area
  * layar yang sedang terlihat.
+ *
+ * Mendukung undo/redo untuk operasi layer (tambah, hapus, pindah,
+ * ubah teks/style/ukuran font).
  */
 @Stable
 class CanvasEditorState(
@@ -36,6 +40,17 @@ class CanvasEditorState(
     var selectedLayerId by mutableStateOf<String?>(null)
         private set
 
+    var canUndo by mutableStateOf(false)
+        private set
+
+    var canRedo by mutableStateOf(false)
+        private set
+
+    private val undoStack = ArrayDeque<List<CanvasTextLayer>>()
+    private val redoStack = ArrayDeque<List<CanvasTextLayer>>()
+    private var idCounter by mutableIntStateOf(0)
+    private var lastSnapshotAtMs = 0L
+
     fun updateScale(newScale: Float) {
         scale = newScale.coerceIn(0.1f, 5.0f)
     }
@@ -47,15 +62,79 @@ class CanvasEditorState(
         }
     }
 
+    /**
+     * Simpan snapshot layer saat ini ke stack undo (panggil SEBELUM mutasi).
+     * Snapshot yang terjadi sangat berdekatan (misal drag slider yang sama)
+     * digabung jadi satu entri agar riwayat undo tidak dibanjiri.
+     */
+    fun pushUndoSnapshot() {
+        val now = System.currentTimeMillis()
+        val coalesceWithPrevious = (now - lastSnapshotAtMs) in 1 until SNAPSHOT_COALESCE_MS
+        lastSnapshotAtMs = now
+        if (coalesceWithPrevious && undoStack.isNotEmpty()) return
+
+        undoStack.addLast(textLayers.toList())
+        if (undoStack.size > MAX_HISTORY) undoStack.removeFirst()
+        redoStack.clear()
+        refreshHistoryFlags()
+    }
+
+    fun undo() {
+        val previous = undoStack.removeLastOrNull() ?: return
+        redoStack.addLast(textLayers.toList())
+        restoreSnapshot(previous)
+    }
+
+    fun redo() {
+        val next = redoStack.removeLastOrNull() ?: return
+        undoStack.addLast(textLayers.toList())
+        restoreSnapshot(next)
+    }
+
+    private fun restoreSnapshot(snapshot: List<CanvasTextLayer>) {
+        textLayers.clear()
+        textLayers.addAll(snapshot)
+        if (selectedLayerId != null && textLayers.none { it.id == selectedLayerId }) {
+            selectedLayerId = null
+        }
+        refreshHistoryFlags()
+    }
+
+    private fun refreshHistoryFlags() {
+        canUndo = undoStack.isNotEmpty()
+        canRedo = redoStack.isNotEmpty()
+    }
+
+    private fun nextLayerId(): String {
+        idCounter += 1
+        return "text-${System.currentTimeMillis()}-$idCounter"
+    }
+
     fun addTextLayer(text: String, xInImagePx: Float, yInImagePx: Float) {
+        pushUndoSnapshot()
         val newLayer = CanvasTextLayer(
-            id = "text-${System.currentTimeMillis()}",
+            id = nextLayerId(),
             text = text,
             xInImagePx = xInImagePx.coerceIn(0f, intrinsicWidthPx.toFloat()),
             yInImagePx = yInImagePx.coerceIn(0f, intrinsicHeightPx.toFloat())
         )
         textLayers.add(newLayer)
         selectedLayerId = newLayer.id
+    }
+
+    /** Duplikat layer dengan offset kecil; mengembalikan id layer baru. */
+    fun duplicateLayer(id: String): String? {
+        val source = textLayers.firstOrNull { it.id == id } ?: return null
+        pushUndoSnapshot()
+        val offset = (intrinsicWidthPx * 0.02f).coerceAtLeast(8f)
+        val newLayer = source.copy(
+            id = nextLayerId(),
+            xInImagePx = (source.xInImagePx + offset).coerceIn(0f, intrinsicWidthPx.toFloat()),
+            yInImagePx = (source.yInImagePx + offset).coerceIn(0f, intrinsicHeightPx.toFloat())
+        )
+        textLayers.add(newLayer)
+        selectedLayerId = newLayer.id
+        return newLayer.id
     }
 
     fun moveLayerBy(id: String, deltaXInImagePx: Float, deltaYInImagePx: Float) {
@@ -76,13 +155,15 @@ class CanvasEditorState(
     }
 
     fun deleteLayer(id: String) {
+        pushUndoSnapshot()
         textLayers.removeAll { it.id == id }
         if (selectedLayerId == id) selectedLayerId = null
     }
 
     fun updateLayerText(id: String, newText: String) {
         val index = textLayers.indexOfFirst { it.id == id }
-        if (index != -1) {
+        if (index != -1 && textLayers[index].text != newText) {
+            pushUndoSnapshot()
             textLayers[index] = textLayers[index].copy(text = newText)
         }
     }
@@ -99,5 +180,10 @@ class CanvasEditorState(
         if (index != -1) {
             textLayers[index] = textLayers[index].copy(fontSizeSp = newSizeSp.coerceIn(8f, 200f))
         }
+    }
+
+    private companion object {
+        const val MAX_HISTORY = 50
+        const val SNAPSHOT_COALESCE_MS = 350L
     }
 }

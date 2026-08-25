@@ -4,8 +4,10 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,28 +27,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.mochits.canvas.CanvasEditor
 import com.mochits.canvas.CanvasEditorState
 import com.mochits.canvas.CanvasTextLayer
 import com.mochits.common.OperationResult
+import com.mochits.imaging.MaskSelectionToolsImpl
 import com.mochits.imaging.TeleaInpainterImpl
 import com.mochits.inpaint.LamaInpaintEngineImpl
 import com.mochits.inpaint.ModelManager
+import com.mochits.app.settings.AppSettings
 import com.mochits.text.*
 import kotlinx.coroutines.launch
-import java.io.File
 
-enum class EditorTab {
-    TEXT,
-    INPAINT_MASK,
-    LAYERS
-}
+/** Panel bawah yang bisa dibuka lewat quick toolbar. */
+private enum class EditorPanel { STYLE, MASK, LAYERS }
 
 enum class MaskToolMode {
     PAN_ZOOM,
@@ -66,10 +66,11 @@ fun EditorScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val appSettings = remember { AppSettings(context) }
 
     val fontManager = remember { FontManager(context) }
     val presetManager = remember { TextPresetManager(context) }
-    val maskSelectionTools = remember { com.mochits.imaging.MaskSelectionToolsImpl() }
+    val maskSelectionTools = remember { MaskSelectionToolsImpl() }
 
     var installedFonts by remember { mutableStateOf(fontManager.getInstalledFonts()) }
     var availablePresets by remember { mutableStateOf(presetManager.getPresets()) }
@@ -77,17 +78,16 @@ fun EditorScreen(
     var currentBaseBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var currentMaskBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
-    var activeTab by remember { mutableStateOf(EditorTab.TEXT) }
+    var openPanel by remember { mutableStateOf<EditorPanel?>(null) }
     var activeMaskTool by remember { mutableStateOf(MaskToolMode.PAN_ZOOM) }
     var brushSizePx by remember { mutableStateOf(30f) }
     var wandTolerance by remember { mutableStateOf(15f) }
-
-    var isDockExpanded by remember { mutableStateOf(true) }
 
     var showAddTextDialog by remember { mutableStateOf(false) }
     var showEditTextDialog by remember { mutableStateOf<CanvasTextLayer?>(null) }
     var showSavePresetDialog by remember { mutableStateOf<TextStyleConfig?>(null) }
     var showInpaintDialog by remember { mutableStateOf(false) }
+    var isExporting by remember { mutableStateOf(false) }
 
     var addTextAtViewportCenter by remember { mutableStateOf<((String) -> Unit)?>(null) }
 
@@ -118,7 +118,12 @@ fun EditorScreen(
 
     val selectedLayer = canvasState?.textLayers?.find { it.id == canvasState.selectedLayerId }
 
+    fun showToast(message: String) {
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    }
+
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = {
@@ -126,7 +131,9 @@ fun EditorScreen(
                         Text(projectName, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
                         if (canvasState != null) {
                             Text(
-                                "Zoom: ${(canvasState.scale * 100).toInt()}% | Mode Alat: ${activeMaskTool.name}",
+                                "Zoom ${(canvasState.scale * 100).toInt()}% • " +
+                                    "${canvasState.textLayers.size} layer" +
+                                    (if (selectedLayer != null) " • teks terpilih" else ""),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -139,23 +146,59 @@ fun EditorScreen(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = { canvasState?.undo() },
+                        enabled = canvasState?.canUndo == true
+                    ) {
+                        Icon(Icons.Default.Undo, contentDescription = "Urungkan")
+                    }
+                    IconButton(
+                        onClick = { canvasState?.redo() },
+                        enabled = canvasState?.canRedo == true
+                    ) {
+                        Icon(Icons.Default.Redo, contentDescription = "Ulangi")
+                    }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Pengaturan")
                     }
-                    IconButton(onClick = {
-                        val baseBmp = currentBaseBitmap
-                        if (baseBmp != null && canvasState != null) {
-                            coroutineScope.launch {
-                                val exportFile = File(context.cacheDir, "export_${System.currentTimeMillis()}.png")
-                                val res = ProjectExporter.exportProjectToGallery(baseBmp, canvasState, exportFile)
-                                when (res) {
-                                    is OperationResult.Success -> Toast.makeText(context, "Berhasil di-ekspor: ${res.data.name}", Toast.LENGTH_LONG).show()
-                                    is OperationResult.Failure -> Toast.makeText(context, res.message ?: "Gagal ekspor", Toast.LENGTH_SHORT).show()
+                    IconButton(
+                        onClick = {
+                            val baseBmp = currentBaseBitmap
+                            if (baseBmp != null && canvasState != null && !isExporting) {
+                                coroutineScope.launch {
+                                    isExporting = true
+                                    val res = ProjectExporter.exportToGallery(
+                                        context = context,
+                                        baseImageBitmap = baseBmp,
+                                        state = canvasState,
+                                        subfolder = appSettings.exportLocation,
+                                        quality = appSettings.exportQuality
+                                    )
+                                    isExporting = false
+                                    when (res) {
+                                        is OperationResult.Success ->
+                                            Toast.makeText(
+                                                context,
+                                                "Tersimpan di galeri (${"Pictures/" + appSettings.exportLocation.trim('/')})",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        is OperationResult.Failure ->
+                                            Toast.makeText(
+                                                context,
+                                                res.message ?: "Gagal ekspor",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                    }
                                 }
                             }
+                        },
+                        enabled = !isExporting
+                    ) {
+                        if (isExporting) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.SaveAlt, contentDescription = "Ekspor ke Galeri")
                         }
-                    }) {
-                        Icon(Icons.Default.SaveAlt, contentDescription = "Ekspor Gambar")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -166,22 +209,27 @@ fun EditorScreen(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
         ) {
-            // Main Interactive Canvas Area
+            // ===== Area Kanvas =====
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
             ) {
                 if (canvasState == null || currentBaseBitmap == null) {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator()
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text("Memuat gambar…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                 } else {
                     CanvasEditor(
                         state = canvasState,
                         modifier = Modifier.fillMaxSize(),
                         maskBitmap = currentMaskBitmap,
-                        isMaskingActive = activeTab == EditorTab.INPAINT_MASK,
+                        isMaskingActive = openPanel == EditorPanel.MASK,
                         maskToolMode = activeMaskTool.name,
                         onMaskStrokeComplete = { strokePoints ->
                             val baseBmp = currentBaseBitmap ?: return@CanvasEditor
@@ -234,12 +282,17 @@ fun EditorScreen(
                                         yPx.toInt()
                                     )
                                     val hexColor = String.format("#%08X", color)
-                                    Toast.makeText(context, "Warna Terpilih: $hexColor", Toast.LENGTH_SHORT).show()
+                                    showToast("Warna terpilih: $hexColor")
                                 }
                                 else -> {}
                             }
                         },
-                        onReady = { addTextFn -> addTextAtViewportCenter = addTextFn }
+                        onReady = { addTextFn -> addTextAtViewportCenter = addTextFn },
+                        onEditLayerRequest = { layerId ->
+                            canvasState.textLayers.firstOrNull { it.id == layerId }?.let {
+                                showEditTextDialog = it
+                            }
+                        }
                     ) { path, contentScale, imgModifier ->
                         AsyncImage(
                             model = currentBaseBitmap ?: path,
@@ -248,129 +301,219 @@ fun EditorScreen(
                             modifier = imgModifier
                         )
                     }
-                }
-            }
 
-            // Bottom Dock Control Panel (Clean, Non-floating, Collapsible)
-            if (canvasState != null) {
-                Surface(
-                    tonalElevation = 8.dp,
-                    color = MaterialTheme.colorScheme.surface,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column {
-                        // Dock Header & Tab Switcher Bar
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                    // ===== Overlay toolbar layer terpilih =====
+                    AnimatedVisibility(
+                        visible = selectedLayer != null && openPanel == null,
+                        enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
+                        exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 12.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            tonalElevation = 6.dp,
+                            shadowElevation = 6.dp,
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f)
                         ) {
-                            TabButton(
-                                icon = Icons.Default.TextFields,
-                                label = "Teks",
-                                isSelected = activeTab == EditorTab.TEXT,
-                                onClick = {
-                                    activeTab = EditorTab.TEXT
-                                    isDockExpanded = true
-                                }
-                            )
-                            TabButton(
-                                icon = Icons.Default.AutoFixHigh,
-                                label = "Masker & Inpaint",
-                                isSelected = activeTab == EditorTab.INPAINT_MASK,
-                                onClick = {
-                                    activeTab = EditorTab.INPAINT_MASK
-                                    isDockExpanded = true
-                                }
-                            )
-                            TabButton(
-                                icon = Icons.Default.Layers,
-                                label = "Layer (${canvasState.textLayers.size})",
-                                isSelected = activeTab == EditorTab.LAYERS,
-                                onClick = {
-                                    activeTab = EditorTab.LAYERS
-                                    isDockExpanded = true
-                                }
-                            )
-
-                            Spacer(modifier = Modifier.weight(1f))
-
-                            // Collapse / Expand Toggle Button
-                            IconButton(onClick = { isDockExpanded = !isDockExpanded }) {
-                                Icon(
-                                    if (isDockExpanded) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
-                                    contentDescription = if (isDockExpanded) "Sembunyikan Menu" else "Tampilkan Menu",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
-
-                        // Collapsible Dock Content
-                        AnimatedVisibility(
-                            visible = isDockExpanded,
-                            enter = expandVertically(),
-                            exit = shrinkVertically()
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(max = 290.dp)
-                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                             ) {
-                                when (activeTab) {
-                                    EditorTab.TEXT -> TextTabContent(
-                                        selectedLayer = selectedLayer,
-                                        installedFonts = installedFonts,
-                                        availablePresets = availablePresets,
-                                        onAddTextClick = { showAddTextDialog = true },
-                                        onEditTextClick = { layer -> showEditTextDialog = layer },
-                                        onStyleChange = { newStyle ->
-                                            selectedLayer?.let { canvasState.updateLayerStyle(it.id, newStyle) }
-                                        },
-                                        onFontSizeChange = { newSize ->
-                                            selectedLayer?.let { canvasState.updateLayerFontSize(it.id, newSize) }
-                                        },
-                                        onApplyPreset = { preset ->
-                                            selectedLayer?.let { canvasState.updateLayerStyle(it.id, preset.style) }
-                                        },
-                                        onSavePresetClick = {
-                                            selectedLayer?.let { showSavePresetDialog = it.style }
-                                        },
-                                        onDeleteLayer = {
-                                            selectedLayer?.let { canvasState.deleteLayer(it.id) }
-                                        }
-                                    )
-                                    EditorTab.INPAINT_MASK -> InpaintAndMaskTabContent(
-                                        activeMaskTool = activeMaskTool,
-                                        brushSizePx = brushSizePx,
-                                        wandTolerance = wandTolerance,
-                                        onToolSelect = { activeMaskTool = it },
-                                        onBrushSizeChange = { brushSizePx = it },
-                                        onWandToleranceChange = { wandTolerance = it },
-                                        onTriggerInpaint = { showInpaintDialog = true },
-                                        onClearMask = {
-                                            currentBaseBitmap?.let { bmp ->
-                                                currentMaskBitmap = Bitmap.createBitmap(bmp.width, bmp.height, Bitmap.Config.ARGB_8888)
-                                                Toast.makeText(context, "Masker dibersihkan!", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    )
-                                    EditorTab.LAYERS -> LayerListTabContent(
-                                        layers = canvasState.textLayers,
-                                        selectedId = canvasState.selectedLayerId,
-                                        onSelectLayer = { canvasState.selectLayer(it) },
-                                        onDeleteLayer = { canvasState.deleteLayer(it) }
-                                    )
+                                IconButton(onClick = {
+                                    selectedLayer?.let { showEditTextDialog = it }
+                                }) {
+                                    Icon(Icons.Default.Edit, contentDescription = "Edit isi teks", tint = MaterialTheme.colorScheme.primary)
+                                }
+                                IconButton(onClick = {
+                                    selectedLayer?.let { canvasState.duplicateLayer(it.id) }
+                                }) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = "Duplikat layer", tint = MaterialTheme.colorScheme.primary)
+                                }
+                                IconButton(onClick = {
+                                    selectedLayer?.let {
+                                        canvasState.updateLayerFontSize(it.id, it.fontSizeSp - 2f)
+                                    }
+                                }) {
+                                    Icon(Icons.Default.Remove, contentDescription = "Kecilkan font")
+                                }
+                                IconButton(onClick = {
+                                    selectedLayer?.let {
+                                        canvasState.updateLayerFontSize(it.id, it.fontSizeSp + 2f)
+                                    }
+                                }) {
+                                    Icon(Icons.Default.Add, contentDescription = "Besarkan font")
+                                }
+                                IconButton(onClick = { canvasState.selectLayer(null) }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Batal pilih", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                IconButton(onClick = {
+                                    selectedLayer?.let { canvasState.deleteLayer(it.id) }
+                                }) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Hapus layer", tint = MaterialTheme.colorScheme.error)
                                 }
                             }
                         }
                     }
                 }
             }
+
+            // ===== Quick Toolbar Bawah =====
+            Surface(
+                tonalElevation = 8.dp,
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                ) {
+                    QuickToolButton(
+                        icon = Icons.Default.TextFields,
+                        label = "Tambah Teks",
+                        weight = 1f,
+                        onClick = { showAddTextDialog = true }
+                    )
+                    QuickToolButton(
+                        icon = Icons.Default.Palette,
+                        label = "Gaya",
+                        weight = 1f,
+                        enabled = selectedLayer != null,
+                        onClick = { openPanel = EditorPanel.STYLE }
+                    )
+                    QuickToolButton(
+                        icon = Icons.Default.AutoFixHigh,
+                        label = "Masker",
+                        weight = 1f,
+                        isSelected = openPanel == EditorPanel.MASK,
+                        onClick = {
+                            openPanel = if (openPanel == EditorPanel.MASK) null else EditorPanel.MASK
+                        }
+                    )
+                    QuickToolButton(
+                        icon = Icons.Default.Layers,
+                        label = "Layer",
+                        weight = 1f,
+                        badgeCount = canvasState?.textLayers?.size ?: 0,
+                        onClick = { openPanel = EditorPanel.LAYERS }
+                    )
+                }
+            }
         }
     }
 
+    // ===== Bottom Sheets =====
+    if (openPanel == EditorPanel.STYLE) {
+        ModalBottomSheet(
+            onDismissRequest = { openPanel = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = MaterialTheme.colorScheme.surface
+        ) {
+            if (selectedLayer != null && canvasState != null) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp)
+                        .padding(bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    TextTabContent(
+                        selectedLayer = selectedLayer,
+                        installedFonts = installedFonts,
+                        availablePresets = availablePresets,
+                        onAddTextClick = { showAddTextDialog = true },
+                        onEditTextClick = { layer -> showEditTextDialog = layer },
+                        onStyleChange = { newStyle ->
+                            selectedLayer?.let { canvasState.updateLayerStyle(it.id, newStyle) }
+                        },
+                        onFontSizeChange = { newSize ->
+                            selectedLayer?.let { canvasState.updateLayerFontSize(it.id, newSize) }
+                        },
+                        onApplyPreset = { preset ->
+                            selectedLayer?.let { canvasState.updateLayerStyle(it.id, preset.style) }
+                        },
+                        onSavePresetClick = {
+                            selectedLayer?.let { showSavePresetDialog = it.style }
+                        },
+                        onDeleteLayer = {
+                            selectedLayer?.let { canvasState.deleteLayer(it.id) }
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    if (openPanel == EditorPanel.MASK && canvasState != null) {
+        ModalBottomSheet(
+            onDismissRequest = { openPanel = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    "Sentuh/drag langsung di gambar untuk memakai alat aktif",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                InpaintAndMaskTabContent(
+                    activeMaskTool = activeMaskTool,
+                    brushSizePx = brushSizePx,
+                    wandTolerance = wandTolerance,
+                    onToolSelect = { activeMaskTool = it },
+                    onBrushSizeChange = { brushSizePx = it },
+                    onWandToleranceChange = { wandTolerance = it },
+                    onTriggerInpaint = { showInpaintDialog = true },
+                    onClearMask = {
+                        currentBaseBitmap?.let { bmp ->
+                            currentMaskBitmap = Bitmap.createBitmap(bmp.width, bmp.height, Bitmap.Config.ARGB_8888)
+                            showToast("Masker dibersihkan!")
+                        }
+                    }
+                )
+            }
+        }
+    }
+
+    if (openPanel == EditorPanel.LAYERS && canvasState != null) {
+        ModalBottomSheet(
+            onDismissRequest = { openPanel = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 24.dp)
+            ) {
+                Text(
+                    "Daftar Layer Teks",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                LayerListTabContent(
+                    layers = canvasState.textLayers,
+                    selectedId = canvasState.selectedLayerId,
+                    onSelectLayer = { canvasState.selectLayer(it) },
+                    onDeleteLayer = { canvasState.deleteLayer(it) }
+                )
+            }
+        }
+    }
+
+    // ===== Dialogs =====
     if (showAddTextDialog && canvasState != null) {
         AddTextDialog(
             onConfirm = { text ->
@@ -402,7 +545,7 @@ fun EditorScreen(
                 showSavePresetDialog = null
                 val created = presetManager.savePreset(name, style)
                 availablePresets = presetManager.getPresets()
-                Toast.makeText(context, "Preset '${created.name}' tersimpan!", Toast.LENGTH_SHORT).show()
+                showToast("Preset '${created.name}' tersimpan!")
             },
             onDismiss = { showSavePresetDialog = null }
         )
@@ -417,7 +560,7 @@ fun EditorScreen(
                     val res = telea.inpaint(currentBaseBitmap!!, currentMaskBitmap!!)
                     if (res is OperationResult.Success) {
                         currentBaseBitmap = res.data
-                        Toast.makeText(context, "Inpaint Telea berhasil!", Toast.LENGTH_SHORT).show()
+                        showToast("Inpaint Telea berhasil!")
                     }
                 }
             },
@@ -436,7 +579,7 @@ fun EditorScreen(
                         val res = lamaEngine.infer(currentBaseBitmap!!, currentMaskBitmap!!)
                         if (res is OperationResult.Success) {
                             currentBaseBitmap = res.data
-                            Toast.makeText(context, "Inpaint LaMa AI berhasil!", Toast.LENGTH_SHORT).show()
+                            showToast("Inpaint LaMa AI berhasil!")
                         }
                         lamaEngine.release()
                     }
@@ -448,242 +591,67 @@ fun EditorScreen(
 }
 
 @Composable
-private fun TabButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+private fun QuickToolButton(
+    icon: ImageVector,
     label: String,
-    isSelected: Boolean,
+    weight: Float,
+    enabled: Boolean = true,
+    isSelected: Boolean = false,
+    badgeCount: Int = -1,
     onClick: () -> Unit
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(20.dp),
-        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-        modifier = Modifier.padding(end = 4.dp)
+        enabled = enabled,
+        shape = RoundedCornerShape(14.dp),
+        color = when {
+            isSelected -> MaterialTheme.colorScheme.primaryContainer
+            else -> Color.Transparent
+        },
+        modifier = Modifier.weight(weight)
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(vertical = 6.dp)
         ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.width(6.dp))
+            Box {
+                Icon(
+                    icon,
+                    contentDescription = label,
+                    modifier = Modifier.size(22.dp),
+                    tint = when {
+                        !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                        isSelected -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+                if (badgeCount > 0) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 6.dp, y = (-2).dp)
+                    ) {
+                        Text(
+                            text = badgeCount.toString(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(2.dp))
             Text(
                 label,
-                style = MaterialTheme.typography.labelMedium,
-                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                style = MaterialTheme.typography.labelSmall,
+                color = when {
+                    !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    isSelected -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
             )
-        }
-    }
-}
-
-private val presetColors = listOf(
-    0xFF000000.toInt(),
-    0xFFFFFFFF.toInt(),
-    0xFFE53935.toInt(),
-    0xFF1E88E5.toInt(),
-    0xFFFDD835.toInt(),
-    0xFF43A047.toInt(),
-    0xFF8E24AA.toInt(),
-    0xFFFF6D00.toInt()
-)
-
-@Composable
-private fun TextTabContent(
-    selectedLayer: CanvasTextLayer?,
-    installedFonts: List<CustomFontItem>,
-    availablePresets: List<TextStylePreset>,
-    onAddTextClick: () -> Unit,
-    onEditTextClick: (CanvasTextLayer) -> Unit,
-    onStyleChange: (TextStyleConfig) -> Unit,
-    onFontSizeChange: (Float) -> Unit,
-    onApplyPreset: (TextStylePreset) -> Unit,
-    onSavePresetClick: () -> Unit,
-    onDeleteLayer: () -> Unit
-) {
-    val scrollState = rememberScrollState()
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .verticalScroll(scrollState),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Button(
-                onClick = onAddTextClick,
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Tambah Teks Baru")
-            }
-
-            if (selectedLayer != null) {
-                Spacer(modifier = Modifier.width(8.dp))
-                OutlinedButton(onClick = { onEditTextClick(selectedLayer) }) {
-                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Edit Isi Teks")
-                }
-                IconButton(onClick = onDeleteLayer) {
-                    Icon(Icons.Default.Delete, contentDescription = "Hapus Layer", tint = MaterialTheme.colorScheme.error)
-                }
-            }
-        }
-
-        if (selectedLayer != null) {
-            val style = selectedLayer.style
-
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Ukuran Teks (${selectedLayer.fontSizeSp.toInt()} sp)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                        IconButton(onClick = { onFontSizeChange(selectedLayer.fontSizeSp - 2f) }, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Default.Remove, contentDescription = "Kecilkan")
-                        }
-                        IconButton(onClick = { onFontSizeChange(selectedLayer.fontSizeSp + 2f) }, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Default.Add, contentDescription = "Besarkan")
-                        }
-                    }
-                    Slider(
-                        value = selectedLayer.fontSizeSp,
-                        onValueChange = onFontSizeChange,
-                        valueRange = 10f..150f,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                FormatToggleButton(
-                    text = "B",
-                    isSelected = style.isBold,
-                    onClick = { onStyleChange(style.copy(isBold = !style.isBold)) }
-                )
-                FormatToggleButton(
-                    text = "I",
-                    isSelected = style.isItalic,
-                    onClick = { onStyleChange(style.copy(isItalic = !style.isItalic)) }
-                )
-                FormatToggleButton(
-                    text = "U",
-                    isSelected = style.isUnderline,
-                    onClick = { onStyleChange(style.copy(isUnderline = !style.isUnderline)) }
-                )
-                FormatToggleButton(
-                    text = "S",
-                    isSelected = style.isStrikethrough,
-                    onClick = { onStyleChange(style.copy(isStrikethrough = !style.isStrikethrough)) }
-                )
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                IconButton(onClick = { onStyleChange(style.copy(alignment = TextAlignment.LEFT)) }) {
-                    Icon(
-                        Icons.Default.FormatAlignLeft, contentDescription = null,
-                        tint = if (style.alignment == TextAlignment.LEFT) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                IconButton(onClick = { onStyleChange(style.copy(alignment = TextAlignment.CENTER)) }) {
-                    Icon(
-                        Icons.Default.FormatAlignCenter, contentDescription = null,
-                        tint = if (style.alignment == TextAlignment.CENTER) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                IconButton(onClick = { onStyleChange(style.copy(alignment = TextAlignment.RIGHT)) }) {
-                    Icon(
-                        Icons.Default.FormatAlignRight, contentDescription = null,
-                        tint = if (style.alignment == TextAlignment.RIGHT) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Preset Style", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-                    TextButton(onClick = onSavePresetClick) {
-                        Icon(Icons.Default.BookmarkAdd, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Simpan Style Ini", style = MaterialTheme.typography.labelSmall)
-                    }
-                }
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(availablePresets, key = { it.id }) { preset ->
-                        FilterChip(
-                            selected = false,
-                            onClick = { onApplyPreset(preset) },
-                            label = { Text(preset.name) }
-                        )
-                    }
-                }
-            }
-
-            if (installedFonts.isNotEmpty()) {
-                Column {
-                    Text("Font Family", style = MaterialTheme.typography.labelLarge)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        item {
-                            FilterChip(
-                                selected = style.fontPath == null,
-                                onClick = { onStyleChange(style.copy(fontPath = null)) },
-                                label = { Text("System Default") }
-                            )
-                        }
-                        items(installedFonts, key = { it.path }) { font ->
-                            FilterChip(
-                                selected = style.fontPath == font.path,
-                                onClick = { onStyleChange(style.copy(fontPath = font.path)) },
-                                label = { Text(font.name) }
-                            )
-                        }
-                    }
-                }
-            }
-
-            Column {
-                Text("Warna Teks", style = MaterialTheme.typography.labelLarge)
-                Spacer(modifier = Modifier.height(4.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(presetColors, key = { it }) { colorArgb ->
-                        ColorSwatch(
-                            colorArgb = colorArgb,
-                            isSelected = style.colorArgb == colorArgb,
-                            onClick = { onStyleChange(style.copy(colorArgb = colorArgb)) }
-                        )
-                    }
-                }
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text("Stroke (Outline)", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                Switch(
-                    checked = style.strokeEnabled,
-                    onCheckedChange = { onStyleChange(style.copy(strokeEnabled = it)) }
-                )
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text("Glow (Bersinar)", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                Switch(
-                    checked = style.glowEnabled,
-                    onCheckedChange = { onStyleChange(style.copy(glowEnabled = it)) }
-                )
-            }
         }
     }
 }
@@ -699,15 +667,11 @@ private fun InpaintAndMaskTabContent(
     onTriggerInpaint: () -> Unit,
     onClearMask: () -> Unit
 ) {
-    val scrollState = rememberScrollState()
-
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .verticalScroll(scrollState),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text("Pilih Alat Masker Pembersih Balon", style = MaterialTheme.typography.titleSmall)
+        Text("Alat Pembersih Balon (Inpaint)", style = MaterialTheme.typography.titleSmall)
 
         // Sub-toolbar Mode Alat Masker (Brush, Lasso, Magic Wand, Eyedropper, Zoom)
         Row(
@@ -786,7 +750,7 @@ private fun InpaintAndMaskTabContent(
             ) {
                 Icon(Icons.Default.CleaningServices, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Bersihkan Masker")
+                Text("Bersihkan")
             }
 
             Button(
@@ -803,7 +767,7 @@ private fun InpaintAndMaskTabContent(
 
 @Composable
 private fun MaskToolIconButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     label: String,
     isSelected: Boolean,
     onClick: () -> Unit
@@ -829,6 +793,190 @@ private fun MaskToolIconButton(
             style = MaterialTheme.typography.labelSmall,
             color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+private val presetColors = listOf(
+    0xFF000000.toInt(),
+    0xFFFFFFFF.toInt(),
+    0xFFE53935.toInt(),
+    0xFF1E88E5.toInt(),
+    0xFFFDD835.toInt(),
+    0xFF43A047.toInt(),
+    0xFF8E24AA.toInt(),
+    0xFFFF6D00.toInt()
+)
+
+@Composable
+private fun TextTabContent(
+    selectedLayer: CanvasTextLayer?,
+    installedFonts: List<CustomFontItem>,
+    availablePresets: List<TextStylePreset>,
+    onAddTextClick: () -> Unit,
+    onEditTextClick: (CanvasTextLayer) -> Unit,
+    onStyleChange: (TextStyleConfig) -> Unit,
+    onFontSizeChange: (Float) -> Unit,
+    onApplyPreset: (TextStylePreset) -> Unit,
+    onSavePresetClick: () -> Unit,
+    onDeleteLayer: () -> Unit
+) {
+    if (selectedLayer == null) return
+    val style = selectedLayer.style
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                "Gaya Teks (${selectedLayer.fontSizeSp.toInt()} sp)",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedButton(onClick = { onEditTextClick(selectedLayer) }) {
+                Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Ubah Isi")
+            }
+            IconButton(onClick = onDeleteLayer) {
+                Icon(Icons.Default.Delete, contentDescription = "Hapus Layer", tint = MaterialTheme.colorScheme.error)
+            }
+        }
+
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Slider(
+                    value = selectedLayer.fontSizeSp,
+                    onValueChange = onFontSizeChange,
+                    valueRange = 10f..150f,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            FormatToggleButton(
+                text = "B",
+                isSelected = style.isBold,
+                onClick = { onStyleChange(style.copy(isBold = !style.isBold)) }
+            )
+            FormatToggleButton(
+                text = "I",
+                isSelected = style.isItalic,
+                onClick = { onStyleChange(style.copy(isItalic = !style.isItalic)) }
+            )
+            FormatToggleButton(
+                text = "U",
+                isSelected = style.isUnderline,
+                onClick = { onStyleChange(style.copy(isUnderline = !style.isUnderline)) }
+            )
+            FormatToggleButton(
+                text = "S",
+                isSelected = style.isStrikethrough,
+                onClick = { onStyleChange(style.copy(isStrikethrough = !style.isStrikethrough)) }
+            )
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            IconButton(onClick = { onStyleChange(style.copy(alignment = TextAlignment.LEFT)) }) {
+                Icon(
+                    Icons.Default.FormatAlignLeft, contentDescription = null,
+                    tint = if (style.alignment == TextAlignment.LEFT) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(onClick = { onStyleChange(style.copy(alignment = TextAlignment.CENTER)) }) {
+                Icon(
+                    Icons.Default.FormatAlignCenter, contentDescription = null,
+                    tint = if (style.alignment == TextAlignment.CENTER) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(onClick = { onStyleChange(style.copy(alignment = TextAlignment.RIGHT)) }) {
+                Icon(
+                    Icons.Default.FormatAlignRight, contentDescription = null,
+                    tint = if (style.alignment == TextAlignment.RIGHT) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Preset Style", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+                TextButton(onClick = onSavePresetClick) {
+                    Icon(Icons.Default.BookmarkAdd, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Simpan Style Ini", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(availablePresets, key = { it.id }) { preset ->
+                    FilterChip(
+                        selected = false,
+                        onClick = { onApplyPreset(preset) },
+                        label = { Text(preset.name) }
+                    )
+                }
+            }
+        }
+
+        if (installedFonts.isNotEmpty()) {
+            Column {
+                Text("Font Family", style = MaterialTheme.typography.labelLarge)
+                Spacer(modifier = Modifier.height(4.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item {
+                        FilterChip(
+                            selected = style.fontPath == null,
+                            onClick = { onStyleChange(style.copy(fontPath = null)) },
+                            label = { Text("System Default") }
+                        )
+                    }
+                    items(installedFonts, key = { it.path }) { font ->
+                        FilterChip(
+                            selected = style.fontPath == font.path,
+                            onClick = { onStyleChange(style.copy(fontPath = font.path)) },
+                            label = { Text(font.name) }
+                        )
+                    }
+                }
+            }
+        }
+
+        Column {
+            Text("Warna Teks", style = MaterialTheme.typography.labelLarge)
+            Spacer(modifier = Modifier.height(4.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(presetColors, key = { it }) { colorArgb ->
+                    ColorSwatch(
+                        colorArgb = colorArgb,
+                        isSelected = style.colorArgb == colorArgb,
+                        onClick = { onStyleChange(style.copy(colorArgb = colorArgb)) }
+                    )
+                }
+            }
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text("Stroke (Outline)", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Switch(
+                checked = style.strokeEnabled,
+                onCheckedChange = { onStyleChange(style.copy(strokeEnabled = it)) }
+            )
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text("Glow (Bersinar)", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Switch(
+                checked = style.glowEnabled,
+                onCheckedChange = { onStyleChange(style.copy(glowEnabled = it)) }
+            )
+        }
     }
 }
 
@@ -862,7 +1010,7 @@ private fun LayerListTabContent(
     onDeleteLayer: (String) -> Unit
 ) {
     if (layers.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
             Text("Belum ada layer teks pada gambar ini.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     } else {
@@ -883,12 +1031,18 @@ private fun LayerListTabContent(
                     ) {
                         Icon(Icons.Default.TextFields, contentDescription = null, tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = layer.text,
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 1,
-                            modifier = Modifier.weight(1f)
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = layer.text.replace('\n', ' '),
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = "${layer.fontSizeSp.toInt()} sp",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         IconButton(onClick = { onDeleteLayer(layer.id) }) {
                             Icon(Icons.Default.Delete, contentDescription = "Hapus Layer", tint = MaterialTheme.colorScheme.error)
                         }
@@ -927,7 +1081,7 @@ private fun InpaintOptionDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onSelectTelea, modifier = Modifier.fillMaxWidth()) {
-                    Text("Telea Inpaint (OpenCV - Bawaan / Cepat)")
+                    Text("Telea Inpaint (Cepat)")
                 }
                 Button(onClick = onSelectLama, modifier = Modifier.fillMaxWidth()) {
                     Text("LaMa Inpaint (AI Neural Network)")
@@ -961,7 +1115,8 @@ private fun AddTextDialog(
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
-                placeholder = { Text("Tulis teks komik di sini...") },
+                placeholder = { Text("Tulis teks komik...\nBisa beberapa baris") },
+                minLines = 2,
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -989,6 +1144,7 @@ private fun EditTextDialog(
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
+                minLines = 2,
                 modifier = Modifier.fillMaxWidth()
             )
         }

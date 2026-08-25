@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -46,6 +47,7 @@ fun CanvasEditor(
     onMaskStrokeComplete: ((List<Pair<Float, Float>>) -> Unit)? = null,
     onMaskTap: ((Float, Float) -> Unit)? = null,
     onReady: (addTextAtViewportCenter: (String) -> Unit) -> Unit = {},
+    onEditLayerRequest: ((layerId: String) -> Unit)? = null,
     imageContent: @Composable (path: String, contentScale: ContentScale, modifier: Modifier) -> Unit
 ) {
     BoxWithConstraints(modifier = modifier) {
@@ -78,17 +80,30 @@ fun CanvasEditor(
             0.dp
         }
 
-        onReady { text ->
-            val scrollX = horizontalScrollState.value.toFloat()
-            val scrollY = verticalScrollState.value.toFloat()
-            val paddingPx = with(density) { horizontalPadding.toPx() }
-            val centerScreenX = scrollX + with(density) { viewportWidthDp.toPx() } / 2f - paddingPx
-            val centerScreenY = scrollY + with(density) { viewportHeightDp.toPx() } / 2f
-            state.addTextLayer(
-                text,
-                xInImagePx = centerScreenX / state.scale,
-                yInImagePx = centerScreenY / state.scale
-            )
+        androidx.compose.runtime.LaunchedEffect(onReady) {
+            onReady { text ->
+                // Hitung ulang padding & scroll saat callback dipanggil agar
+                // tidak memakai nilai stale dari komposisi sebelumnya.
+                val viewportWidthPx = with(density) { viewportWidthDp.toPx() }
+                val viewportHeightPx = with(density) { viewportHeightDp.toPx() }
+                val displayWidthPx = state.intrinsicWidthPx * state.scale
+                val displayHeightPx = state.intrinsicHeightPx * state.scale
+
+                val padXPx = if (displayWidthPx < viewportWidthPx) {
+                    (viewportWidthPx - displayWidthPx) / 2f
+                } else 0f
+                val padYPx = if (displayHeightPx < viewportHeightPx) {
+                    (viewportHeightPx - displayHeightPx) / 2f
+                } else 0f
+
+                val centerScreenX = horizontalScrollState.value + viewportWidthPx / 2f - padXPx
+                val centerScreenY = verticalScrollState.value + viewportHeightPx / 2f - padYPx
+                state.addTextLayer(
+                    text,
+                    xInImagePx = centerScreenX / state.scale,
+                    yInImagePx = centerScreenY / state.scale
+                )
+            }
         }
 
         Box(
@@ -190,21 +205,15 @@ fun CanvasEditor(
                                     val down = awaitFirstDown(pass = PointerEventPass.Initial)
                                     down.consume()
                                     val points = mutableListOf<Pair<Float, Float>>()
-                                    val scrollX = horizontalScrollState.value.toFloat()
-                                    val scrollY = verticalScrollState.value.toFloat()
-                                    val paddingXPx = with(density) { horizontalPadding.toPx() }
-                                    val paddingYPx = with(density) { verticalPadding.toPx() }
-                                    
-                                    // Hitung posisi gambar yang benar dengan mempertimbangkan scroll dan padding
-                                    val adjustedDownX = down.position.x - scrollX + paddingXPx
-                                    val adjustedDownY = down.position.y - scrollY + paddingYPx
-                                    
-                                    val startImgX = (adjustedDownX / state.scale).coerceIn(0f, state.intrinsicWidthPx.toFloat())
-                                    val startImgY = (adjustedDownY / state.scale).coerceIn(0f, state.intrinsicHeightPx.toFloat())
+
+                                    // Posisi event sudah lokal terhadap Box gambar
+                                    // (di dalam scroll & padding), jadi cukup dibagi
+                                    // dengan scale untuk mendapat koordinat piksel gambar.
+                                    val startImgX = (down.position.x / state.scale).coerceIn(0f, state.intrinsicWidthPx.toFloat())
+                                    val startImgY = (down.position.y / state.scale).coerceIn(0f, state.intrinsicHeightPx.toFloat())
                                     points.add(startImgX to startImgY)
 
                                     var isMultiTouch = false
-                                    var isValidStroke = true
                                     while (true) {
                                         val event = awaitPointerEvent(pass = PointerEventPass.Initial)
                                         val pressed = event.changes.filter { it.pressed }
@@ -217,21 +226,16 @@ fun CanvasEditor(
                                         if (pressed.size == 1) {
                                             val change = pressed[0]
                                             change.consume()
-                                            
-                                            val currentScrollX = horizontalScrollState.value.toFloat()
-                                            val currentScrollY = verticalScrollState.value.toFloat()
-                                            val adjustedX = change.position.x - currentScrollX + paddingXPx
-                                            val adjustedY = change.position.y - currentScrollY + paddingYPx
-                                            
-                                            val imgX = (adjustedX / state.scale).coerceIn(0f, state.intrinsicWidthPx.toFloat())
-                                            val imgY = (adjustedY / state.scale).coerceIn(0f, state.intrinsicHeightPx.toFloat())
+
+                                            val imgX = (change.position.x / state.scale).coerceIn(0f, state.intrinsicWidthPx.toFloat())
+                                            val imgY = (change.position.y / state.scale).coerceIn(0f, state.intrinsicHeightPx.toFloat())
                                             points.add(imgX to imgY)
                                         }
 
                                         if (event.changes.none { it.pressed }) break
                                     }
 
-                                    if (!isMultiTouch && isValidStroke && points.size >= 1) {
+                                    if (!isMultiTouch && points.size >= 1) {
                                         if (maskToolMode == "MAGIC_WAND" || maskToolMode == "COLOR_PIPETTE") {
                                             onMaskTap?.invoke(startImgX, startImgY)
                                         } else if (points.size > 1) {
@@ -265,6 +269,10 @@ fun CanvasEditor(
                         scale = state.scale,
                         isSelected = state.selectedLayerId == layer.id,
                         onSelect = { state.selectLayer(layer.id) },
+                        onDragStarted = { state.pushUndoSnapshot() },
+                        onEditRequest = {
+                            onEditLayerRequest?.invoke(layer.id)
+                        },
                         onDragBy = { deltaXPx, deltaYPx ->
                             state.moveLayerBy(
                                 layer.id,
@@ -288,6 +296,8 @@ private fun DraggableTextLayer(
     scale: Float,
     isSelected: Boolean,
     onSelect: () -> Unit,
+    onDragStarted: () -> Unit,
+    onEditRequest: () -> Unit,
     onDragBy: (deltaXPx: Float, deltaYPx: Float) -> Unit,
     onResizeFontSize: (deltaSp: Float) -> Unit
 ) {
@@ -310,7 +320,15 @@ private fun DraggableTextLayer(
                 } else Modifier
             )
             .pointerInput(layer.id) {
-                detectDragGestures(onDragStart = { onSelect() }) { change, dragAmount ->
+                detectTapGestures(onDoubleTap = { onEditRequest() })
+            }
+            .pointerInput(layer.id) {
+                detectDragGestures(
+                    onDragStart = {
+                        onSelect()
+                        onDragStarted()
+                    }
+                ) { change, dragAmount ->
                     change.consume()
                     onDragBy(dragAmount.x, dragAmount.y)
                 }
@@ -320,7 +338,7 @@ private fun DraggableTextLayer(
             (layer.fontSizeSp * scaleState.value).sp.toPx()
         }
         val extraPx = fontSizePx * 0.5f
-        val (textWidthPx, textHeightPx) = com.mochits.text.measureStyledText(layer.text, fontSizePx)
+        val (textWidthPx, textHeightPx) = com.mochits.text.measureStyledText(layer.text, fontSizePx, layer.style)
 
         val density = LocalDensity.current
         val widthDp = with(density) { (textWidthPx + extraPx * 2).toDp() }

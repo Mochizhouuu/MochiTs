@@ -108,8 +108,32 @@ class LamaInpaintEngineImpl(
             }
             resultBitmap.setPixels(outPixels, 0, inputSize, 0, 0, inputSize, inputSize)
 
-            // Scale kembali ke ukuran asli bitmap sumber
-            val finalOutput = Bitmap.createScaledBitmap(resultBitmap, source.width, source.height, true)
+            // Scale hasil inferensi ke ukuran asli bitmap sumber
+            val scaledResult = Bitmap.createScaledBitmap(resultBitmap, source.width, source.height, true)
+
+            // Komposit: piksel di luar mask dipertahankan dari gambar asli,
+            // hanya area di dalam mask yang diganti hasil LaMa — agar detail
+            // gambar asli di luar mask tidak hilang akibat resize 512x512.
+            val w = source.width
+            val h = source.height
+            val origPixels = IntArray(w * h)
+            val genPixels = IntArray(w * h)
+            val compMaskPixels = IntArray(w * h)
+            source.getPixels(origPixels, 0, w, 0, 0, w, h)
+            scaledResult.getPixels(genPixels, 0, w, 0, 0, w, h)
+            val scaledMask = Bitmap.createScaledBitmap(mask, w, h, true)
+            scaledMask.getPixels(compMaskPixels, 0, w, 0, 0, w, h)
+
+            for (i in 0 until w * h) {
+                val m = compMaskPixels[i]
+                val isMasked = Color.alpha(m) > 10 || (m and 0xFFFFFF) > 0
+                if (!isMasked) {
+                    genPixels[i] = origPixels[i]
+                }
+            }
+
+            val finalOutput = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            finalOutput.setPixels(genPixels, 0, w, 0, 0, w, h)
             OperationResult.Success(finalOutput)
         } catch (e: Exception) {
             OperationResult.Failure(e, "Gagal menjalankan inferensi LaMa: ${e.message}")

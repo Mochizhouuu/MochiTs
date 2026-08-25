@@ -26,14 +26,14 @@ private val MochiSoftDarkColorScheme = darkColorScheme(
     onPrimaryContainer = Color(0xFFE2E0FF),
     secondary = Color(0xFF64B5F6),
     onSecondary = Color(0xFF003258),
-    background = Color(0xFF121318),
-    onBackground = Color(0xFFE3E2E6),
-    surface = Color(0xFF1A1B22),
-    onSurface = Color(0xFFE3E2E6),
-    surfaceVariant = Color(0xFF282A36),
-    onSurfaceVariant = Color(0xFFC4C5D0),
+    background = Color(0xFF101116),
+    onBackground = Color(0xFFE4E3E9),
+    surface = Color(0xFF181A22),
+    onSurface = Color(0xFFE4E3E9),
+    surfaceVariant = Color(0xFF242733),
+    onSurfaceVariant = Color(0xFFC5C6D2),
     surfaceTint = Color(0xFF8B85FF),
-    outline = Color(0xFF444655)
+    outline = Color(0xFF41445A)
 )
 
 @AndroidEntryPoint

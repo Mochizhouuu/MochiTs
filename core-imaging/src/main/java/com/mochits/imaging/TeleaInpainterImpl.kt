@@ -5,6 +5,8 @@ import com.mochits.common.OperationResult
 import org.opencv.android.Utils
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.imgproc.Imgproc
+import org.opencv.photo.Photo
 
 /**
  * Implementasi TeleaInpainter menggunakan OpenCV Imgproc.inpaint.
@@ -22,33 +24,40 @@ class TeleaInpainterImpl : TeleaInpainter {
 
             var isOpenCvSuccess = false
             try {
-                val srcMat = Mat(height, width, CvType.CV_8UC3)
-                val maskMat = Mat(height, width, CvType.CV_8UC1)
-                val dstMat = Mat(height, width, CvType.CV_8UC3)
+                // Utils.bitmapToMat hanya menerima ARGB_8888 (CV_8UC4) — pastikan
+                // kedua bitmap dikonversi dulu, lalu ubah ke BGR/gray untuk OpenCV.
+                val safeSource = if (source.config == Bitmap.Config.ARGB_8888) source
+                else source.copy(Bitmap.Config.ARGB_8888, false)
+                val safeMask = if (mask.config == Bitmap.Config.ARGB_8888) mask
+                else mask.copy(Bitmap.Config.ARGB_8888, false)
 
-                val bgrSource = source.copy(Bitmap.Config.ARGB_8888, false)
-                Utils.bitmapToMat(bgrSource, srcMat)
+                val srcRgba = Mat(height, width, CvType.CV_8UC4)
+                val dstRgba = Mat(height, width, CvType.CV_8UC4)
+                val maskRgba = Mat(height, width, CvType.CV_8UC4)
+                val srcBgr = Mat()
+                val maskGray = Mat()
+                val dstBgr = Mat()
+                try {
+                    Utils.bitmapToMat(safeSource, srcRgba)
+                    Imgproc.cvtColor(srcRgba, srcBgr, Imgproc.COLOR_RGBA2BGR)
 
-                val grayMask = Bitmap.createBitmap(width, height, Bitmap.Config.ALPHA_8)
-                val maskCanvas = android.graphics.Canvas(grayMask)
-                val paint = android.graphics.Paint()
-                maskCanvas.drawBitmap(mask, 0f, 0f, paint)
-                Utils.bitmapToMat(mask, maskMat)
+                    Utils.bitmapToMat(safeMask, maskRgba)
+                    Imgproc.cvtColor(maskRgba, maskGray, Imgproc.COLOR_RGBA2GRAY)
+                    Imgproc.threshold(maskGray, maskGray, 8.0, 255.0, Imgproc.THRESH_BINARY)
 
-                // Imgproc.inpaint (Telea radius = 3.0)
-                org.opencv.photo.Photo.inpaint(
-                    srcMat,
-                    maskMat,
-                    dstMat,
-                    3.0,
-                    org.opencv.photo.Photo.INPAINT_TELEA
-                )
+                    // Imgproc.inpaint (Telea radius = 3.0)
+                    Photo.inpaint(srcBgr, maskGray, dstBgr, 3.0, Photo.INPAINT_TELEA)
 
-                Utils.matToBitmap(dstMat, output)
-
-                srcMat.release()
-                maskMat.release()
-                dstMat.release()
+                    Imgproc.cvtColor(dstBgr, dstRgba, Imgproc.COLOR_BGR2RGBA)
+                    Utils.matToBitmap(dstRgba, output)
+                } finally {
+                    srcRgba.release()
+                    maskRgba.release()
+                    dstRgba.release()
+                    srcBgr.release()
+                    maskGray.release()
+                    dstBgr.release()
+                }
                 isOpenCvSuccess = true
             } catch (e: Throwable) {
                 isOpenCvSuccess = false
