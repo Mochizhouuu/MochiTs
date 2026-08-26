@@ -167,13 +167,12 @@ fun drawStyledTextOnNativeCanvas(
     val fillPaint = Paint(basePaint).apply {
         this.style = Paint.Style.FILL
         if (style.gradientEnabled && style.gradientColors.size >= 2) {
-            val startX = when (style.alignment) {
-                TextAlignment.LEFT -> xPx
-                TextAlignment.CENTER -> xPx - textWidth / 2f
-                TextAlignment.RIGHT -> xPx - textWidth
-            }
+            // Span glyph selalu [xPx, xPx + textWidth]: alignX sudah
+            // dikompensasi lewat Paint.textAlign (CENTER/RIGHT), jadi
+            // gradient harus tetap dimulai dari xPx untuk SEMUA alignment
+            // agar warnanya pas di atas glyph.
             shader = LinearGradient(
-                startX, 0f, startX + textWidth, 0f,
+                xPx, 0f, xPx + textWidth, 0f,
                 style.gradientColors.toIntArray(),
                 null,
                 Shader.TileMode.CLAMP

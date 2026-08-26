@@ -110,8 +110,17 @@ class CanvasEditorState(
         return "text-${System.currentTimeMillis()}-$idCounter"
     }
 
-    fun addTextLayer(text: String, xInImagePx: Float, yInImagePx: Float) {
-        pushUndoSnapshot()
+    /**
+     * @param recordUndo false saat memuat layer tersimpan dari project agar
+     * operasi loading tidak dianggap aksi user (tombol undo tidak ikut aktif).
+     */
+    fun addTextLayer(
+        text: String,
+        xInImagePx: Float,
+        yInImagePx: Float,
+        recordUndo: Boolean = true
+    ) {
+        if (recordUndo) pushUndoSnapshot()
         val newLayer = CanvasTextLayer(
             id = nextLayerId(),
             text = text,

@@ -164,7 +164,9 @@ fun EditorScreen(
                         val y = obj.getDouble("yInImagePx").toFloat()
                         val fontSize = obj.optDouble("fontSizeSp", 24.0).toFloat()
 
-                        canvasState.addTextLayer(text, x, y)
+                        // recordUndo = false: memuat layer tersimpan bukan aksi
+                        // user — jangan membuat tombol undo aktif palsu.
+                        canvasState.addTextLayer(text, x, y, recordUndo = false)
                         val layerId = canvasState.textLayers.lastOrNull()?.id
                         if (layerId != null) {
                             canvasState.updateLayerFontSize(layerId, fontSize)

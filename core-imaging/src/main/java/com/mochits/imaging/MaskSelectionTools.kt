@@ -101,15 +101,23 @@ class MaskSelectionToolsImpl : MaskSelectionTools {
 
                 Imgproc.floodFill(matSrc, matMask, seedPoint, newVal, null, loDiff, upDiff, flags)
 
-                // Mat mask OpenCV menyimpan nilai 255 pada area floodfill
+                // Salin hasil floodFill dari Mat mask ke bitmap secara BULK
+                // (baca per-baris + setPixels sekali panggil). Loop get/setPixel
+                // per-piksel memicu panggilan JNI jutaan kali pada gambar
+                // webtoon berukuran besar dan membuat UI membeku.
+                val outPixels = IntArray(width * height)
+                resultMask.getPixels(outPixels, 0, width, 0, 0, width, height)
+                val rowData = DoubleArray(width)
                 for (r in 0 until height) {
-                    for (c in 0 until width) {
-                        val maskPixel = matMask.get(r + 1, c + 1)
-                        if (maskPixel != null && maskPixel[0] > 0) {
-                            resultMask.setPixel(c, r, Color.WHITE)
+                    val count = matMask.get(r + 1, 1, rowData)
+                    var base = r * width
+                    for (c in 0 until count) {
+                        if (rowData[c] > 0.0) {
+                            outPixels[base + c] = Color.WHITE
                         }
                     }
                 }
+                resultMask.setPixels(outPixels, 0, width, 0, 0, width, height)
 
                 matSrc.release()
                 matMask.release()
@@ -161,6 +169,8 @@ class MaskSelectionToolsImpl : MaskSelectionTools {
             canvas.drawPath(path, paint)
 
             // Fill pixels inside polygon using point-in-polygon algorithm to guarantee full coverage without anti-alias artifacts
+            // (dioperasikan pada array piksel lalu ditulis balik sekali —
+            // setPixel per-piksel terlalu lambat untuk gambar besar).
             val n = points.size
             val xPoints = FloatArray(n) { points[it].first }
             val yPoints = FloatArray(n) { points[it].second }
@@ -180,6 +190,9 @@ class MaskSelectionToolsImpl : MaskSelectionTools {
             minY = minY.coerceIn(0, maskHeight - 1)
             maxY = maxY.coerceIn(0, maskHeight - 1)
 
+            val outPixels = IntArray(maskWidth * maskHeight)
+            resultMask.getPixels(outPixels, 0, maskWidth, 0, 0, maskWidth, maskHeight)
+
             for (y in minY..maxY) {
                 val py = y + 0.5f
                 for (x in minX..maxX) {
@@ -195,10 +208,11 @@ class MaskSelectionToolsImpl : MaskSelectionTools {
                         j = i
                     }
                     if (inside) {
-                        resultMask.setPixel(x, y, if (isSubtract) 0 else Color.WHITE)
+                        outPixels[y * maskWidth + x] = if (isSubtract) 0 else Color.WHITE
                     }
                 }
             }
+            resultMask.setPixels(outPixels, 0, maskWidth, 0, 0, maskWidth, maskHeight)
             OperationResult.Success(resultMask)
         } catch (e: Exception) {
             OperationResult.Failure(e, "Gagal melakukan Lasso selection")
