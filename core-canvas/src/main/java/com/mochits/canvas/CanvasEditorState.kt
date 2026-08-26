@@ -35,6 +35,18 @@ class CanvasEditorState(
     var scale by mutableFloatStateOf(1f)
         private set
 
+    var offsetX by mutableFloatStateOf(0f)
+        private set
+
+    var offsetY by mutableFloatStateOf(0f)
+        private set
+
+    var viewportWidthPx by mutableFloatStateOf(0f)
+        private set
+
+    var viewportHeightPx by mutableFloatStateOf(0f)
+        private set
+
     val textLayers = mutableStateListOf<CanvasTextLayer>()
 
     var selectedLayerId by mutableStateOf<String?>(null)
@@ -51,22 +63,64 @@ class CanvasEditorState(
     private var idCounter by mutableIntStateOf(0)
     private var lastSnapshotAtMs = 0L
 
-    fun updateScale(newScale: Float) {
-        scale = newScale.coerceIn(0.1f, 5.0f)
+    fun updateViewportSize(widthPx: Float, heightPx: Float) {
+        if (widthPx <= 0f || heightPx <= 0f) return
+        val sizeChanged = viewportWidthPx != widthPx || viewportHeightPx != heightPx
+        viewportWidthPx = widthPx
+        viewportHeightPx = heightPx
+        if (sizeChanged && !initialFitApplied) {
+            setInitialFitScale(widthPx, heightPx)
+        }
     }
 
     private var initialFitApplied = false
 
-    /**
-     * Set skala awal agar lebar gambar pas dengan viewport. Hanya berlaku
-     * SEKALI per instance — panggilan ulang (rotasi, perubahan insets,
-     * split-screen) tidak boleh menimpa zoom yang sudah diatur user.
-     */
-    fun setInitialFitScale(viewportWidthPx: Float) {
-        if (initialFitApplied || intrinsicWidthPx <= 0) return
+    fun setInitialFitScale(vwPx: Float, vhPx: Float) {
+        if (initialFitApplied || intrinsicWidthPx <= 0 || intrinsicHeightPx <= 0) return
         initialFitApplied = true
-        val fitScale = (viewportWidthPx / intrinsicWidthPx.toFloat()).coerceIn(0.1f, 1.0f)
+        val fitScale = (vwPx / intrinsicWidthPx.toFloat()).coerceIn(0.05f, 5.0f)
         scale = fitScale
+        // Center image vertically and horizontally in viewport initially
+        offsetX = (vwPx - intrinsicWidthPx * fitScale) / 2f
+        offsetY = (vhPx - intrinsicHeightPx * fitScale) / 2f
+        clampOffsets()
+    }
+
+    fun panBy(dx: Float, dy: Float) {
+        offsetX += dx
+        offsetY += dy
+        clampOffsets()
+    }
+
+    fun zoomAt(zoomFactor: Float, centroidX: Float, centroidY: Float) {
+        val oldScale = scale
+        val newScale = (oldScale * zoomFactor).coerceIn(0.05f, 10.0f)
+        if (newScale == oldScale) return
+
+        // Centroid in image coordinates before zoom
+        val imgX = (centroidX - offsetX) / oldScale
+        val imgY = (centroidY - offsetY) / oldScale
+
+        scale = newScale
+        // Adjust offsets so centroid point remains under the same screen location
+        offsetX = centroidX - imgX * newScale
+        offsetY = centroidY - imgY * newScale
+        clampOffsets()
+    }
+
+    fun clampOffsets() {
+        if (viewportWidthPx <= 0f || viewportHeightPx <= 0f) return
+        val imgWidthScreen = intrinsicWidthPx * scale
+        val imgHeightScreen = intrinsicHeightPx * scale
+
+        val minX = if (imgWidthScreen > viewportWidthPx) viewportWidthPx - imgWidthScreen else (viewportWidthPx - imgWidthScreen) / 2f
+        val maxX = if (imgWidthScreen > viewportWidthPx) 0f else (viewportWidthPx - imgWidthScreen) / 2f
+
+        val minY = if (imgHeightScreen > viewportHeightPx) viewportHeightPx - imgHeightScreen else (viewportHeightPx - imgHeightScreen) / 2f
+        val maxY = if (imgHeightScreen > viewportHeightPx) 0f else (viewportHeightPx - imgHeightScreen) / 2f
+
+        offsetX = offsetX.coerceIn(minX, maxX)
+        offsetY = offsetY.coerceIn(minY, maxY)
     }
 
     /**
