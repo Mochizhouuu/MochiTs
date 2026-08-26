@@ -122,7 +122,8 @@ fun EditorScreen(
                 if (bmp == null) {
                     imageLoadError = "File gambar rusak atau tidak dapat dibuka"
                 } else {
-                    currentBaseBitmap?.recycle()
+                    // Tidak memanggil recycle() manual: bitmap lama mungkin masih
+                    // dipakai frame render Compose/Coil — biarkan GC yang bersihkan.
                     currentBaseBitmap = bmp
                     intrinsicSize = bmp.width to bmp.height
 
@@ -746,9 +747,7 @@ fun EditorScreen(
                     val res = telea.inpaint(currentBaseBitmap!!, currentMaskBitmap!!)
                     isProcessingMask = false
                     if (res is OperationResult.Success) {
-                        val oldBmp = currentBaseBitmap
                         currentBaseBitmap = res.data
-                        oldBmp?.recycle()
                         showToast("Inpaint Telea berhasil!")
                         saveProjectState()
                     }
@@ -765,9 +764,7 @@ fun EditorScreen(
                         val res = telea.inpaint(currentBaseBitmap!!, currentMaskBitmap!!)
                         isProcessingMask = false
                         if (res is OperationResult.Success) {
-                            val oldBmp = currentBaseBitmap
                             currentBaseBitmap = res.data
-                            oldBmp?.recycle()
                             saveProjectState()
                         }
                     } else {
@@ -777,9 +774,7 @@ fun EditorScreen(
                         lamaEngine.release()
                         isProcessingMask = false
                         if (res is OperationResult.Success) {
-                            val oldBmp = currentBaseBitmap
                             currentBaseBitmap = res.data
-                            oldBmp?.recycle()
                             showToast("Inpaint LaMa AI berhasil!")
                             saveProjectState()
                         }
