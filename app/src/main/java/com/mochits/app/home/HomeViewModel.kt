@@ -4,9 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mochits.app.project.ProjectEntity
 import com.mochits.app.project.ProjectRepository
+import com.mochits.app.ui.theme.AppThemeMode
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -16,6 +19,9 @@ class HomeViewModel @Inject constructor(
     private val repository: ProjectRepository
 ) : ViewModel() {
 
+    private val _themeMode = MutableStateFlow(AppThemeMode.SYSTEM)
+    val themeMode: StateFlow<AppThemeMode> = _themeMode.asStateFlow()
+
     val projects: StateFlow<List<ProjectEntity>> = repository.getAllProjects()
         .stateIn(
             scope = viewModelScope,
@@ -23,16 +29,28 @@ class HomeViewModel @Inject constructor(
             initialValue = emptyList()
         )
 
+    fun setThemeMode(mode: AppThemeMode) {
+        _themeMode.value = mode
+    }
+
     fun createProject(title: String, width: Int, height: Int, onCreated: (String) -> Unit) {
         viewModelScope.launch {
-            val project = repository.createProject(title, width, height)
-            onCreated(project.id)
+            try {
+                val project = repository.createProject(title, width, height)
+                onCreated(project.id)
+            } catch (e: Exception) {
+                // Log or handle error gracefully
+            }
         }
     }
 
     fun deleteProject(id: String) {
         viewModelScope.launch {
-            repository.deleteProject(id)
+            try {
+                repository.deleteProject(id)
+            } catch (e: Exception) {
+                // Log or handle error gracefully
+            }
         }
     }
 }
