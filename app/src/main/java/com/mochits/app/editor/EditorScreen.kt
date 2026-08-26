@@ -674,9 +674,14 @@ fun EditorScreen(
         SavePresetDialog(
             onConfirm = { name ->
                 showSavePresetDialog = null
-                val created = presetManager.savePreset(name, style)
-                availablePresets = presetManager.getPresets()
-                showToast("Preset '${created.name}' tersimpan!")
+                when (val res = presetManager.savePreset(name, style)) {
+                    is OperationResult.Success -> {
+                        availablePresets = presetManager.getPresets()
+                        showToast("Preset '${res.data.name}' tersimpan!")
+                    }
+                    is OperationResult.Failure ->
+                        showToast(res.message ?: "Gagal menyimpan preset")
+                }
             },
             onDismiss = { showSavePresetDialog = null }
         )

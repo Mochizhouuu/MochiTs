@@ -1,6 +1,7 @@
 package com.mochits.text
 
 import android.content.Context
+import com.mochits.common.OperationResult
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -65,7 +66,12 @@ class TextPresetManager(private val context: Context) {
         return defaultPresets + userPresets
     }
 
-    fun savePreset(name: String, style: TextStyleConfig): TextStylePreset {
+    /**
+     * Simpan preset baru. Mengembalikan [OperationResult] — tulis file bisa
+     * gagal (storage penuh) dan caller wajib tahu, jangan diam-diam dianggap
+     * sukses seperti implementasi lama.
+     */
+    fun savePreset(name: String, style: TextStyleConfig): OperationResult<TextStylePreset> {
         val current = loadUserPresets().toMutableList()
         val newPreset = TextStylePreset(
             id = "preset_user_${System.currentTimeMillis()}",
@@ -73,8 +79,12 @@ class TextPresetManager(private val context: Context) {
             style = style
         )
         current.add(newPreset)
-        saveUserPresets(current)
-        return newPreset
+        return try {
+            saveUserPresets(current)
+            OperationResult.Success(newPreset)
+        } catch (e: Exception) {
+            OperationResult.Failure(e, "Gagal menyimpan preset: ${e.message}")
+        }
     }
 
     fun deletePreset(id: String): Boolean {
@@ -91,29 +101,31 @@ class TextPresetManager(private val context: Context) {
 
     private fun loadUserPresets(): List<TextStylePreset> {
         if (!presetsFile.exists()) return emptyList()
-        return try {
-            val jsonStr = presetsFile.readText()
-            val jsonArray = JSONArray(jsonStr)
-            val list = mutableListOf<TextStylePreset>()
+        // Parse PER-ELEMEN: satu entri korup hanya dilewati, tidak boleh
+        // menghapus seluruh preset user (implementasi lama mengembalikan
+        // emptyList lalu save berikutnya menimpa file - data loss permanen).
+        val list = mutableListOf<TextStylePreset>()
+        runCatching {
+            val jsonArray = JSONArray(presetsFile.readText())
             for (i in 0 until jsonArray.length()) {
-                val obj = jsonArray.getJSONObject(i)
-                list.add(deserializePreset(obj))
+                runCatching { deserializePreset(jsonArray.getJSONObject(i)) }
+                    .onSuccess { list.add(it) }
             }
-            list
-        } catch (e: Exception) {
-            emptyList()
         }
+        return list
     }
 
+    /** Tulis via file .tmp + rename atomik; lempar exception bila gagal agar [savePreset] melaporkan kegagalan. */
     private fun saveUserPresets(presets: List<TextStylePreset>) {
-        try {
-            val jsonArray = JSONArray()
-            presets.forEach { preset ->
-                jsonArray.put(serializePreset(preset))
-            }
-            presetsFile.writeText(jsonArray.toString())
-        } catch (e: Exception) {
-            e.printStackTrace()
+        val jsonArray = JSONArray()
+        presets.forEach { preset ->
+            jsonArray.put(serializePreset(preset))
+        }
+        val tmp = File(presetsFile.parentFile, presetsFile.name + ".tmp")
+        tmp.writeText(jsonArray.toString())
+        if (!tmp.renameTo(presetsFile)) {
+            tmp.delete()
+            throw java.io.IOException("Gagal menulis file preset")
         }
     }
 
@@ -121,32 +133,7 @@ class TextPresetManager(private val context: Context) {
         val obj = JSONObject()
         obj.put("id", preset.id)
         obj.put("name", preset.name)
-
-        val s = preset.style
-        val styleObj = JSONObject()
-        styleObj.put("colorArgb", s.colorArgb)
-        styleObj.put("isBold", s.isBold)
-        styleObj.put("isItalic", s.isItalic)
-        styleObj.put("isUnderline", s.isUnderline)
-        styleObj.put("isStrikethrough", s.isStrikethrough)
-        styleObj.put("alignment", s.alignment.name)
-        styleObj.put("fontPath", s.fontPath ?: "")
-        styleObj.put("strokeEnabled", s.strokeEnabled)
-        styleObj.put("strokeWidthPx", s.strokeWidthPx.toDouble())
-        styleObj.put("strokeColorArgb", s.strokeColorArgb)
-        styleObj.put("shadowEnabled", s.shadowEnabled)
-        styleObj.put("shadowDx", s.shadowDx.toDouble())
-        styleObj.put("shadowDy", s.shadowDy.toDouble())
-        styleObj.put("shadowRadius", s.shadowRadius.toDouble())
-        styleObj.put("shadowColorArgb", s.shadowColorArgb)
-        styleObj.put("glowEnabled", s.glowEnabled)
-        styleObj.put("glowRadius", s.glowRadius.toDouble())
-        styleObj.put("glowColorArgb", s.glowColorArgb)
-        styleObj.put("motionBlurEnabled", s.motionBlurEnabled)
-        styleObj.put("motionBlurAngle", s.motionBlurAngle.toDouble())
-        styleObj.put("motionBlurDistance", s.motionBlurDistance.toDouble())
-
-        obj.put("style", styleObj)
+        obj.put("style", TextStyleJson.toJson(preset.style))
         return obj
     }
 
@@ -154,35 +141,6 @@ class TextPresetManager(private val context: Context) {
         val id = obj.getString("id")
         val name = obj.getString("name")
         val sObj = obj.getJSONObject("style")
-
-        val fontPath = sObj.optString("fontPath", "").ifEmpty { null }
-        val alignStr = sObj.optString("alignment", TextAlignment.LEFT.name)
-        val align = try { TextAlignment.valueOf(alignStr) } catch (e: Exception) { TextAlignment.LEFT }
-
-        val style = TextStyleConfig(
-            colorArgb = sObj.optInt("colorArgb", 0xFF000000.toInt()),
-            isBold = sObj.optBoolean("isBold", false),
-            isItalic = sObj.optBoolean("isItalic", false),
-            isUnderline = sObj.optBoolean("isUnderline", false),
-            isStrikethrough = sObj.optBoolean("isStrikethrough", false),
-            alignment = align,
-            fontPath = fontPath,
-            strokeEnabled = sObj.optBoolean("strokeEnabled", false),
-            strokeWidthPx = sObj.optDouble("strokeWidthPx", 4.0).toFloat(),
-            strokeColorArgb = sObj.optInt("strokeColorArgb", 0xFFFFFFFF.toInt()),
-            shadowEnabled = sObj.optBoolean("shadowEnabled", false),
-            shadowDx = sObj.optDouble("shadowDx", 4.0).toFloat(),
-            shadowDy = sObj.optDouble("shadowDy", 4.0).toFloat(),
-            shadowRadius = sObj.optDouble("shadowRadius", 6.0).toFloat(),
-            shadowColorArgb = sObj.optInt("shadowColorArgb", 0x80000000.toInt()),
-            glowEnabled = sObj.optBoolean("glowEnabled", false),
-            glowRadius = sObj.optDouble("glowRadius", 12.0).toFloat(),
-            glowColorArgb = sObj.optInt("glowColorArgb", 0xFFFFEA00.toInt()),
-            motionBlurEnabled = sObj.optBoolean("motionBlurEnabled", false),
-            motionBlurAngle = sObj.optDouble("motionBlurAngle", 0.0).toFloat(),
-            motionBlurDistance = sObj.optDouble("motionBlurDistance", 8.0).toFloat()
-        )
-
-        return TextStylePreset(id = id, name = name, style = style)
+        return TextStylePreset(id = id, name = name, style = TextStyleJson.fromJson(sObj))
     }
 }
