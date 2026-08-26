@@ -63,22 +63,25 @@ class ModelManager(private val context: Context) {
 
         _downloadState.value = ModelDownloadState(isDownloading = true, progressPercent = 0)
 
+        val tempFile = File(modelFile.parentFile, "lama_int8.tflite.tmp")
         try {
             val url = URL(downloadUrl)
             val connection = url.openConnection() as HttpURLConnection
+            connection.instanceFollowRedirects = true
             connection.connectTimeout = 15000
             connection.readTimeout = 30000
             connection.connect()
 
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                val errorMsg = "Gagal mengunduh model: HTTP ${connection.responseCode}"
+            val responseCode = connection.responseCode
+            if (responseCode != HttpURLConnection.HTTP_OK && responseCode != HttpURLConnection.HTTP_MOVED_TEMP && responseCode != HttpURLConnection.HTTP_MOVED_PERM) {
+                val errorMsg = "Gagal mengunduh model: HTTP $responseCode"
                 _downloadState.value = ModelDownloadState(errorMessage = errorMsg)
                 return@withContext OperationResult.Failure(IllegalStateException(errorMsg), errorMsg)
             }
 
             val fileLength = connection.contentLength
             val inputStream = connection.inputStream
-            val outputStream = FileOutputStream(modelFile)
+            val outputStream = FileOutputStream(tempFile)
 
             val data = ByteArray(8192)
             var total: Long = 0
@@ -97,10 +100,20 @@ class ModelManager(private val context: Context) {
             inputStream.close()
             connection.disconnect()
 
+            if (tempFile.exists() && tempFile.length() > 0) {
+                if (modelFile.exists()) modelFile.delete()
+                tempFile.renameTo(modelFile)
+            } else {
+                if (tempFile.exists()) tempFile.delete()
+                val errorMsg = "Berkas model hasil unduhan kosong"
+                _downloadState.value = ModelDownloadState(errorMessage = errorMsg)
+                return@withContext OperationResult.Failure(IllegalStateException(errorMsg), errorMsg)
+            }
+
             _downloadState.value = ModelDownloadState(isDownloaded = true, isDownloading = false, progressPercent = 100)
             OperationResult.Success(Unit)
         } catch (e: Exception) {
-            if (modelFile.exists()) modelFile.delete()
+            if (tempFile.exists()) tempFile.delete()
             val errorMsg = "Error unduh model: ${e.localizedMessage}"
             _downloadState.value = ModelDownloadState(errorMessage = errorMsg)
             OperationResult.Failure(e, errorMsg)
@@ -114,6 +127,6 @@ class ModelManager(private val context: Context) {
     }
 
     companion object {
-        const val DEFAULT_MODEL_URL = "https://github.com/advimman/lama/raw/main/lama_int8.tflite"
+        const val DEFAULT_MODEL_URL = "https://github.com/Mochizhouuu/MochiTs/releases/download/v1.0.0/lama_int8.tflite"
     }
 }

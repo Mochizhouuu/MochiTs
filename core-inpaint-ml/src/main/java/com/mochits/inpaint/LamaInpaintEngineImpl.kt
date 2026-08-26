@@ -35,15 +35,35 @@ class LamaInpaintEngineImpl(
                 )
 
             val options = Interpreter.Options()
-            val compatList = CompatibilityList()
-            if (compatList.isDelegateSupportedOnThisDevice) {
-                gpuDelegate = GpuDelegate(compatList.bestOptionsForThisDevice)
-                options.addDelegate(gpuDelegate)
-            } else {
+            var usedGpu = false
+            try {
+                val compatList = CompatibilityList()
+                if (compatList.isDelegateSupportedOnThisDevice) {
+                    gpuDelegate = GpuDelegate(compatList.bestOptionsForThisDevice)
+                    options.addDelegate(gpuDelegate)
+                    usedGpu = true
+                }
+            } catch (e: Throwable) {
+                gpuDelegate = null
+                usedGpu = false
+            }
+
+            if (!usedGpu) {
                 options.setNumThreads(Runtime.getRuntime().availableProcessors().coerceAtLeast(2))
             }
 
-            interpreter = Interpreter(modelBuffer, options)
+            try {
+                interpreter = Interpreter(modelBuffer, options)
+            } catch (e: Throwable) {
+                if (usedGpu) {
+                    gpuDelegate?.close()
+                    gpuDelegate = null
+                    val cpuOptions = Interpreter.Options().apply {
+                        setNumThreads(Runtime.getRuntime().availableProcessors().coerceAtLeast(2))
+                    }
+                    interpreter = Interpreter(modelBuffer, cpuOptions)
+                } else throw e
+            }
             isLoaded = true
             OperationResult.Success(Unit)
         } catch (e: Exception) {
@@ -134,6 +154,13 @@ class LamaInpaintEngineImpl(
 
             val finalOutput = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             finalOutput.setPixels(genPixels, 0, w, 0, 0, w, h)
+
+            scaledSource.recycle()
+            scaledMask.recycle()
+            resultBitmap.recycle()
+            scaledResult.recycle()
+            compositingMask.recycle()
+
             OperationResult.Success(finalOutput)
         } catch (e: Exception) {
             OperationResult.Failure(e, "Gagal menjalankan inferensi LaMa: ${e.message}")

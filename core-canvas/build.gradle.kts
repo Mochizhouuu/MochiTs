@@ -44,7 +44,7 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testImplementation("junit:junit:4.13.2")
     testImplementation("app.cash.turbine:turbine:1.1.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
 }

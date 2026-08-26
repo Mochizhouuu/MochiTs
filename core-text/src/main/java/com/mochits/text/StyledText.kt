@@ -31,126 +31,158 @@ fun StyledText(
 ) {
     Canvas(modifier = modifier) {
         drawIntoCanvas { canvas ->
-            val nativeCanvas = canvas.nativeCanvas
-
-            val finalTypeface = resolveTypeface(style)
-
-            val basePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
-                textSize = fontSizePx
-                typeface = finalTypeface
-                isUnderlineText = style.isUnderline
-                isStrikeThruText = style.isStrikethrough
-                textAlign = when (style.alignment) {
-                    TextAlignment.LEFT -> Paint.Align.LEFT
-                    TextAlignment.CENTER -> Paint.Align.CENTER
-                    TextAlignment.RIGHT -> Paint.Align.RIGHT
-                }
-            }
-
-            val baselineY = fontSizePx * 1.2f
-
-            val (textWidth, _) = measureStyledText(text, fontSizePx, style)
-
-            val lineHeight = fontSizePx * 1.2f
-            val textLines = text.split('\n')
-
-            // Path untuk Curved Text (hanya masuk akal untuk satu baris)
-            val curvedPath = if (style.curveEnabled && textLines.size == 1) {
-                Path().apply {
-                    val radius = style.curveRadius
-                    val cx = textWidth / 2f
-                    val cy = baselineY + radius
-                    addCircle(cx, cy, radius, Path.Direction.CW)
-                }
-            } else null
-
-            fun drawAllLines(paint: Paint) {
-                if (curvedPath != null) {
-                    drawTextOrPath(nativeCanvas, textLines[0], curvedPath, 0f, baselineY, paint)
-                } else {
-                    textLines.forEachIndexed { index, line ->
-                        nativeCanvas.drawText(line, 0f, baselineY + index * lineHeight, paint)
-                    }
-                }
-            }
-
-            // 1. Motion Blur Effect (Multi-pass directional step)
-            if (style.motionBlurEnabled && style.motionBlurDistance > 0f) {
-                val samples = 5
-                val rad = Math.toRadians(style.motionBlurAngle.toDouble())
-                val dxStep = (cos(rad) * style.motionBlurDistance / samples).toFloat()
-                val dyStep = (sin(rad) * style.motionBlurDistance / samples).toFloat()
-
-                val blurPaint = Paint(basePaint).apply {
-                    color = style.colorArgb
-                    alpha = (255 / (samples + 1)).coerceIn(20, 100)
-                }
-
-                for (i in 1..samples) {
-                    val ox = dxStep * i
-                    val oy = dyStep * i
-                    nativeCanvas.save()
-                    nativeCanvas.translate(ox, oy)
-                    drawAllLines(blurPaint)
-                    nativeCanvas.restore()
-                }
-            }
-
-            // 2. Glow Effect (BlurMaskFilter dengan LAYER_TYPE_SOFTWARE untuk kompatibilitas)
-            if (style.glowEnabled && style.glowRadius > 0f) {
-                val glowPaint = Paint(basePaint).apply {
-                    color = style.glowColorArgb
-                    // Gunakan BlurMaskFilter dengan software layer untuk kompatibilitas Android 11-
-                    maskFilter = BlurMaskFilter(style.glowRadius, BlurMaskFilter.Blur.NORMAL)
-                }
-                nativeCanvas.save()
-                drawAllLines(glowPaint)
-                nativeCanvas.restore()
-            }
-
-            // 3. Drop Shadow Effect (dengan software layer untuk kompatibilitas)
-            if (style.shadowEnabled) {
-                val shadowPaint = Paint(basePaint).apply {
-                    color = style.shadowColorArgb
-                    if (style.shadowRadius > 0f) {
-                        maskFilter = BlurMaskFilter(style.shadowRadius, BlurMaskFilter.Blur.NORMAL)
-                    }
-                }
-                nativeCanvas.save()
-                nativeCanvas.translate(style.shadowDx, style.shadowDy)
-                drawAllLines(shadowPaint)
-                nativeCanvas.restore()
-            }
-
-            // 4. Stroke / Outline Effect
-            if (style.strokeEnabled) {
-                val strokePaint = Paint(basePaint).apply {
-                    this.style = Paint.Style.STROKE
-                    strokeWidth = style.strokeWidthPx
-                    color = style.strokeColorArgb
-                    strokeJoin = Paint.Join.ROUND
-                    strokeCap = Paint.Cap.ROUND
-                }
-                drawAllLines(strokePaint)
-            }
-
-            // 5. Fill (Solid / Gradient)
-            val fillPaint = Paint(basePaint).apply {
-                this.style = Paint.Style.FILL
-                if (style.gradientEnabled && style.gradientColors.size >= 2) {
-                    shader = LinearGradient(
-                        0f, 0f, textWidth, 0f,
-                        style.gradientColors.toIntArray(),
-                        null,
-                        Shader.TileMode.CLAMP
-                    )
-                } else {
-                    color = style.colorArgb
-                }
-            }
-            drawAllLines(fillPaint)
+            drawStyledTextOnNativeCanvas(
+                canvas = canvas.nativeCanvas,
+                text = text,
+                xPx = 0f,
+                yPx = 0f,
+                fontSizePx = fontSizePx,
+                style = style
+            )
         }
     }
+}
+
+/**
+ * Shared drawing function untuk merender teks berserta seluruh efeknya
+ * (alignment, curved text, gradient fill, stroke, drop shadow, glow, motion blur)
+ * langsung pada android.graphics.Canvas native.
+ * Dipakai oleh Compose [StyledText] dan [ProjectExporter].
+ */
+fun drawStyledTextOnNativeCanvas(
+    canvas: Canvas,
+    text: String,
+    xPx: Float,
+    yPx: Float,
+    fontSizePx: Float,
+    style: TextStyleConfig
+) {
+    val finalTypeface = resolveTypeface(style)
+
+    val basePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
+        textSize = fontSizePx
+        typeface = finalTypeface
+        isUnderlineText = style.isUnderline
+        isStrikeThruText = style.isStrikethrough
+        textAlign = when (style.alignment) {
+            TextAlignment.LEFT -> Paint.Align.LEFT
+            TextAlignment.CENTER -> Paint.Align.CENTER
+            TextAlignment.RIGHT -> Paint.Align.RIGHT
+        }
+    }
+
+    val baselineY = yPx + fontSizePx * 1.2f
+
+    val (textWidth, _) = measureStyledText(text, fontSizePx, style)
+
+    val alignX = when (style.alignment) {
+        TextAlignment.LEFT -> xPx
+        TextAlignment.CENTER -> xPx + textWidth / 2f
+        TextAlignment.RIGHT -> xPx + textWidth
+    }
+
+    val lineHeight = fontSizePx * 1.2f
+    val textLines = text.split('\n')
+
+    // Path untuk Curved Text
+    val curvedPath = if (style.curveEnabled && textLines.size == 1) {
+        Path().apply {
+            val radius = style.curveRadius
+            val cx = alignX
+            val cy = baselineY + radius
+            addCircle(cx, cy, radius, Path.Direction.CW)
+        }
+    } else null
+
+    fun drawAllLines(paint: Paint) {
+        if (curvedPath != null) {
+            drawTextOrPath(canvas, textLines[0], curvedPath, alignX, baselineY, paint)
+        } else {
+            textLines.forEachIndexed { index, line ->
+                canvas.drawText(line, alignX, baselineY + index * lineHeight, paint)
+            }
+        }
+    }
+
+    // 1. Motion Blur Effect
+    if (style.motionBlurEnabled && style.motionBlurDistance > 0f) {
+        val samples = 5
+        val rad = Math.toRadians(style.motionBlurAngle.toDouble())
+        val dxStep = (cos(rad) * style.motionBlurDistance / samples).toFloat()
+        val dyStep = (sin(rad) * style.motionBlurDistance / samples).toFloat()
+
+        val blurPaint = Paint(basePaint).apply {
+            color = style.colorArgb
+            alpha = (255 / (samples + 1)).coerceIn(20, 100)
+        }
+
+        for (i in 1..samples) {
+            val ox = dxStep * i
+            val oy = dyStep * i
+            canvas.save()
+            canvas.translate(ox, oy)
+            drawAllLines(blurPaint)
+            canvas.restore()
+        }
+    }
+
+    // 2. Glow Effect
+    if (style.glowEnabled && style.glowRadius > 0f) {
+        val glowPaint = Paint(basePaint).apply {
+            color = style.glowColorArgb
+            maskFilter = BlurMaskFilter(style.glowRadius, BlurMaskFilter.Blur.NORMAL)
+        }
+        canvas.save()
+        drawAllLines(glowPaint)
+        canvas.restore()
+    }
+
+    // 3. Drop Shadow Effect
+    if (style.shadowEnabled) {
+        val shadowPaint = Paint(basePaint).apply {
+            color = style.shadowColorArgb
+            if (style.shadowRadius > 0f) {
+                maskFilter = BlurMaskFilter(style.shadowRadius, BlurMaskFilter.Blur.NORMAL)
+            }
+        }
+        canvas.save()
+        canvas.translate(style.shadowDx, style.shadowDy)
+        drawAllLines(shadowPaint)
+        canvas.restore()
+    }
+
+    // 4. Stroke / Outline Effect
+    if (style.strokeEnabled) {
+        val strokePaint = Paint(basePaint).apply {
+            this.style = Paint.Style.STROKE
+            strokeWidth = style.strokeWidthPx
+            color = style.strokeColorArgb
+            strokeJoin = Paint.Join.ROUND
+            strokeCap = Paint.Cap.ROUND
+        }
+        drawAllLines(strokePaint)
+    }
+
+    // 5. Fill (Solid / Gradient)
+    val fillPaint = Paint(basePaint).apply {
+        this.style = Paint.Style.FILL
+        if (style.gradientEnabled && style.gradientColors.size >= 2) {
+            val startX = when (style.alignment) {
+                TextAlignment.LEFT -> xPx
+                TextAlignment.CENTER -> xPx - textWidth / 2f
+                TextAlignment.RIGHT -> xPx - textWidth
+            }
+            shader = LinearGradient(
+                startX, 0f, startX + textWidth, 0f,
+                style.gradientColors.toIntArray(),
+                null,
+                Shader.TileMode.CLAMP
+            )
+        } else {
+            color = style.colorArgb
+        }
+    }
+    drawAllLines(fillPaint)
 }
 
 private fun drawTextOrPath(

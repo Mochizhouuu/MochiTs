@@ -20,6 +20,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.FormatAlignLeft
+import androidx.compose.material.icons.automirrored.filled.FormatAlignRight
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -36,29 +40,29 @@ import coil.compose.AsyncImage
 import com.mochits.canvas.CanvasEditor
 import com.mochits.canvas.CanvasEditorState
 import com.mochits.canvas.CanvasTextLayer
+import com.mochits.common.MaskToolMode
 import com.mochits.common.OperationResult
 import com.mochits.imaging.MaskSelectionToolsImpl
 import com.mochits.imaging.TeleaInpainterImpl
 import com.mochits.inpaint.LamaInpaintEngineImpl
 import com.mochits.inpaint.ModelManager
 import com.mochits.app.settings.AppSettings
+import com.mochits.project.ProjectRepository
 import com.mochits.text.*
+import dagger.hilt.android.EntryPointAccessors
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.util.Locale
 
 /** Panel bawah yang bisa dibuka lewat quick toolbar. */
 private enum class EditorPanel { STYLE, MASK, LAYERS }
 
-enum class MaskToolMode {
-    PAN_ZOOM,
-    BRUSH_MASK,
-    LASSO_SELECT,
-    MAGIC_WAND,
-    COLOR_PIPETTE
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditorScreen(
+    projectId: String = "",
     projectName: String,
     baseImagePath: String,
     onBack: () -> Unit,
@@ -67,6 +71,12 @@ fun EditorScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val appSettings = remember { AppSettings(context) }
+    val projectRepo = remember {
+        EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            EditorRepositoryEntryPoint::class.java
+        ).projectRepository()
+    }
 
     val fontManager = remember { FontManager(context) }
     val presetManager = remember { TextPresetManager(context) }
@@ -77,6 +87,8 @@ fun EditorScreen(
 
     var currentBaseBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var currentMaskBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var imageLoadError by remember { mutableStateOf<String?>(null) }
+    var isProcessingMask by remember { mutableStateOf(false) }
 
     var openPanel by remember { mutableStateOf<EditorPanel?>(null) }
     var activeMaskTool by remember { mutableStateOf(MaskToolMode.PAN_ZOOM) }
@@ -96,12 +108,34 @@ fun EditorScreen(
     }
 
     LaunchedEffect(baseImagePath) {
-        val size = readImageIntrinsicSize(baseImagePath)
-        intrinsicSize = size
-        val bmp = BitmapFactory.decodeFile(baseImagePath)
-        currentBaseBitmap = bmp
-        if (bmp != null) {
-            currentMaskBitmap = Bitmap.createBitmap(bmp.width, bmp.height, Bitmap.Config.ARGB_8888)
+        withContext(Dispatchers.IO) {
+            val size = readImageIntrinsicSize(baseImagePath)
+            if (size.first <= 1 || size.second <= 1) {
+                imageLoadError = "Gagal membaca ukuran file gambar"
+                return@withContext
+            }
+            try {
+                val options = BitmapFactory.Options().apply {
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                }
+                val bmp = BitmapFactory.decodeFile(baseImagePath, options)
+                if (bmp == null) {
+                    imageLoadError = "File gambar rusak atau tidak dapat dibuka"
+                } else {
+                    currentBaseBitmap?.recycle()
+                    currentBaseBitmap = bmp
+                    intrinsicSize = bmp.width to bmp.height
+
+                    val project = if (projectId.isNotBlank()) projectRepo.getProject(projectId) else null
+                    if (project?.maskPath != null && java.io.File(project.maskPath).exists()) {
+                        currentMaskBitmap = BitmapFactory.decodeFile(project.maskPath)
+                    } else {
+                        currentMaskBitmap = Bitmap.createBitmap(bmp.width, bmp.height, Bitmap.Config.ARGB_8888)
+                    }
+                }
+            } catch (e: Exception) {
+                imageLoadError = "Error memuat gambar: ${e.message}"
+            }
         }
     }
 
@@ -115,6 +149,118 @@ fun EditorScreen(
             )
         }
     } else null
+
+    LaunchedEffect(canvasState, projectId) {
+        if (canvasState != null && projectId.isNotBlank()) {
+            val json = projectRepo.loadProjectLayersJson(projectId)
+            if (!json.isNullOrBlank()) {
+                try {
+                    val jsonArray = org.json.JSONArray(json)
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.getJSONObject(i)
+                        val text = obj.getString("text")
+                        val x = obj.getDouble("xInImagePx").toFloat()
+                        val y = obj.getDouble("yInImagePx").toFloat()
+                        val fontSize = obj.optDouble("fontSizeSp", 24.0).toFloat()
+
+                        canvasState.addTextLayer(text, x, y)
+                        val layerId = canvasState.textLayers.lastOrNull()?.id
+                        if (layerId != null) {
+                            canvasState.updateLayerFontSize(layerId, fontSize)
+                            if (obj.has("style")) {
+                                val sObj = obj.getJSONObject("style")
+                                val style = TextStyleConfig(
+                                    colorArgb = sObj.optInt("colorArgb", 0xFF000000.toInt()),
+                                    fontPath = sObj.optString("fontPath", null).let { if (it == "null") null else it },
+                                    isBold = sObj.optBoolean("isBold", false),
+                                    isItalic = sObj.optBoolean("isItalic", false),
+                                    isUnderline = sObj.optBoolean("isUnderline", false),
+                                    isStrikethrough = sObj.optBoolean("isStrikethrough", false),
+                                    alignment = try {
+                                        TextAlignment.valueOf(sObj.optString("alignment", "LEFT"))
+                                    } catch (e: Exception) { TextAlignment.LEFT },
+                                    strokeEnabled = sObj.optBoolean("strokeEnabled", false),
+                                    strokeColorArgb = sObj.optInt("strokeColorArgb", 0xFF000000.toInt()),
+                                    strokeWidthPx = sObj.optDouble("strokeWidthPx", 3.0).toFloat(),
+                                    glowEnabled = sObj.optBoolean("glowEnabled", false),
+                                    glowColorArgb = sObj.optInt("glowColorArgb", 0xFFFFE082.toInt()),
+                                    glowRadius = sObj.optDouble("glowRadius", 12.0).toFloat(),
+                                    shadowEnabled = sObj.optBoolean("shadowEnabled", false),
+                                    shadowColorArgb = sObj.optInt("shadowColorArgb", 0x80000000.toInt()),
+                                    shadowRadius = sObj.optDouble("shadowRadius", 6.0).toFloat(),
+                                    shadowDx = sObj.optDouble("shadowDx", 4.0).toFloat(),
+                                    shadowDy = sObj.optDouble("shadowDy", 4.0).toFloat(),
+                                    motionBlurEnabled = sObj.optBoolean("motionBlurEnabled", false),
+                                    motionBlurAngle = sObj.optDouble("motionBlurAngle", 0.0).toFloat(),
+                                    motionBlurDistance = sObj.optDouble("motionBlurDistance", 10.0).toFloat(),
+                                    gradientEnabled = sObj.optBoolean("gradientEnabled", false),
+                                    curveEnabled = sObj.optBoolean("curveEnabled", false),
+                                    curveRadius = sObj.optDouble("curveRadius", 200.0).toFloat()
+                                )
+                                canvasState.updateLayerStyle(layerId, style)
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+
+    fun saveProjectState() {
+        if (projectId.isBlank() || canvasState == null) return
+        coroutineScope.launch(Dispatchers.IO) {
+            val jsonArray = org.json.JSONArray()
+            canvasState.textLayers.forEach { layer ->
+                val obj = org.json.JSONObject()
+                obj.put("id", layer.id)
+                obj.put("text", layer.text)
+                obj.put("xInImagePx", layer.xInImagePx)
+                obj.put("yInImagePx", layer.yInImagePx)
+                obj.put("fontSizeSp", layer.fontSizeSp)
+
+                val s = layer.style
+                val sObj = org.json.JSONObject()
+                sObj.put("colorArgb", s.colorArgb)
+                sObj.put("fontPath", s.fontPath ?: org.json.JSONObject.NULL)
+                sObj.put("isBold", s.isBold)
+                sObj.put("isItalic", s.isItalic)
+                sObj.put("isUnderline", s.isUnderline)
+                sObj.put("isStrikethrough", s.isStrikethrough)
+                sObj.put("alignment", s.alignment.name)
+                sObj.put("strokeEnabled", s.strokeEnabled)
+                sObj.put("strokeColorArgb", s.strokeColorArgb)
+                sObj.put("strokeWidthPx", s.strokeWidthPx)
+                sObj.put("glowEnabled", s.glowEnabled)
+                sObj.put("glowColorArgb", s.glowColorArgb)
+                sObj.put("glowRadius", s.glowRadius)
+                sObj.put("shadowEnabled", s.shadowEnabled)
+                sObj.put("shadowColorArgb", s.shadowColorArgb)
+                sObj.put("shadowRadius", s.shadowRadius)
+                sObj.put("shadowDx", s.shadowDx)
+                sObj.put("shadowDy", s.shadowDy)
+                sObj.put("motionBlurEnabled", s.motionBlurEnabled)
+                sObj.put("motionBlurAngle", s.motionBlurAngle)
+                sObj.put("motionBlurDistance", s.motionBlurDistance)
+                sObj.put("gradientEnabled", s.gradientEnabled)
+                sObj.put("curveEnabled", s.curveEnabled)
+                sObj.put("curveRadius", s.curveRadius)
+
+                obj.put("style", sObj)
+                jsonArray.put(obj)
+            }
+
+            var maskBytes: ByteArray? = null
+            currentMaskBitmap?.let { maskBmp ->
+                val baos = ByteArrayOutputStream()
+                maskBmp.compress(Bitmap.CompressFormat.PNG, 100, baos)
+                maskBytes = baos.toByteArray()
+            }
+
+            projectRepo.saveProjectState(projectId, jsonArray.toString(), maskBytes)
+        }
+    }
 
     val selectedLayer = canvasState?.textLayers?.find { it.id == canvasState.selectedLayerId }
 
@@ -141,7 +287,10 @@ fun EditorScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = {
+                        saveProjectState()
+                        onBack()
+                    }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
                     }
                 },
@@ -216,7 +365,21 @@ fun EditorScreen(
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                if (canvasState == null || currentBaseBitmap == null) {
+                if (imageLoadError != null) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                            Icon(Icons.Default.Error, contentDescription = null, modifier = Modifier.size(56.dp), tint = MaterialTheme.colorScheme.error)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text("Gagal Memuat Gambar", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(imageLoadError ?: "File tidak ditemukan atau rusak", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(onClick = onBack) {
+                                Text("Kembali ke Beranda")
+                            }
+                        }
+                    }
+                } else if (canvasState == null || currentBaseBitmap == null) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator()
@@ -225,66 +388,89 @@ fun EditorScreen(
                         }
                     }
                 } else {
+                    if (isProcessingMask) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter))
+                    }
                     CanvasEditor(
                         state = canvasState,
                         modifier = Modifier.fillMaxSize(),
                         maskBitmap = currentMaskBitmap,
                         isMaskingActive = openPanel == EditorPanel.MASK,
-                        maskToolMode = activeMaskTool.name,
+                        maskToolMode = activeMaskTool,
                         onMaskStrokeComplete = { strokePoints ->
                             val baseBmp = currentBaseBitmap ?: return@CanvasEditor
-                            when (activeMaskTool) {
-                                MaskToolMode.BRUSH_MASK -> {
-                                    val res = maskSelectionTools.drawBrush(
-                                        baseBmp.width,
-                                        baseBmp.height,
-                                        currentMaskBitmap,
-                                        strokePoints,
-                                        brushRadiusPx = brushSizePx
-                                    )
-                                    if (res is OperationResult.Success) {
-                                        currentMaskBitmap = res.data
+                            coroutineScope.launch {
+                                isProcessingMask = true
+                                withContext(Dispatchers.Default) {
+                                    when (activeMaskTool) {
+                                        MaskToolMode.BRUSH_MASK -> {
+                                            val res = maskSelectionTools.drawBrush(
+                                                baseBmp.width,
+                                                baseBmp.height,
+                                                currentMaskBitmap,
+                                                strokePoints,
+                                                brushRadiusPx = brushSizePx
+                                            )
+                                            if (res is OperationResult.Success) {
+                                                currentMaskBitmap = res.data
+                                            }
+                                        }
+                                        MaskToolMode.LASSO_SELECT -> {
+                                            val res = maskSelectionTools.lassoSelect(
+                                                baseBmp.width,
+                                                baseBmp.height,
+                                                currentMaskBitmap,
+                                                strokePoints
+                                            )
+                                            if (res is OperationResult.Success) {
+                                                currentMaskBitmap = res.data
+                                            }
+                                        }
+                                        else -> {}
                                     }
                                 }
-                                MaskToolMode.LASSO_SELECT -> {
-                                    val res = maskSelectionTools.lassoSelect(
-                                        baseBmp.width,
-                                        baseBmp.height,
-                                        currentMaskBitmap,
-                                        strokePoints
-                                    )
-                                    if (res is OperationResult.Success) {
-                                        currentMaskBitmap = res.data
-                                    }
-                                }
-                                else -> {}
+                                isProcessingMask = false
+                                saveProjectState()
                             }
                         },
                         onMaskTap = { xPx, yPx ->
                             val baseBmp = currentBaseBitmap ?: return@CanvasEditor
-                            when (activeMaskTool) {
-                                MaskToolMode.MAGIC_WAND -> {
-                                    val res = maskSelectionTools.magicWandSelect(
-                                        baseBmp,
-                                        currentMaskBitmap,
-                                        xPx.toInt(),
-                                        yPx.toInt(),
-                                        tolerance = wandTolerance.toInt()
-                                    )
-                                    if (res is OperationResult.Success) {
-                                        currentMaskBitmap = res.data
+                            coroutineScope.launch {
+                                if (activeMaskTool == MaskToolMode.MAGIC_WAND) {
+                                    isProcessingMask = true
+                                }
+                                withContext(Dispatchers.Default) {
+                                    when (activeMaskTool) {
+                                        MaskToolMode.MAGIC_WAND -> {
+                                            val res = maskSelectionTools.magicWandSelect(
+                                                baseBmp,
+                                                currentMaskBitmap,
+                                                xPx.toInt(),
+                                                yPx.toInt(),
+                                                tolerance = wandTolerance.toInt()
+                                            )
+                                            if (res is OperationResult.Success) {
+                                                currentMaskBitmap = res.data
+                                            }
+                                        }
+                                        MaskToolMode.COLOR_PIPETTE -> {
+                                            val color = maskSelectionTools.sampleColor(
+                                                baseBmp,
+                                                xPx.toInt(),
+                                                yPx.toInt()
+                                            )
+                                            val hexColor = String.format(Locale.US, "#%08X", color)
+                                            withContext(Dispatchers.Main) {
+                                                showToast("Warna terpilih: $hexColor")
+                                            }
+                                        }
+                                        else -> {}
                                     }
                                 }
-                                MaskToolMode.COLOR_PIPETTE -> {
-                                    val color = maskSelectionTools.sampleColor(
-                                        baseBmp,
-                                        xPx.toInt(),
-                                        yPx.toInt()
-                                    )
-                                    val hexColor = String.format("#%08X", color)
-                                    showToast("Warna terpilih: $hexColor")
+                                isProcessingMask = false
+                                if (activeMaskTool == MaskToolMode.MAGIC_WAND) {
+                                    saveProjectState()
                                 }
-                                else -> {}
                             }
                         },
                         onReady = { addTextFn -> addTextAtViewportCenter = addTextFn },
@@ -555,32 +741,48 @@ fun EditorScreen(
             onSelectTelea = {
                 showInpaintDialog = false
                 coroutineScope.launch {
+                    isProcessingMask = true
                     val telea = TeleaInpainterImpl()
                     val res = telea.inpaint(currentBaseBitmap!!, currentMaskBitmap!!)
+                    isProcessingMask = false
                     if (res is OperationResult.Success) {
+                        val oldBmp = currentBaseBitmap
                         currentBaseBitmap = res.data
+                        oldBmp?.recycle()
                         showToast("Inpaint Telea berhasil!")
+                        saveProjectState()
                     }
                 }
             },
             onSelectLama = {
                 showInpaintDialog = false
                 coroutineScope.launch {
+                    isProcessingMask = true
                     val modelMgr = ModelManager(context)
                     if (!modelMgr.isModelAvailable()) {
                         Toast.makeText(context, "Model LaMa belum diunduh, otomatis fallback ke Telea", Toast.LENGTH_LONG).show()
                         val telea = TeleaInpainterImpl()
                         val res = telea.inpaint(currentBaseBitmap!!, currentMaskBitmap!!)
-                        if (res is OperationResult.Success) currentBaseBitmap = res.data
+                        isProcessingMask = false
+                        if (res is OperationResult.Success) {
+                            val oldBmp = currentBaseBitmap
+                            currentBaseBitmap = res.data
+                            oldBmp?.recycle()
+                            saveProjectState()
+                        }
                     } else {
                         val lamaEngine = LamaInpaintEngineImpl(context)
                         lamaEngine.loadModel(modelMgr.getModelFilePath())
                         val res = lamaEngine.infer(currentBaseBitmap!!, currentMaskBitmap!!)
-                        if (res is OperationResult.Success) {
-                            currentBaseBitmap = res.data
-                            showToast("Inpaint LaMa AI berhasil!")
-                        }
                         lamaEngine.release()
+                        isProcessingMask = false
+                        if (res is OperationResult.Success) {
+                            val oldBmp = currentBaseBitmap
+                            currentBaseBitmap = res.data
+                            oldBmp?.recycle()
+                            showToast("Inpaint LaMa AI berhasil!")
+                            saveProjectState()
+                        }
                     }
                 }
             },
