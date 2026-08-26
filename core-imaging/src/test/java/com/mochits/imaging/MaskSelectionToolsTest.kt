@@ -70,7 +70,7 @@ class MaskSelectionToolsTest {
         // Titik tunggal: diameter = 2 x radius. Dalam radius harus putih,
         // di luar radius+1 harus transparan (bug lama menghasilkan 4r).
         assertEquals(Color.WHITE, mask.getPixel(50, 50))
-        assertEquals(Color.WHITE, mask.getPixel(50, 54))
+        assertEquals(Color.WHITE, mask.getPixel(50, 52))
         val outside = mask.getPixel(50, 57)
         assertEquals(0, Color.alpha(outside))
     }

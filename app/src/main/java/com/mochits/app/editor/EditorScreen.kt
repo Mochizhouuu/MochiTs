@@ -151,8 +151,9 @@ fun EditorScreen(
                     intrinsicSize = bmp.width to bmp.height
 
                     val project = if (projectId.isNotBlank()) projectRepo.getProject(projectId) else null
-                    if (project?.maskPath != null && java.io.File(project.maskPath).exists()) {
-                        currentMaskBitmap = BitmapFactory.decodeFile(project.maskPath)
+                    val maskPath = project?.maskPath
+                    if (maskPath != null && java.io.File(maskPath).exists()) {
+                        currentMaskBitmap = BitmapFactory.decodeFile(maskPath)
                     } else {
                         currentMaskBitmap = Bitmap.createBitmap(bmp.width, bmp.height, Bitmap.Config.ARGB_8888)
                     }
@@ -257,13 +258,13 @@ fun EditorScreen(
                         onClick = { canvasState?.undo() },
                         enabled = canvasState?.canUndo == true
                     ) {
-                        Icon(Icons.Default.Undo, contentDescription = "Urungkan")
+                        Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Urungkan")
                     }
                     IconButton(
                         onClick = { canvasState?.redo() },
                         enabled = canvasState?.canRedo == true
                     ) {
-                        Icon(Icons.Default.Redo, contentDescription = "Ulangi")
+                        Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Ulangi")
                     }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Pengaturan")
@@ -274,11 +275,12 @@ fun EditorScreen(
                             if (baseBmp != null && canvasState != null && !isExporting) {
                                 coroutineScope.launch {
                                     isExporting = true
+                                    val exportSubfolder = appSettings.exportLocation
                                     val res = ProjectExporter.exportToGallery(
                                         context = context,
                                         baseImageBitmap = baseBmp,
                                         state = canvasState,
-                                        subfolder = appSettings.exportLocation,
+                                        subfolder = exportSubfolder,
                                         pxPerSp = pxPerSp,
                                         quality = appSettings.exportQuality
                                     )
@@ -287,7 +289,7 @@ fun EditorScreen(
                                         is OperationResult.Success ->
                                             Toast.makeText(
                                                 context,
-                                                "Tersimpan di galeri (${"Pictures/" + appSettings.exportLocation.trim('/')})",
+                                                "Tersimpan di galeri (Pictures/${exportSubfolder.trim('/')})",
                                                 Toast.LENGTH_LONG
                                             ).show()
                                         is OperationResult.Failure ->
@@ -551,43 +553,43 @@ fun EditorScreen(
     }
 
     // ===== Bottom Sheets =====
-    if (openPanel == EditorPanel.STYLE) {
+    if (openPanel == EditorPanel.STYLE && selectedLayer != null) {
+        val currentLayer = selectedLayer
+        val currentState = checkNotNull(canvasState)
         ModalBottomSheet(
             onDismissRequest = { openPanel = null },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             containerColor = MaterialTheme.colorScheme.surface
         ) {
-            if (selectedLayer != null && canvasState != null) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp)
-                        .padding(bottom = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    TextTabContent(
-                        selectedLayer = selectedLayer,
-                        installedFonts = installedFonts,
-                        availablePresets = availablePresets,
-                        onEditTextClick = { layer -> showEditTextDialog = layer },
-                        onStyleChange = { newStyle ->
-                            selectedLayer?.let { canvasState.updateLayerStyle(it.id, newStyle) }
-                        },
-                        onFontSizeChange = { newSize ->
-                            selectedLayer?.let { canvasState.updateLayerFontSize(it.id, newSize) }
-                        },
-                        onApplyPreset = { preset ->
-                            selectedLayer?.let { canvasState.updateLayerStyle(it.id, preset.style) }
-                        },
-                        onSavePresetClick = {
-                            selectedLayer?.let { showSavePresetDialog = it.style }
-                        },
-                        onDeleteLayer = {
-                            selectedLayer?.let { canvasState.deleteLayer(it.id) }
-                        }
-                    )
-                }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                TextTabContent(
+                    selectedLayer = currentLayer,
+                    installedFonts = installedFonts,
+                    availablePresets = availablePresets,
+                    onEditTextClick = { layer -> showEditTextDialog = layer },
+                    onStyleChange = { newStyle ->
+                        currentState.updateLayerStyle(currentLayer.id, newStyle)
+                    },
+                    onFontSizeChange = { newSize ->
+                        currentState.updateLayerFontSize(currentLayer.id, newSize)
+                    },
+                    onApplyPreset = { preset ->
+                        currentState.updateLayerStyle(currentLayer.id, preset.style)
+                    },
+                    onSavePresetClick = {
+                        showSavePresetDialog = currentLayer.style
+                    },
+                    onDeleteLayer = {
+                        currentState.deleteLayer(currentLayer.id)
+                    }
+                )
             }
         }
     }
@@ -1069,7 +1071,7 @@ private fun TextTabContent(
 
             IconButton(onClick = { onStyleChange(style.copy(alignment = TextAlignment.LEFT)) }) {
                 Icon(
-                    Icons.Default.FormatAlignLeft, contentDescription = null,
+                    Icons.AutoMirrored.Filled.FormatAlignLeft, contentDescription = null,
                     tint = if (style.alignment == TextAlignment.LEFT) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -1081,7 +1083,7 @@ private fun TextTabContent(
             }
             IconButton(onClick = { onStyleChange(style.copy(alignment = TextAlignment.RIGHT)) }) {
                 Icon(
-                    Icons.Default.FormatAlignRight, contentDescription = null,
+                    Icons.AutoMirrored.Filled.FormatAlignRight, contentDescription = null,
                     tint = if (style.alignment == TextAlignment.RIGHT) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
