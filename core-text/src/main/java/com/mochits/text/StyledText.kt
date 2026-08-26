@@ -200,16 +200,31 @@ private fun drawTextOrPath(
 }
 
 /**
+ * Cache [Typeface] per path font. Tanpa cache, [Typeface.createFromFile]
+ * membaca file dari disk SETIAP frame render/ukur teks — disk I/O di UI
+ * thread yang memicu jank pada gambar webtoon besar.
+ */
+private val typefaceCache = java.util.concurrent.ConcurrentHashMap<String, Typeface>()
+
+/** Hapus cache font (panggil saat font dihapus/impor ulang dengan nama sama). */
+fun clearTypefaceCache(path: String? = null) {
+    if (path == null) typefaceCache.clear() else typefaceCache.remove(path)
+}
+
+/**
  * Membentuk [Typeface] dari [TextStyleConfig]: font custom (via path) bila
  * ada, dengan variasi bold/italic yang sesuai. Fallback ke system default
- * jika file font gagal dimuat.
+ * jika file font gagal dimuat. Hasil per-path di-cache agar tidak membaca
+ * disk berulang-ulang.
  */
 fun resolveTypeface(style: TextStyleConfig?): Typeface {
     val base = style?.fontPath?.let { path ->
-        try {
-            Typeface.createFromFile(path)
-        } catch (e: Exception) {
-            Typeface.DEFAULT
+        typefaceCache.getOrPut(path) {
+            try {
+                Typeface.createFromFile(path)
+            } catch (e: Exception) {
+                Typeface.DEFAULT
+            }
         }
     } ?: Typeface.DEFAULT
 
