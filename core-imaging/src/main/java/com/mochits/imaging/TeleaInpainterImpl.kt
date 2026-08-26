@@ -65,6 +65,7 @@ class TeleaInpainterImpl : TeleaInpainter {
             }
 
             if (!isOpenCvSuccess) {
+                android.util.Log.w("TeleaInpainter", "OpenCV tidak tersedia, pakai fallback inpainting Kotlin")
                 // Fallback inpainter sederhana jika OpenCV native SO file belum dimuat
                 runFallbackInpaint(source, mask, output)
             }
@@ -75,6 +76,16 @@ class TeleaInpainterImpl : TeleaInpainter {
             }
         }
 
+    /**
+     * Fallback inpainting tanpa OpenCV: isi piksel ter-mask dengan rata-rata
+     * tetangga yang valid, secara ITERATIF — pass berikutnya memakai hasil
+     * pass sebelumnya sehingga area mask yang seluruh lingkungannya juga
+     * ter-mask (lubang dalam) tetap terisi, tidak dibiarkan kosong.
+     *
+     * Kriteria mask hanya dari alpha (>10): cek tambahan "rgb != 0" membuat
+     * piksel transparan dengan residu RGB (umum pada PNG hasil editing)
+     * salah terdeteksi sebagai mask.
+     */
     private fun runFallbackInpaint(source: Bitmap, mask: Bitmap, output: Bitmap) {
         val width = source.width
         val height = source.height
@@ -87,12 +98,20 @@ class TeleaInpainterImpl : TeleaInpainter {
         mask.getPixels(maskPixels, 0, width, 0, 0, width, height)
         System.arraycopy(srcPixels, 0, outPixels, 0, srcPixels.size)
 
+        val isMasked = BooleanArray(width * height) { (maskPixels[it] ushr 24) > 10 }
+        val isFilled = BooleanArray(width * height)
+        var remaining = isMasked.count { it }
+
         val radius = 5
-        for (y in 0 until height) {
-            for (x in 0 until width) {
-                val idx = y * width + x
-                // Jika piksel tertutup mask (non-transparent / white)
-                if ((maskPixels[idx] ushr 24) > 10 || (maskPixels[idx] and 0xFFFFFF) > 0) {
+        var guard = 0
+        while (remaining > 0 && guard < 64) {
+            guard++
+            var changedThisPass = 0
+            for (y in 0 until height) {
+                for (x in 0 until width) {
+                    val idx = y * width + x
+                    if (!isMasked[idx] || isFilled[idx]) continue
+
                     var rSum = 0L
                     var gSum = 0L
                     var bSum = 0L
@@ -105,9 +124,10 @@ class TeleaInpainterImpl : TeleaInpainter {
                                 val nx = x + dx
                                 if (nx in 0 until width) {
                                     val nIdx = ny * width + nx
-                                    // Piksel sekitar yang TIDAK kena mask
-                                    if ((maskPixels[nIdx] ushr 24) <= 10 && (maskPixels[nIdx] and 0xFFFFFF) == 0) {
-                                        val c = srcPixels[nIdx]
+                                    // Sumber warna: piksel asli tak ter-mask ATAU
+                                    // piksel ter-mask yang sudah terisi pass lain.
+                                    if ((!isMasked[nIdx] || isFilled[nIdx]) && nIdx != idx) {
+                                        val c = outPixels[nIdx]
                                         rSum += (c shr 16) and 0xFF
                                         gSum += (c shr 8) and 0xFF
                                         bSum += c and 0xFF
@@ -123,9 +143,13 @@ class TeleaInpainterImpl : TeleaInpainter {
                         val g = (gSum / count).toInt()
                         val b = (bSum / count).toInt()
                         outPixels[idx] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                        isFilled[idx] = true
+                        changedThisPass++
                     }
                 }
             }
+            if (changedThisPass == 0) break // tidak ada progres — hentikan
+            remaining -= changedThisPass
         }
         output.setPixels(outPixels, 0, width, 0, 0, width, height)
     }

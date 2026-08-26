@@ -86,45 +86,53 @@ class MaskSelectionToolsImpl : MaskSelectionTools {
 
             // Coba OpenCV floodFill jika library OpenCV ter-load, atau fallback ke pure Kotlin floodFill
             var isOpenCvSuccess = false
-            try {
-                val matSrc = Mat(height, width, CvType.CV_8UC4)
-                org.opencv.android.Utils.bitmapToMat(source, matSrc)
+            // Pisahkan try init Mat dari proses fill: exception programming
+            // (mis. ukuran existingMask != source) tidak boleh diam-diam
+            // memicu fallback dan menyembunyikan bug.
+            val openCvReady = runCatching {
+                Pair(
+                    Mat(height, width, CvType.CV_8UC4).also {
+                        org.opencv.android.Utils.bitmapToMat(source, it)
+                    },
+                    Mat.zeros(height + 2, width + 2, CvType.CV_8UC1)
+                )
+            }
+            if (openCvReady.isSuccess) {
+                val (matSrc, matMask) = openCvReady.getOrThrow()
+                try {
+                    val seedPoint = Point(clampedX.toDouble(), clampedY.toDouble())
+                    val newVal = Scalar(255.0, 255.0, 255.0)
+                    val loDiff = Scalar(tolerance.toDouble(), tolerance.toDouble(), tolerance.toDouble(), 255.0)
+                    val upDiff = Scalar(tolerance.toDouble(), tolerance.toDouble(), tolerance.toDouble(), 255.0)
 
-                // OpenCV floodFill memerlukan Mat mask berukuran (height + 2, width + 2)
-                val matMask = Mat.zeros(height + 2, width + 2, CvType.CV_8UC1)
-                val seedPoint = Point(clampedX.toDouble(), clampedY.toDouble())
-                val newVal = Scalar(255.0, 255.0, 255.0)
-                val loDiff = Scalar(tolerance.toDouble(), tolerance.toDouble(), tolerance.toDouble(), 255.0)
-                val upDiff = Scalar(tolerance.toDouble(), tolerance.toDouble(), tolerance.toDouble(), 255.0)
+                    val flags = 4 or (255 shl 8) or Imgproc.FLOODFILL_FIXED_RANGE
 
-                val flags = 4 or (255 shl 8) or Imgproc.FLOODFILL_FIXED_RANGE
+                    Imgproc.floodFill(matSrc, matMask, seedPoint, newVal, null, loDiff, upDiff, flags)
 
-                Imgproc.floodFill(matSrc, matMask, seedPoint, newVal, null, loDiff, upDiff, flags)
-
-                // Salin hasil floodFill dari Mat mask ke bitmap secara BULK
-                // (baca per-baris + setPixels sekali panggil). Loop get/setPixel
-                // per-piksel memicu panggilan JNI jutaan kali pada gambar
-                // webtoon berukuran besar dan membuat UI membeku.
-                val outPixels = IntArray(width * height)
-                resultMask.getPixels(outPixels, 0, width, 0, 0, width, height)
-                val rowData = DoubleArray(width)
-                for (r in 0 until height) {
-                    val count = matMask.get(r + 1, 1, rowData)
-                    var base = r * width
-                    for (c in 0 until count) {
-                        if (rowData[c] > 0.0) {
-                            outPixels[base + c] = Color.WHITE
+                    // Salin hasil floodFill dari Mat mask ke bitmap secara BULK
+                    // (baca per-baris + setPixels sekali panggil). Loop get/setPixel
+                    // per-piksel memicu panggilan JNI jutaan kali pada gambar
+                    // webtoon berukuran besar dan membuat UI membeku.
+                    val outPixels = IntArray(width * height)
+                    resultMask.getPixels(outPixels, 0, width, 0, 0, width, height)
+                    val rowData = DoubleArray(width)
+                    for (r in 0 until height) {
+                        val count = matMask.get(r + 1, 1, rowData)
+                        var base = r * width
+                        for (c in 0 until count) {
+                            if (rowData[c] > 0.0) {
+                                outPixels[base + c] = Color.WHITE
+                            }
                         }
                     }
+                    resultMask.setPixels(outPixels, 0, width, 0, 0, width, height)
+                    isOpenCvSuccess = true
+                } finally {
+                    matSrc.release()
+                    matMask.release()
                 }
-                resultMask.setPixels(outPixels, 0, width, 0, 0, width, height)
-
-                matSrc.release()
-                matMask.release()
-                isOpenCvSuccess = true
-            } catch (e: Throwable) {
-                // OpenCV belum terinisialisasi / error -> fallback ke pure Kotlin BFS floodFill
-                isOpenCvSuccess = false
+            } else {
+                android.util.Log.w("MaskSelectionTools", "OpenCV tidak tersedia, fallback ke BFS Kotlin")
             }
 
             if (!isOpenCvSuccess) {
@@ -162,11 +170,18 @@ class MaskSelectionToolsImpl : MaskSelectionTools {
                 close()
             }
 
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.FILL
-                color = Color.WHITE
+            // Pre-draw path HANYA untuk mode tambah. Saat isSubtract,
+            // menggambar putih lalu menimpa interior dengan 0 menyisakan
+            // cincin piksel anti-alias putih di tepi polygon — operasi
+            // "kurangi mask" justru menambah mask. Pengurangan cukup
+            // ditangani loop point-in-polygon di bawah.
+            if (!isSubtract) {
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    style = Paint.Style.FILL
+                    color = Color.WHITE
+                }
+                canvas.drawPath(path, paint)
             }
-            canvas.drawPath(path, paint)
 
             // Fill pixels inside polygon using point-in-polygon algorithm to guarantee full coverage without anti-alias artifacts
             // (dioperasikan pada array piksel lalu ditulis balik sekali —
@@ -237,7 +252,6 @@ class MaskSelectionToolsImpl : MaskSelectionTools {
 
             val canvas = Canvas(resultMask)
             val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE
                 strokeCap = Paint.Cap.ROUND
                 strokeJoin = Paint.Join.ROUND
                 strokeWidth = brushRadiusPx * 2f
@@ -251,8 +265,14 @@ class MaskSelectionToolsImpl : MaskSelectionTools {
             // Gambar sapuan kuas via path dengan ujung membulat — satu kali render
             // oleh Canvas (jauh lebih cepat daripada loop per-piksel).
             if (pathPoints.size == 1) {
+                // Titik tunggal: pakai FILL agar diameternya = 2x radius,
+                // konsisten dengan garis sapuan (STROKE melebar ke dua sisi
+                // sehingga drawCircle ber-radius r menghasilkan diameter 4r).
                 val p = pathPoints[0]
-                canvas.drawCircle(p.first, p.second, brushRadiusPx, paint)
+                val dotPaint = Paint(paint).apply {
+                    style = Paint.Style.FILL
+                }
+                canvas.drawCircle(p.first, p.second, brushRadiusPx, dotPaint)
             } else {
                 val path = Path().apply {
                     moveTo(pathPoints[0].first, pathPoints[0].second)
@@ -310,32 +330,55 @@ class MaskSelectionToolsImpl : MaskSelectionTools {
 
             maskPixels[idx] = Color.WHITE
 
-            val left = if (px > 0) idx - 1 else -1
-            val right = if (px < width - 1) idx + 1 else -1
-            val top = if (py > 0) idx - width else -1
-            val bottom = if (py < height - 1) idx + width else -1
-
-            val neighbors = intArrayOf(left, right, top, bottom)
-
-            for (nIdx in neighbors) {
-                if (nIdx != -1 && !visited[nIdx]) {
-                    val c = pixels[nIdx]
-                    val a = (c ushr 24) and 0xFF
-                    val r = (c shr 16) and 0xFF
-                    val g = (c shr 8) and 0xFF
-                    val b = c and 0xFF
-
-                    if (abs(r - targetR) <= tolerance &&
-                        abs(g - targetG) <= tolerance &&
-                        abs(b - targetB) <= tolerance &&
-                        abs(a - targetA) <= tolerance
-                    ) {
-                        visited[nIdx] = true
-                        queueInt[tail++] = nIdx
-                    }
+            // Empat tetangga di-unroll tanpa alokasi array per piksel
+            // (intArrayOf dalam hot loop BFS jutaan piksel membebani GC).
+            if (px > 0) {
+                val nIdx = idx - 1
+                if (!visited[nIdx] && colorClose(pixels[nIdx], targetA, targetR, targetG, targetB, tolerance)) {
+                    visited[nIdx] = true
+                    queueInt[tail++] = nIdx
+                }
+            }
+            if (px < width - 1) {
+                val nIdx = idx + 1
+                if (!visited[nIdx] && colorClose(pixels[nIdx], targetA, targetR, targetG, targetB, tolerance)) {
+                    visited[nIdx] = true
+                    queueInt[tail++] = nIdx
+                }
+            }
+            if (py > 0) {
+                val nIdx = idx - width
+                if (!visited[nIdx] && colorClose(pixels[nIdx], targetA, targetR, targetG, targetB, tolerance)) {
+                    visited[nIdx] = true
+                    queueInt[tail++] = nIdx
+                }
+            }
+            if (py < height - 1) {
+                val nIdx = idx + width
+                if (!visited[nIdx] && colorClose(pixels[nIdx], targetA, targetR, targetG, targetB, tolerance)) {
+                    visited[nIdx] = true
+                    queueInt[tail++] = nIdx
                 }
             }
         }
         outputMask.setPixels(maskPixels, 0, width, 0, 0, width, height)
+    }
+
+    private fun colorClose(
+        c: Int,
+        targetA: Int,
+        targetR: Int,
+        targetG: Int,
+        targetB: Int,
+        tolerance: Int
+    ): Boolean {
+        val a = (c ushr 24) and 0xFF
+        val r = (c shr 16) and 0xFF
+        val g = (c shr 8) and 0xFF
+        val b = c and 0xFF
+        return abs(r - targetR) <= tolerance &&
+            abs(g - targetG) <= tolerance &&
+            abs(b - targetB) <= tolerance &&
+            abs(a - targetA) <= tolerance
     }
 }
