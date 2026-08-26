@@ -24,10 +24,15 @@ class LamaInpaintEngineImpl(
 
     private var interpreter: Interpreter? = null
     private var gpuDelegate: GpuDelegate? = null
+    @Volatile
     private var isLoaded = false
 
     override suspend fun loadModel(assetPath: String): OperationResult<Unit> = withContext(Dispatchers.IO) {
         try {
+            // Bebaskan interpreter/delegate lama dulu — reload tanpa release
+            // membocorkan memori native dan handle GPU.
+            release()
+
             val modelBuffer = loadModelBuffer(assetPath)
                 ?: return@withContext OperationResult.Failure(
                     IllegalStateException("File model TFLite tidak ditemukan: $assetPath"),
@@ -79,10 +84,18 @@ class LamaInpaintEngineImpl(
             )
         }
 
+        // Semua bitmap sementara di-recycle di finally agar tidak bocor
+        // saat inferensi/parsing melempar exception. Bitmap-bitmap ini
+        // internal-only (tidak pernah dirender Compose/Coil) jadi aman.
+        var scaledSource: Bitmap? = null
+        var scaledMask: Bitmap? = null
+        var resultBitmap: Bitmap? = null
+        var scaledResult: Bitmap? = null
+        var compositingMask: Bitmap? = null
         try {
             val inputSize = 512 // Standar resolusi input LaMa TFLite (512x512)
-            val scaledSource = Bitmap.createScaledBitmap(source, inputSize, inputSize, true)
-            val scaledMask = Bitmap.createScaledBitmap(mask, inputSize, inputSize, true)
+            scaledSource = Bitmap.createScaledBitmap(source, inputSize, inputSize, true)
+            scaledMask = Bitmap.createScaledBitmap(mask, inputSize, inputSize, true)
 
             // Buffer input: Image (1x512x512x3) & Mask (1x512x512x1)
             val imgBuffer = ByteBuffer.allocateDirect(1 * inputSize * inputSize * 3 * 4).apply {
@@ -117,7 +130,7 @@ class LamaInpaintEngineImpl(
             interpreter?.runForMultipleInputsOutputs(inputs, outputs)
 
             outputBuffer.rewind()
-            val resultBitmap = Bitmap.createBitmap(inputSize, inputSize, Bitmap.Config.ARGB_8888)
+            resultBitmap = Bitmap.createBitmap(inputSize, inputSize, Bitmap.Config.ARGB_8888)
             val outPixels = IntArray(inputSize * inputSize)
 
             for (i in 0 until inputSize * inputSize) {
@@ -129,7 +142,7 @@ class LamaInpaintEngineImpl(
             resultBitmap.setPixels(outPixels, 0, inputSize, 0, 0, inputSize, inputSize)
 
             // Scale hasil inferensi ke ukuran asli bitmap sumber
-            val scaledResult = Bitmap.createScaledBitmap(resultBitmap, source.width, source.height, true)
+            scaledResult = Bitmap.createScaledBitmap(resultBitmap, source.width, source.height, true)
 
             // Komposit: piksel di luar mask dipertahankan dari gambar asli,
             // hanya area di dalam mask yang diganti hasil LaMa — agar detail
@@ -141,7 +154,7 @@ class LamaInpaintEngineImpl(
             val compMaskPixels = IntArray(w * h)
             source.getPixels(origPixels, 0, w, 0, 0, w, h)
             scaledResult.getPixels(genPixels, 0, w, 0, 0, w, h)
-            val compositingMask = Bitmap.createScaledBitmap(mask, w, h, true)
+            compositingMask = Bitmap.createScaledBitmap(mask, w, h, true)
             compositingMask.getPixels(compMaskPixels, 0, w, 0, 0, w, h)
 
             for (i in 0 until w * h) {
@@ -155,15 +168,15 @@ class LamaInpaintEngineImpl(
             val finalOutput = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             finalOutput.setPixels(genPixels, 0, w, 0, 0, w, h)
 
-            scaledSource.recycle()
-            scaledMask.recycle()
-            resultBitmap.recycle()
-            scaledResult.recycle()
-            compositingMask.recycle()
-
             OperationResult.Success(finalOutput)
         } catch (e: Exception) {
             OperationResult.Failure(e, "Gagal menjalankan inferensi LaMa: ${e.message}")
+        } finally {
+            scaledSource?.recycle()
+            scaledMask?.recycle()
+            resultBitmap?.recycle()
+            scaledResult?.recycle()
+            compositingMask?.recycle()
         }
     }
 
@@ -181,16 +194,23 @@ class LamaInpaintEngineImpl(
         return try {
             val file = File(pathStr)
             if (file.exists()) {
-                val inputStream = FileInputStream(file)
-                val fileChannel = inputStream.channel
-                fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, fileChannel.size())
+                FileInputStream(file).use { inputStream ->
+                    val fileChannel = inputStream.channel
+                    // Mapped buffer tetap valid setelah channel ditutup
+                    fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, fileChannel.size())
+                }
             } else {
                 val assetFileDescriptor = context.assets.openFd(pathStr)
-                val inputStream = FileInputStream(assetFileDescriptor.fileDescriptor)
-                val fileChannel = inputStream.channel
-                val startOffset = assetFileDescriptor.startOffset
-                val declaredLength = assetFileDescriptor.declaredLength
-                fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
+                assetFileDescriptor.use { afd ->
+                    FileInputStream(afd.fileDescriptor).use { inputStream ->
+                        val fileChannel = inputStream.channel
+                        fileChannel.map(
+                            FileChannel.MapMode.READ_ONLY,
+                            afd.startOffset,
+                            afd.declaredLength
+                        )
+                    }
+                }
             }
         } catch (e: Exception) {
             null
