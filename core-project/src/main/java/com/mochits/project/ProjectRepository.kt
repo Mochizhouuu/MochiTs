@@ -26,6 +26,25 @@ class ProjectRepository @Inject constructor(
     private val projectsDir: File
         get() = File(context.filesDir, "projects").apply { mkdirs() }
 
+    /** Tulis file secara atomik: tulis ke .tmp lalu rename — crash di tengah
+     *  penulisan tidak meninggalkan file korup yang akan dimuat sesi berikutnya. */
+    private fun File.writeAtomically(bytes: ByteArray) {
+        val tmp = File(parentFile, "$name.tmp")
+        tmp.writeBytes(bytes)
+        if (!tmp.renameTo(this)) {
+            tmp.delete()
+            throw java.io.IOException("Gagal menulis file secara atomik: $absolutePath")
+        }
+    }
+
+    /**
+     * Validasi id project dari sumber eksternal (metadata.json hasil impor).
+     * Tanpa ini, id seperti "../../shared_prefs" bisa dipakai sebagai nama
+     * direktori dan menyebabkan traversal keluar dari folder projects.
+     */
+    private fun isSafeProjectId(id: String): Boolean =
+        id.matches(Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"))
+
     fun observeProjects(): Flow<List<ProjectFile>> =
         projectDao.observeAll().map { list -> list.map { it.toProjectFile() } }
 
@@ -45,13 +64,13 @@ class ProjectRepository @Inject constructor(
             val projectFolder = File(projectsDir, id).apply { mkdirs() }
 
             if (layersJson != null) {
-                File(projectFolder, "layers.json").writeText(layersJson, Charsets.UTF_8)
+                File(projectFolder, "layers.json").writeAtomically(layersJson.toByteArray(Charsets.UTF_8))
             }
 
             var updatedMaskPath = existing.maskPath
             if (maskBitmapBytes != null) {
                 val maskFile = File(projectFolder, "mask.png")
-                maskFile.writeBytes(maskBitmapBytes)
+                maskFile.writeAtomically(maskBitmapBytes)
                 updatedMaskPath = maskFile.absolutePath
             }
 
@@ -130,7 +149,16 @@ class ProjectRepository @Inject constructor(
                     ?: return@withContext OperationResult.Failure(
                         IllegalStateException("Project tidak ditemukan")
                     )
-                File(existing.baseImagePath).parentFile?.deleteRecursively()
+                // Hapus folder project hanya bila benar-benar di dalam
+                // projectsDir — jangan pernah deleteRecursively() path liar
+                // dari DB yang korup/impor lama.
+                val projectFolder = File(existing.baseImagePath).parentFile
+                val canonicalFolder = projectFolder?.canonicalPath
+                if (canonicalFolder != null &&
+                    canonicalFolder.startsWith(projectsDir.canonicalPath + File.separator)
+                ) {
+                    projectFolder.deleteRecursively()
+                }
                 projectDao.delete(existing)
                 OperationResult.Success(Unit)
             } catch (e: Exception) {
@@ -233,6 +261,11 @@ class ProjectRepository @Inject constructor(
                         val createdAt = obj.optLong("createdAtEpochMs", System.currentTimeMillis())
                         val updatedAt = obj.optLong("updatedAtEpochMs", System.currentTimeMillis())
 
+                        // id dari metadata.json dipakai sebagai nama direktori:
+                        // wajib UUID valid agar tidak bisa traversal keluar
+                        // dari projectsDir (bypass proteksi Zip Slip).
+                        if (!isSafeProjectId(id)) continue
+
                         val projFolderInTemp = File(tempDir, id)
                         if (projFolderInTemp.exists() && projFolderInTemp.isDirectory) {
                             val targetProjDir = File(projectsDir, id).apply { mkdirs() }
@@ -242,11 +275,15 @@ class ProjectRepository @Inject constructor(
 
                             val baseImg = File(targetProjDir, "base.png")
                             if (baseImg.exists()) {
+                                // Pulihkan juga mask bila ikut terekspor —
+                                // sebelumnya selalu null sehingga mask user
+                                // hilang setelah siklus ekspor-impor.
+                                val maskImg = File(targetProjDir, "mask.png")
                                 val entity = ProjectEntity(
                                     id = id,
                                     name = name,
                                     baseImagePath = baseImg.absolutePath,
-                                    maskPath = null,
+                                    maskPath = if (maskImg.exists()) maskImg.absolutePath else null,
                                     thumbnailPath = baseImg.absolutePath,
                                     createdAtEpochMs = createdAt,
                                     updatedAtEpochMs = updatedAt
