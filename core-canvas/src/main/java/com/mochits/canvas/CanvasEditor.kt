@@ -43,7 +43,7 @@ fun CanvasEditor(
     modifier: Modifier = Modifier,
     maskBitmap: android.graphics.Bitmap? = null,
     isMaskingActive: Boolean = false,
-    maskToolMode: String = "PAN_ZOOM",
+    maskToolMode: com.mochits.common.MaskToolMode = com.mochits.common.MaskToolMode.PAN_ZOOM,
     onMaskStrokeComplete: ((List<Pair<Float, Float>>) -> Unit)? = null,
     onMaskTap: ((Float, Float) -> Unit)? = null,
     onReady: (addTextAtViewportCenter: (String) -> Unit) -> Unit = {},
@@ -199,16 +199,13 @@ fun CanvasEditor(
                 modifier = Modifier
                     .size(width = displayWidthDp, height = displayHeightDp)
                     .then(
-                        if (isMaskingActive && maskToolMode != "PAN_ZOOM") {
+                        if (isMaskingActive && maskToolMode != com.mochits.common.MaskToolMode.PAN_ZOOM) {
                             Modifier.pointerInput(maskToolMode, state.scale) {
                                 awaitEachGesture {
                                     val down = awaitFirstDown(pass = PointerEventPass.Initial)
                                     down.consume()
                                     val points = mutableListOf<Pair<Float, Float>>()
 
-                                    // Posisi event sudah lokal terhadap Box gambar
-                                    // (di dalam scroll & padding), jadi cukup dibagi
-                                    // dengan scale untuk mendapat koordinat piksel gambar.
                                     val startImgX = (down.position.x / state.scale).coerceIn(0f, state.intrinsicWidthPx.toFloat())
                                     val startImgY = (down.position.y / state.scale).coerceIn(0f, state.intrinsicHeightPx.toFloat())
                                     points.add(startImgX to startImgY)
@@ -236,7 +233,7 @@ fun CanvasEditor(
                                     }
 
                                     if (!isMultiTouch && points.isNotEmpty()) {
-                                        if (maskToolMode == "MAGIC_WAND" || maskToolMode == "COLOR_PIPETTE") {
+                                        if (maskToolMode == com.mochits.common.MaskToolMode.MAGIC_WAND || maskToolMode == com.mochits.common.MaskToolMode.COLOR_PIPETTE) {
                                             onMaskTap?.invoke(startImgX, startImgY)
                                         } else {
                                             onMaskStrokeComplete?.invoke(points)
@@ -365,7 +362,9 @@ private fun DraggableTextLayer(
                     .background(SELECTION_COLOR)
                     .border(1.dp, Color.White, CircleShape)
                     .pointerInput(layer.id + "_resize") {
-                        detectDragGestures { change, dragAmount ->
+                        detectDragGestures(
+                            onDragStart = { onDragStarted() }
+                        ) { change, dragAmount ->
                             change.consume()
                             val delta = (dragAmount.x + dragAmount.y) / 4f
                             onResizeFontSize(delta)

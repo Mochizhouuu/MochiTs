@@ -84,6 +84,7 @@ private fun MochiTsNavHost() {
                 navArgument("baseImagePath") { type = NavType.StringType }
             )
         ) { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId") ?: ""
             val name = URLDecoder.decode(
                 backStackEntry.arguments?.getString("projectName") ?: "", "UTF-8"
             )
@@ -91,6 +92,7 @@ private fun MochiTsNavHost() {
                 backStackEntry.arguments?.getString("baseImagePath") ?: "", "UTF-8"
             )
             EditorScreen(
+                projectId = projectId,
                 projectName = name,
                 baseImagePath = path,
                 onBack = { navController.popBackStack() },

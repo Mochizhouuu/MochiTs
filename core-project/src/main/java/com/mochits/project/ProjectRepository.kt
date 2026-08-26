@@ -32,6 +32,45 @@ class ProjectRepository @Inject constructor(
     suspend fun getProject(id: String): ProjectFile? =
         projectDao.getById(id)?.toProjectFile()
 
+    suspend fun saveProjectState(
+        id: String,
+        layersJson: String?,
+        maskBitmapBytes: ByteArray? = null
+    ): OperationResult<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val existing = projectDao.getById(id)
+                ?: return@withContext OperationResult.Failure(
+                    IllegalStateException("Project tidak ditemukan")
+                )
+            val projectFolder = File(projectsDir, id).apply { mkdirs() }
+
+            if (layersJson != null) {
+                File(projectFolder, "layers.json").writeText(layersJson, Charsets.UTF_8)
+            }
+
+            var updatedMaskPath = existing.maskPath
+            if (maskBitmapBytes != null) {
+                val maskFile = File(projectFolder, "mask.png")
+                maskFile.writeBytes(maskBitmapBytes)
+                updatedMaskPath = maskFile.absolutePath
+            }
+
+            val updated = existing.copy(
+                maskPath = updatedMaskPath,
+                updatedAtEpochMs = System.currentTimeMillis()
+            )
+            projectDao.update(updated)
+            OperationResult.Success(Unit)
+        } catch (e: Exception) {
+            OperationResult.Failure(e, "Gagal menyimpan state project")
+        }
+    }
+
+    suspend fun loadProjectLayersJson(id: String): String? = withContext(Dispatchers.IO) {
+        val file = File(projectsDir, "$id/layers.json")
+        if (file.exists()) file.readText(Charsets.UTF_8) else null
+    }
+
     /**
      * Membuat project baru dari gambar yang dipilih user (Uri hasil image
      * picker). Gambar disalin ke penyimpanan internal app agar aman
@@ -157,12 +196,17 @@ class ProjectRepository @Inject constructor(
             try {
                 var importedCount = 0
                 val tempDir = File(context.cacheDir, "import_temp_${System.currentTimeMillis()}").apply { mkdirs() }
+                val canonicalTempDirPath = tempDir.canonicalPath
 
                 context.contentResolver.openInputStream(sourceUri)?.use { inStream ->
                     java.util.zip.ZipInputStream(inStream).use { zipIn ->
                         var entry = zipIn.nextEntry
                         while (entry != null) {
                             val destFile = File(tempDir, entry.name)
+                            val canonicalDestPath = destFile.canonicalPath
+                            if (!canonicalDestPath.startsWith(canonicalTempDirPath + File.separator) && canonicalDestPath != canonicalTempDirPath) {
+                                throw SecurityException("Zip entry is outside target directory (Zip Slip attack detected): ${entry.name}")
+                            }
                             if (entry.isDirectory) {
                                 destFile.mkdirs()
                             } else {

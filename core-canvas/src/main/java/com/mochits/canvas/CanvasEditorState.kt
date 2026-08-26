@@ -170,14 +170,16 @@ class CanvasEditorState(
 
     fun updateLayerStyle(id: String, newStyle: com.mochits.text.TextStyleConfig) {
         val index = textLayers.indexOfFirst { it.id == id }
-        if (index != -1) {
+        if (index != -1 && textLayers[index].style != newStyle) {
+            pushUndoSnapshot()
             textLayers[index] = textLayers[index].copy(style = newStyle)
         }
     }
 
     fun updateLayerFontSize(id: String, newSizeSp: Float) {
         val index = textLayers.indexOfFirst { it.id == id }
-        if (index != -1) {
+        if (index != -1 && textLayers[index].fontSizeSp != newSizeSp) {
+            pushUndoSnapshot()
             textLayers[index] = textLayers[index].copy(fontSizeSp = newSizeSp.coerceIn(8f, 200f))
         }
     }

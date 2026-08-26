@@ -79,102 +79,20 @@ object ProjectExporter {
         // 1. Gambar Base Image
         canvas.drawBitmap(baseImageBitmap, 0f, 0f, null)
 
-        // 2. Gambar setiap Text Layer berserta seluruh Efek Teks pada koordinat piksel gambar asli.
-        //    Ukuran & efek memakai satuan piksel yang sama seperti preview
-        //    (fontSizeSp x density layar) agar hasil ekspor WYSIWYG.
+        // 2. Gambar setiap Text Layer berserta seluruh Efek Teks pada koordinat piksel gambar asli
+        //    menggunakan shared rendering function drawStyledTextOnNativeCanvas (WYSIWYG 100%).
         val screenDensity = android.content.res.Resources.getSystem().displayMetrics.density
 
         state.textLayers.forEach { layer ->
             val fontSizePx = layer.fontSizeSp * screenDensity
-            val firstBaselineY = layer.yInImagePx + fontSizePx * 1.2f
-            val lineHeight = fontSizePx * 1.2f
-            val textLines = layer.text.split('\n')
-            val style = layer.style
-
-            val textPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
-                textSize = fontSizePx
-                typeface = com.mochits.text.resolveTypeface(style)
-                isUnderlineText = style.isUnderline
-                isStrikeThruText = style.isStrikethrough
-            }
-
-            fun drawAllLines(paint: Paint) {
-                textLines.forEachIndexed { index, line ->
-                    canvas.drawText(line, layer.xInImagePx, firstBaselineY + index * lineHeight, paint)
-                }
-            }
-
-            // Motion Blur
-            if (style.motionBlurEnabled && style.motionBlurDistance > 0f) {
-                val samples = 5
-                val rad = Math.toRadians(style.motionBlurAngle.toDouble())
-                val dxStep = (Math.cos(rad) * style.motionBlurDistance / samples).toFloat()
-                val dyStep = (Math.sin(rad) * style.motionBlurDistance / samples).toFloat()
-
-                val blurPaint = Paint(textPaint).apply {
-                    color = style.colorArgb
-                    alpha = (255 / (samples + 1)).coerceIn(20, 100)
-                }
-
-                for (i in 1..samples) {
-                    canvas.save()
-                    canvas.translate(dxStep * i, dyStep * i)
-                    drawAllLines(blurPaint)
-                    canvas.restore()
-                }
-            }
-
-            // Glow
-            if (style.glowEnabled && style.glowRadius > 0f) {
-                val glowPaint = Paint(textPaint).apply {
-                    color = style.glowColorArgb
-                    maskFilter = android.graphics.BlurMaskFilter(style.glowRadius, android.graphics.BlurMaskFilter.Blur.NORMAL)
-                }
-                drawAllLines(glowPaint)
-            }
-
-            // Drop Shadow
-            if (style.shadowEnabled) {
-                val shadowPaint = Paint(textPaint).apply {
-                    color = style.shadowColorArgb
-                    if (style.shadowRadius > 0f) {
-                        maskFilter = android.graphics.BlurMaskFilter(style.shadowRadius, android.graphics.BlurMaskFilter.Blur.NORMAL)
-                    }
-                }
-                canvas.save()
-                canvas.translate(style.shadowDx, style.shadowDy)
-                drawAllLines(shadowPaint)
-                canvas.restore()
-            }
-
-            // Stroke
-            if (style.strokeEnabled) {
-                val strokePaint = Paint(textPaint).apply {
-                    this.style = Paint.Style.STROKE
-                    strokeWidth = style.strokeWidthPx
-                    color = style.strokeColorArgb
-                    strokeJoin = Paint.Join.ROUND
-                    strokeCap = Paint.Cap.ROUND
-                }
-                drawAllLines(strokePaint)
-            }
-
-            // Fill
-            val fillPaint = Paint(textPaint).apply {
-                this.style = Paint.Style.FILL
-                if (style.gradientEnabled && style.gradientColors.size >= 2) {
-                    val textWidth = textPaint.measureText(layer.text.lines().maxByOrNull { it.length } ?: "")
-                    shader = android.graphics.LinearGradient(
-                        layer.xInImagePx, firstBaselineY, layer.xInImagePx + textWidth, firstBaselineY,
-                        style.gradientColors.toIntArray(),
-                        null,
-                        android.graphics.Shader.TileMode.CLAMP
-                    )
-                } else {
-                    color = style.colorArgb
-                }
-            }
-            drawAllLines(fillPaint)
+            com.mochits.text.drawStyledTextOnNativeCanvas(
+                canvas = canvas,
+                text = layer.text,
+                xPx = layer.xInImagePx,
+                yPx = layer.yInImagePx,
+                fontSizePx = fontSizePx,
+                style = layer.style
+            )
         }
 
         return resultBitmap

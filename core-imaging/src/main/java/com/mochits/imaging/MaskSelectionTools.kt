@@ -271,10 +271,10 @@ class MaskSelectionToolsImpl : MaskSelectionTools {
         val width = source.width
         val height = source.height
         val targetColor = source.getPixel(startX, startY)
-        val targetA = Color.alpha(targetColor)
-        val targetR = Color.red(targetColor)
-        val targetG = Color.green(targetColor)
-        val targetB = Color.blue(targetColor)
+        val targetA = (targetColor ushr 24) and 0xFF
+        val targetR = (targetColor shr 16) and 0xFF
+        val targetG = (targetColor shr 8) and 0xFF
+        val targetB = targetColor and 0xFF
 
         val visited = BooleanArray(width * height)
         val queueInt = IntArray(width * height)
@@ -285,35 +285,43 @@ class MaskSelectionToolsImpl : MaskSelectionTools {
         visited[startY * width + startX] = true
 
         val pixels = IntArray(width * height)
+        val maskPixels = IntArray(width * height)
         source.getPixels(pixels, 0, width, 0, 0, width, height)
+        outputMask.getPixels(maskPixels, 0, width, 0, 0, width, height)
 
         while (head < tail) {
             val idx = queueInt[head++]
             val px = idx % width
             val py = idx / width
 
-            outputMask.setPixel(px, py, Color.WHITE)
+            maskPixels[idx] = Color.WHITE
 
-            // Cek 4 tetangga
-            val neighbors = intArrayOf(
-                if (px > 0) idx - 1 else -1,
-                if (px < width - 1) idx + 1 else -1,
-                if (py > 0) idx - width else -1,
-                if (py < height - 1) idx + width else -1
-            )
+            val left = if (px > 0) idx - 1 else -1
+            val right = if (px < width - 1) idx + 1 else -1
+            val top = if (py > 0) idx - width else -1
+            val bottom = if (py < height - 1) idx + width else -1
+
+            val neighbors = intArrayOf(left, right, top, bottom)
 
             for (nIdx in neighbors) {
                 if (nIdx != -1 && !visited[nIdx]) {
                     val c = pixels[nIdx]
-                    val diff = abs(Color.red(c) - targetR) +
-                            abs(Color.green(c) - targetG) +
-                            abs(Color.blue(c) - targetB)
-                    if (diff <= tolerance * 3) {
+                    val a = (c ushr 24) and 0xFF
+                    val r = (c shr 16) and 0xFF
+                    val g = (c shr 8) and 0xFF
+                    val b = c and 0xFF
+
+                    if (abs(r - targetR) <= tolerance &&
+                        abs(g - targetG) <= tolerance &&
+                        abs(b - targetB) <= tolerance &&
+                        abs(a - targetA) <= tolerance
+                    ) {
                         visited[nIdx] = true
                         queueInt[tail++] = nIdx
                     }
                 }
             }
         }
+        outputMask.setPixels(maskPixels, 0, width, 0, 0, width, height)
     }
 }

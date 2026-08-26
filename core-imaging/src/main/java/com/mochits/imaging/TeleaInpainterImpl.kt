@@ -15,9 +15,10 @@ import org.opencv.photo.Photo
  */
 class TeleaInpainterImpl : TeleaInpainter {
 
-    override suspend fun inpaint(source: Bitmap, mask: Bitmap): OperationResult<Bitmap> {
-        return try {
-            val width = source.width
+    override suspend fun inpaint(source: Bitmap, mask: Bitmap): OperationResult<Bitmap> =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            try {
+                val width = source.width
             val height = source.height
 
             val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
@@ -68,11 +69,11 @@ class TeleaInpainterImpl : TeleaInpainter {
                 runFallbackInpaint(source, mask, output)
             }
 
-            OperationResult.Success(output)
-        } catch (e: Exception) {
-            OperationResult.Failure(e, "Gagal melakukan Telea Inpainting")
+                OperationResult.Success(output)
+            } catch (e: Exception) {
+                OperationResult.Failure(e, "Gagal melakukan Telea Inpainting")
+            }
         }
-    }
 
     private fun runFallbackInpaint(source: Bitmap, mask: Bitmap, output: Bitmap) {
         val width = source.width
