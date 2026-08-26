@@ -23,7 +23,7 @@ class TeleaInpainterImpl : TeleaInpainter {
 
             val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
 
-            var isOpenCvSuccess = false
+            var isOpenCvSuccess: Boolean
             try {
                 // Utils.bitmapToMat hanya menerima ARGB_8888 (CV_8UC4) — pastikan
                 // kedua bitmap dikonversi dulu, lalu ubah ke BGR/gray untuk OpenCV.

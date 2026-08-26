@@ -224,7 +224,7 @@ private fun DraggableTextLayer(
 ) {
     val density = LocalDensity.current
 
-    // fontSizePx disesuaikan untuk koordinat internal (graphicsLayer menagani scale visual)
+    // fontSizePx disesuaikan untuk koordinat internal (graphicsLayer menangani scale visual)
     val fontSizePx = with(density) { layer.fontSizeSp.sp.toPx() }
     val extraPx = fontSizePx * 0.5f
     val (textWidthPx, textHeightPx) = remember(layer.text, fontSizePx, layer.style) {

@@ -506,6 +506,116 @@ fun EditorScreen(
                 }
             }
 
+            // ===== Panel Bawah Terkunci (Docked Tool Panel) =====
+            AnimatedVisibility(
+                visible = openPanel != null,
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+            ) {
+                Surface(
+                    tonalElevation = 6.dp,
+                    shadowElevation = 8.dp,
+                    color = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 280.dp)
+                ) {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = when (openPanel) {
+                                        EditorPanel.STYLE -> "Pengaturan Gaya Teks"
+                                        EditorPanel.MASK -> "Alat Masker & Inpaint"
+                                        EditorPanel.LAYERS -> "Daftar Layer Teks"
+                                        null -> ""
+                                    },
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(
+                                    onClick = { openPanel = null },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = "Tutup Panel", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+
+                            when (openPanel) {
+                                EditorPanel.STYLE -> {
+                                    if (selectedLayer != null && canvasState != null) {
+                                        TextTabContent(
+                                            selectedLayer = selectedLayer,
+                                            installedFonts = installedFonts,
+                                            availablePresets = availablePresets,
+                                            onEditTextClick = { layer -> showEditTextDialog = layer },
+                                            onStyleChange = { newStyle ->
+                                                canvasState.updateLayerStyle(selectedLayer.id, newStyle)
+                                            },
+                                            onFontSizeChange = { newSize ->
+                                                canvasState.updateLayerFontSize(selectedLayer.id, newSize)
+                                            },
+                                            onApplyPreset = { preset ->
+                                                canvasState.updateLayerStyle(selectedLayer.id, preset.style)
+                                            },
+                                            onSavePresetClick = {
+                                                showSavePresetDialog = selectedLayer.style
+                                            },
+                                            onDeleteLayer = {
+                                                canvasState.deleteLayer(selectedLayer.id)
+                                            }
+                                        )
+                                    }
+                                }
+                                EditorPanel.MASK -> {
+                                    Text(
+                                        "Sentuh/drag pada gambar untuk menggunakan alat masker aktif",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    InpaintAndMaskTabContent(
+                                        activeMaskTool = activeMaskTool,
+                                        brushSizePx = brushSizePx,
+                                        wandTolerance = wandTolerance,
+                                        onToolSelect = { activeMaskTool = it },
+                                        onBrushSizeChange = { brushSizePx = it },
+                                        onWandToleranceChange = { wandTolerance = it },
+                                        onTriggerInpaint = { showInpaintDialog = true },
+                                        onClearMask = {
+                                            currentBaseBitmap?.let { bmp ->
+                                                currentMaskBitmap = Bitmap.createBitmap(bmp.width, bmp.height, Bitmap.Config.ARGB_8888)
+                                                showToast("Masker dibersihkan!")
+                                            }
+                                        }
+                                    )
+                                }
+                                EditorPanel.LAYERS -> {
+                                    val currentState = canvasState
+                                    if (currentState != null) {
+                                        LayerListTabContent(
+                                            layers = currentState.textLayers,
+                                            selectedId = currentState.selectedLayerId,
+                                            onSelectLayer = { currentState.selectLayer(it) },
+                                            onDeleteLayer = { currentState.deleteLayer(it) }
+                                        )
+                                    }
+                                }
+                                null -> {}
+                            }
+                        }
+                    }
+                }
+            }
+
             // ===== Quick Toolbar Bawah =====
             Surface(
                 tonalElevation = 8.dp,
@@ -529,7 +639,10 @@ fun EditorScreen(
                         label = "Gaya",
                         weight = 1f,
                         enabled = selectedLayer != null,
-                        onClick = { openPanel = EditorPanel.STYLE }
+                        isSelected = openPanel == EditorPanel.STYLE,
+                        onClick = {
+                            openPanel = if (openPanel == EditorPanel.STYLE) null else EditorPanel.STYLE
+                        }
                     )
                     QuickToolButton(
                         icon = Icons.Default.AutoFixHigh,
@@ -544,117 +657,13 @@ fun EditorScreen(
                         icon = Icons.Default.Layers,
                         label = "Layer",
                         weight = 1f,
+                        isSelected = openPanel == EditorPanel.LAYERS,
                         badgeCount = canvasState?.textLayers?.size ?: 0,
-                        onClick = { openPanel = EditorPanel.LAYERS }
+                        onClick = {
+                            openPanel = if (openPanel == EditorPanel.LAYERS) null else EditorPanel.LAYERS
+                        }
                     )
                 }
-            }
-        }
-    }
-
-    // ===== Bottom Sheets =====
-    if (openPanel == EditorPanel.STYLE && selectedLayer != null) {
-        val currentLayer = selectedLayer
-        val currentState = checkNotNull(canvasState)
-        ModalBottomSheet(
-            onDismissRequest = { openPanel = null },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = MaterialTheme.colorScheme.surface
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                TextTabContent(
-                    selectedLayer = currentLayer,
-                    installedFonts = installedFonts,
-                    availablePresets = availablePresets,
-                    onEditTextClick = { layer -> showEditTextDialog = layer },
-                    onStyleChange = { newStyle ->
-                        currentState.updateLayerStyle(currentLayer.id, newStyle)
-                    },
-                    onFontSizeChange = { newSize ->
-                        currentState.updateLayerFontSize(currentLayer.id, newSize)
-                    },
-                    onApplyPreset = { preset ->
-                        currentState.updateLayerStyle(currentLayer.id, preset.style)
-                    },
-                    onSavePresetClick = {
-                        showSavePresetDialog = currentLayer.style
-                    },
-                    onDeleteLayer = {
-                        currentState.deleteLayer(currentLayer.id)
-                    }
-                )
-            }
-        }
-    }
-
-    if (openPanel == EditorPanel.MASK && canvasState != null) {
-        ModalBottomSheet(
-            onDismissRequest = { openPanel = null },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = MaterialTheme.colorScheme.surface
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    "Sentuh/drag langsung di gambar untuk memakai alat aktif",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                InpaintAndMaskTabContent(
-                    activeMaskTool = activeMaskTool,
-                    brushSizePx = brushSizePx,
-                    wandTolerance = wandTolerance,
-                    onToolSelect = { activeMaskTool = it },
-                    onBrushSizeChange = { brushSizePx = it },
-                    onWandToleranceChange = { wandTolerance = it },
-                    onTriggerInpaint = { showInpaintDialog = true },
-                    onClearMask = {
-                        currentBaseBitmap?.let { bmp ->
-                            currentMaskBitmap = Bitmap.createBitmap(bmp.width, bmp.height, Bitmap.Config.ARGB_8888)
-                            showToast("Masker dibersihkan!")
-                        }
-                    }
-                )
-            }
-        }
-    }
-
-    if (openPanel == EditorPanel.LAYERS && canvasState != null) {
-        ModalBottomSheet(
-            onDismissRequest = { openPanel = null },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = MaterialTheme.colorScheme.surface
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 24.dp)
-            ) {
-                Text(
-                    "Daftar Layer Teks",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
-                LayerListTabContent(
-                    layers = canvasState.textLayers,
-                    selectedId = canvasState.selectedLayerId,
-                    onSelectLayer = { canvasState.selectLayer(it) },
-                    onDeleteLayer = { canvasState.deleteLayer(it) }
-                )
             }
         }
     }
