@@ -88,6 +88,9 @@ fun EditorScreen(
     }
 
     val fontManager = remember { FontManager(context) }
+    // Faktor konversi sp→px dari sesi preview (density × fontScale) — dipakai
+    // saat ekspor agar ukuran teks hasil ekspor identik dengan preview.
+    val pxPerSp = with(LocalDensity.current) { 1.sp.toPx() }
     val presetManager = remember { TextPresetManager(context) }
     val maskSelectionTools = remember { MaskSelectionToolsImpl() }
 
@@ -269,9 +272,6 @@ fun EditorScreen(
                         onClick = {
                             val baseBmp = currentBaseBitmap
                             if (baseBmp != null && canvasState != null && !isExporting) {
-                                // Faktor sp→px dari sesi preview agar ekspor
-                                // identik dengan yang tampil di layar.
-                                val pxPerSp = with(LocalDensity.current) { 1.sp.toPx() }
                                 coroutineScope.launch {
                                     isExporting = true
                                     val res = ProjectExporter.exportToGallery(
