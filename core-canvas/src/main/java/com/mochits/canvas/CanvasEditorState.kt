@@ -178,14 +178,19 @@ class CanvasEditorState(
 
     /**
      * Muat kumpulan layer hasil deserialize dari project tersimpan.
-     * Tidak mencatat undo — memuat project bukan aksi user.
+     * Riwayat undo/redo dikosongkan — memuat project adalah titik mulai
+     * baru, bukan aksi yang bisa di-undo.
      */
     fun restoreLayers(layers: List<CanvasTextLayer>) {
         textLayers.clear()
         textLayers.addAll(layers)
+        undoStack.clear()
+        redoStack.clear()
+        lastSnapshotAtMs = 0L
         if (selectedLayerId != null && textLayers.none { it.id == selectedLayerId }) {
             selectedLayerId = null
         }
+        refreshHistoryFlags()
     }
 
     fun updateLayerText(id: String, newText: String, recordUndo: Boolean = true) {

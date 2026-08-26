@@ -252,6 +252,7 @@ class MaskSelectionToolsImpl : MaskSelectionTools {
 
             val canvas = Canvas(resultMask)
             val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
                 strokeCap = Paint.Cap.ROUND
                 strokeJoin = Paint.Join.ROUND
                 strokeWidth = brushRadiusPx * 2f
