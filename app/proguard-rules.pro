@@ -1,2 +1,3 @@
 -keep class org.opencv.** { *; }
 -keep class org.tensorflow.lite.** { *; }
+-dontwarn com.google.auto.value.**
