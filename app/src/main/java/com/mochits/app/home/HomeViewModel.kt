@@ -57,13 +57,21 @@ class HomeViewModel @Inject constructor(
 
     fun renameProject(id: String, newName: String) {
         viewModelScope.launch {
-            projectRepository.renameProject(id, newName)
+            when (val res = projectRepository.renameProject(id, newName)) {
+                is OperationResult.Failure ->
+                    _errorMessage.value = res.message ?: "Gagal mengganti nama project"
+                else -> {}
+            }
         }
     }
 
     fun deleteProject(id: String) {
         viewModelScope.launch {
-            projectRepository.deleteProject(id)
+            when (val res = projectRepository.deleteProject(id)) {
+                is OperationResult.Failure ->
+                    _errorMessage.value = res.message ?: "Gagal menghapus project"
+                else -> {}
+            }
         }
     }
 

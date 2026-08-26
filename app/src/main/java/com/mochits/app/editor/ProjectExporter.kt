@@ -32,6 +32,10 @@ object ProjectExporter {
     /**
      * Merender seluruh layer di atas base image lalu menyimpan hasilnya ke
      * galeri perangkat pada sub-folder [subfolder] dengan kualitas [quality].
+     *
+     * @param pxPerSp faktor konversi sp→px yang SAMA dengan preview Compose
+     * (density × fontScale perangkat user). Tanpa ini, pengguna dengan
+     * fontScale ≠ 1.0 melihat ukuran teks ekspor berbeda dari preview.
      * @return path/uri hasil simpan sebagai String.
      */
     suspend fun exportToGallery(
@@ -39,11 +43,12 @@ object ProjectExporter {
         baseImageBitmap: Bitmap,
         state: CanvasEditorState,
         subfolder: String,
+        pxPerSp: Float,
         quality: Int = 100,
         format: Bitmap.CompressFormat = Bitmap.CompressFormat.PNG
     ): OperationResult<String> = withContext(Dispatchers.IO) {
         try {
-            val resultBitmap = renderComposite(baseImageBitmap, state)
+            val resultBitmap = renderComposite(baseImageBitmap, state, pxPerSp)
 
             val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
             // Ekstensi & MIME harus konsisten dengan format kompresi —
@@ -72,7 +77,7 @@ object ProjectExporter {
     }
 
     /** Menyusun bitmap akhir: base image + seluruh text layer & efeknya. */
-    fun renderComposite(baseImageBitmap: Bitmap, state: CanvasEditorState): Bitmap {
+    fun renderComposite(baseImageBitmap: Bitmap, state: CanvasEditorState, pxPerSp: Float): Bitmap {
         val width = state.intrinsicWidthPx
         val height = state.intrinsicHeightPx
 
@@ -84,10 +89,10 @@ object ProjectExporter {
 
         // 2. Gambar setiap Text Layer berserta seluruh Efek Teks pada koordinat piksel gambar asli
         //    menggunakan shared rendering function drawStyledTextOnNativeCanvas (WYSIWYG 100%).
-        val screenDensity = android.content.res.Resources.getSystem().displayMetrics.density
-
+        //    Konversi sp→px memakai faktor dari sesi preview, BUKAN density
+        //    sistem mentah — agar hasil ekspor identik dengan yang dilihat user.
         state.textLayers.forEach { layer ->
-            val fontSizePx = layer.fontSizeSp * screenDensity
+            val fontSizePx = layer.fontSizeSp * pxPerSp
             com.mochits.text.drawStyledTextOnNativeCanvas(
                 canvas = canvas,
                 text = layer.text,

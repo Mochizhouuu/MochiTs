@@ -34,8 +34,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.mochits.canvas.CanvasEditor
 import com.mochits.canvas.CanvasEditorState
@@ -76,6 +78,13 @@ fun EditorScreen(
             context.applicationContext,
             EditorRepositoryEntryPoint::class.java
         ).projectRepository()
+    }
+    // Singleton via Hilt: status unduhan model sinkron dengan layar Settings
+    val modelManager = remember {
+        EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            EditorRepositoryEntryPoint::class.java
+        ).modelManager()
     }
 
     val fontManager = remember { FontManager(context) }
@@ -260,6 +269,9 @@ fun EditorScreen(
                         onClick = {
                             val baseBmp = currentBaseBitmap
                             if (baseBmp != null && canvasState != null && !isExporting) {
+                                // Faktor sp→px dari sesi preview agar ekspor
+                                // identik dengan yang tampil di layar.
+                                val pxPerSp = with(LocalDensity.current) { 1.sp.toPx() }
                                 coroutineScope.launch {
                                     isExporting = true
                                     val res = ProjectExporter.exportToGallery(
@@ -267,6 +279,7 @@ fun EditorScreen(
                                         baseImageBitmap = baseBmp,
                                         state = canvasState,
                                         subfolder = appSettings.exportLocation,
+                                        pxPerSp = pxPerSp,
                                         quality = appSettings.exportQuality
                                     )
                                     isExporting = false
@@ -715,7 +728,7 @@ fun EditorScreen(
                     val base = currentBaseBitmap ?: return@launch
                     val mask = currentMaskBitmap ?: return@launch
                     isProcessingMask = true
-                    val modelMgr = ModelManager(context)
+                    val modelMgr = modelManager
                     if (!modelMgr.isModelAvailable()) {
                         Toast.makeText(context, "Model LaMa belum diunduh, otomatis fallback ke Telea", Toast.LENGTH_LONG).show()
                         val telea = TeleaInpainterImpl()

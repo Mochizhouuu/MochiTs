@@ -5,16 +5,21 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mochits.common.OperationResult
+import com.mochits.inpaint.ModelDownloadState
+import com.mochits.inpaint.ModelManager
 import com.mochits.project.ProjectRepository
 import com.mochits.text.CustomFontItem
 import com.mochits.text.FontManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 data class SettingsUiState(
@@ -28,7 +33,12 @@ data class SettingsUiState(
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val projectRepository: ProjectRepository
+    private val projectRepository: ProjectRepository,
+    // Singleton: status unduhan sinkron dengan layar lain (mis. Editor)
+    private val modelManager: ModelManager,
+    // Scope aplikasi: unduhan model ~40MB tidak boleh terputus saat user
+    // keluar dari layar Settings (viewModelScope ikut dibatalkan).
+    private val appScope: CoroutineScope
 ) : ViewModel() {
 
     private val fontManager = FontManager(context)
@@ -37,20 +47,33 @@ class SettingsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
+    /** Status unduhan model LaMa — passthrough dari singleton. */
+    val downloadState: StateFlow<ModelDownloadState> = modelManager.downloadState
+
     init {
         loadSettings()
     }
 
     fun loadSettings() {
         viewModelScope.launch {
+            // Scan font adalah I/O disk — jangan di Main thread.
+            val fonts = withContext(Dispatchers.IO) { fontManager.getInstalledFonts() }
             _uiState.update {
                 it.copy(
-                    fonts = fontManager.getInstalledFonts(),
+                    fonts = fonts,
                     exportLocation = appSettings.exportLocation,
                     exportQuality = appSettings.exportQuality
                 )
             }
         }
+    }
+
+    fun downloadModel() {
+        appScope.launch { modelManager.downloadModel() }
+    }
+
+    fun deleteModel() {
+        appScope.launch { modelManager.deleteModel() }
     }
 
     fun importFont(uri: Uri, fontName: String) {

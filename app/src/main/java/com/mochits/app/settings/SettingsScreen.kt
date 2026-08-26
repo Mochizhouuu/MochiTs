@@ -19,8 +19,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.mochits.inpaint.ModelManager
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,9 +28,9 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
-    val modelManager = remember { ModelManager(context) }
-    val downloadState by modelManager.downloadState.collectAsState()
-    val coroutineScope = rememberCoroutineScope()
+    // Status unduhan dari singleton via ViewModel: tetap berjalan walau
+    // layar ditutup, dan sinkron dengan pemakaian model di Editor.
+    val downloadState by viewModel.downloadState.collectAsState()
 
     var showFontNameDialog by remember { mutableStateOf<Uri?>(null) }
     var locationInput by remember(uiState.exportLocation) { mutableStateOf(uiState.exportLocation) }
@@ -275,13 +273,13 @@ fun SettingsScreen(
                                     )
                                 } else if (downloadState.isDownloaded) {
                                     IconButton(onClick = {
-                                        coroutineScope.launch { modelManager.deleteModel() }
+                                        viewModel.deleteModel()
                                     }) {
                                         Icon(Icons.Default.Delete, contentDescription = "Hapus Model", tint = MaterialTheme.colorScheme.error)
                                     }
                                 } else {
                                     IconButton(onClick = {
-                                        coroutineScope.launch { modelManager.downloadModel() }
+                                        viewModel.downloadModel()
                                     }) {
                                         Icon(Icons.Default.CloudDownload, contentDescription = "Unduh Model", tint = MaterialTheme.colorScheme.primary)
                                     }
