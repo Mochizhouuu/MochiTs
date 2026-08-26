@@ -1,5 +1,6 @@
 package com.mochits.app.canvas
 
+import androidx.compose.ui.geometry.Offset
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
