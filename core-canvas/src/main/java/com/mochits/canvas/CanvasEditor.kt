@@ -19,7 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,7 +32,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 private val SELECTION_COLOR = Color(0xFF8B85FF)
@@ -56,7 +55,6 @@ fun CanvasEditor(
         val verticalScrollState = rememberScrollState()
         val horizontalScrollState = rememberScrollState()
         val density = LocalDensity.current
-        val coroutineScope = rememberCoroutineScope()
 
         androidx.compose.runtime.LaunchedEffect(viewportWidthDp) {
             val viewportPx = with(density) { viewportWidthDp.toPx() }
@@ -172,14 +170,16 @@ fun CanvasEditor(
                                         val newScrollY =
                                             ((contentY * ratio) - focus.y + newPaddingYPx).roundToInt()
 
-                                        coroutineScope.launch {
-                                            horizontalScrollState.scrollTo(
-                                                newScrollX.coerceAtLeast(0)
-                                            )
-                                            verticalScrollState.scrollTo(
-                                                newScrollY.coerceAtLeast(0)
-                                            )
-                                        }
+                                        // Terapkan sinkron via dispatchRawDelta (bukan
+                                        // coroutine scrollTo) — saat pinch cepat, event
+                                        // gesture berikutnya harus membaca posisi scroll
+                                        // yang sudah diperbarui agar fokus zoom tidak drift.
+                                        horizontalScrollState.dispatchRawDelta(
+                                            (newScrollX.coerceAtLeast(0) - horizontalScrollState.value).toFloat()
+                                        )
+                                        verticalScrollState.dispatchRawDelta(
+                                            (newScrollY.coerceAtLeast(0) - verticalScrollState.value).toFloat()
+                                        )
                                     }
                                 }
                                 previousDistance = distance
@@ -200,7 +200,11 @@ fun CanvasEditor(
                     .size(width = displayWidthDp, height = displayHeightDp)
                     .then(
                         if (isMaskingActive && maskToolMode != com.mochits.common.MaskToolMode.PAN_ZOOM) {
-                            Modifier.pointerInput(maskToolMode, state.scale) {
+                            // Key TIDAK menyertakan state.scale: restart gesture
+                            // detector di tengah stroke saat zoom akan memutus
+                            // sapuan dan menghilangkan titik yang sudah terkumpul.
+                            // state.scale dibaca langsung dari closure per-event.
+                            Modifier.pointerInput(maskToolMode, isMaskingActive) {
                                 awaitEachGesture {
                                     val down = awaitFirstDown(pass = PointerEventPass.Initial)
                                     down.consume()
@@ -301,10 +305,32 @@ private fun DraggableTextLayer(
     val screenX = layer.xInImagePx * scale
     val screenY = layer.yInImagePx * scale
     val scaleState = rememberUpdatedState(scale)
+    val density = LocalDensity.current
+
+    val fontSizePx = with(density) {
+        (layer.fontSizeSp * scaleState.value).sp.toPx()
+    }
+    // Padding efek di sekeliling kanvas teks agar glow/shadow/stroke tidak
+    // terpotong. Box digeser -extraPx dari anchor layer supaya baseline preview
+    // PERSIS sama dengan hasil ekspor (drawStyledTextOnNativeCanvas menggambar
+    // baseline pada yPx + 1.2 x fontSize TANPA offset padding).
+    val extraPx = fontSizePx * 0.5f
+    val (textWidthPx, textHeightPx) = remember(layer.text, fontSizePx, layer.style) {
+        com.mochits.text.measureStyledText(layer.text, fontSizePx, layer.style)
+    }
+
+    val widthDp = with(density) { (textWidthPx + extraPx * 2).toDp() }
+    val heightDp = with(density) { (textHeightPx + extraPx * 2).toDp() }
+    val extraDp = with(density) { extraPx.toDp() }
 
     Box(
         modifier = Modifier
-            .offset { IntOffset(screenX.roundToInt(), screenY.roundToInt()) }
+            .offset {
+                IntOffset(
+                    (screenX - extraPx).roundToInt(),
+                    (screenY - extraPx).roundToInt()
+                )
+            }
             .then(
                 if (isSelected) {
                     Modifier
@@ -331,17 +357,6 @@ private fun DraggableTextLayer(
                 }
             }
     ) {
-        val fontSizePx = with(LocalDensity.current) {
-            (layer.fontSizeSp * scaleState.value).sp.toPx()
-        }
-        val extraPx = fontSizePx * 0.5f
-        val (textWidthPx, textHeightPx) = com.mochits.text.measureStyledText(layer.text, fontSizePx, layer.style)
-
-        val density = LocalDensity.current
-        val widthDp = with(density) { (textWidthPx + extraPx * 2).toDp() }
-        val heightDp = with(density) { (textHeightPx + extraPx * 2).toDp() }
-        val extraDp = with(density) { extraPx.toDp() }
-
         com.mochits.text.StyledText(
             text = layer.text,
             fontSizePx = fontSizePx,

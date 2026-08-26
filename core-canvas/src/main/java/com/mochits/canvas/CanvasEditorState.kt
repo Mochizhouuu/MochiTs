@@ -55,11 +55,18 @@ class CanvasEditorState(
         scale = newScale.coerceIn(0.1f, 5.0f)
     }
 
+    private var initialFitApplied = false
+
+    /**
+     * Set skala awal agar lebar gambar pas dengan viewport. Hanya berlaku
+     * SEKALI per instance — panggilan ulang (rotasi, perubahan insets,
+     * split-screen) tidak boleh menimpa zoom yang sudah diatur user.
+     */
     fun setInitialFitScale(viewportWidthPx: Float) {
-        if (intrinsicWidthPx > 0) {
-            val fitScale = (viewportWidthPx / intrinsicWidthPx.toFloat()).coerceIn(0.1f, 1.0f)
-            scale = fitScale
-        }
+        if (initialFitApplied || intrinsicWidthPx <= 0) return
+        initialFitApplied = true
+        val fitScale = (viewportWidthPx / intrinsicWidthPx.toFloat()).coerceIn(0.1f, 1.0f)
+        scale = fitScale
     }
 
     /**
@@ -169,27 +176,46 @@ class CanvasEditorState(
         if (selectedLayerId == id) selectedLayerId = null
     }
 
-    fun updateLayerText(id: String, newText: String) {
+    /**
+     * Muat kumpulan layer hasil deserialize dari project tersimpan.
+     * Tidak mencatat undo — memuat project bukan aksi user.
+     */
+    fun restoreLayers(layers: List<CanvasTextLayer>) {
+        textLayers.clear()
+        textLayers.addAll(layers)
+        if (selectedLayerId != null && textLayers.none { it.id == selectedLayerId }) {
+            selectedLayerId = null
+        }
+    }
+
+    fun updateLayerText(id: String, newText: String, recordUndo: Boolean = true) {
         val index = textLayers.indexOfFirst { it.id == id }
         if (index != -1 && textLayers[index].text != newText) {
-            pushUndoSnapshot()
+            if (recordUndo) pushUndoSnapshot()
             textLayers[index] = textLayers[index].copy(text = newText)
         }
     }
 
-    fun updateLayerStyle(id: String, newStyle: com.mochits.text.TextStyleConfig) {
+    fun updateLayerStyle(
+        id: String,
+        newStyle: com.mochits.text.TextStyleConfig,
+        recordUndo: Boolean = true
+    ) {
         val index = textLayers.indexOfFirst { it.id == id }
         if (index != -1 && textLayers[index].style != newStyle) {
-            pushUndoSnapshot()
+            if (recordUndo) pushUndoSnapshot()
             textLayers[index] = textLayers[index].copy(style = newStyle)
         }
     }
 
-    fun updateLayerFontSize(id: String, newSizeSp: Float) {
+    fun updateLayerFontSize(id: String, newSizeSp: Float, recordUndo: Boolean = true) {
         val index = textLayers.indexOfFirst { it.id == id }
-        if (index != -1 && textLayers[index].fontSizeSp != newSizeSp) {
-            pushUndoSnapshot()
-            textLayers[index] = textLayers[index].copy(fontSizeSp = newSizeSp.coerceIn(8f, 200f))
+        // Coerce dulu, baru bandingkan — mencegah snapshot undo no-op berulang
+        // saat nilai sudah berada di batas clamp (mis. tombol "+" di 200sp).
+        val coerced = newSizeSp.coerceIn(8f, 200f)
+        if (index != -1 && textLayers[index].fontSizeSp != coerced) {
+            if (recordUndo) pushUndoSnapshot()
+            textLayers[index] = textLayers[index].copy(fontSizeSp = coerced)
         }
     }
 
