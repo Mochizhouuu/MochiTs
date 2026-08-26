@@ -26,7 +26,6 @@ fun SettingsScreen(
     onBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
-    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     // Status unduhan dari singleton via ViewModel: tetap berjalan walau
     // layar ditutup, dan sinkron dengan pemakaian model di Editor.

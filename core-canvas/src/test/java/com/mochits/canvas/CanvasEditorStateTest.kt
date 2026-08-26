@@ -120,12 +120,12 @@ class CanvasEditorStateTest {
     @Test
     fun testSetInitialFitScaleHanyaBerlakuSekali() {
         val state = CanvasEditorState("path/to/img.png", 1000, 4000)
-        state.setInitialFitScale(500f)
+        state.setInitialFitScale(500f, 1000f)
         assertEquals(0.5f, state.scale)
 
         // Panggilan ulang (rotasi/insets berubah) TIDAK boleh mereset zoom user
-        state.updateScale(2f)
-        state.setInitialFitScale(500f)
+        state.zoomAt(4f, 250f, 500f)
+        state.setInitialFitScale(500f, 1000f)
         assertEquals(2f, state.scale)
     }
 }

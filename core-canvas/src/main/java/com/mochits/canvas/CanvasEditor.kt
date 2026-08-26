@@ -1,30 +1,30 @@
 package com.mochits.canvas
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -32,6 +32,11 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mochits.common.MaskToolMode
+import com.mochits.text.StyledText
+import com.mochits.text.measureStyledText
+import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.roundToInt
 
 private val SELECTION_COLOR = Color(0xFF8B85FF)
@@ -40,213 +45,134 @@ private val SELECTION_COLOR = Color(0xFF8B85FF)
 fun CanvasEditor(
     state: CanvasEditorState,
     modifier: Modifier = Modifier,
-    maskBitmap: android.graphics.Bitmap? = null,
+    maskBitmap: Bitmap? = null,
     isMaskingActive: Boolean = false,
-    maskToolMode: com.mochits.common.MaskToolMode = com.mochits.common.MaskToolMode.PAN_ZOOM,
+    maskToolMode: MaskToolMode = MaskToolMode.PAN_ZOOM,
     onMaskStrokeComplete: ((List<Pair<Float, Float>>) -> Unit)? = null,
     onMaskTap: ((Float, Float) -> Unit)? = null,
     onReady: (addTextAtViewportCenter: (String) -> Unit) -> Unit = {},
     onEditLayerRequest: ((layerId: String) -> Unit)? = null,
     imageContent: @Composable (path: String, contentScale: ContentScale, modifier: Modifier) -> Unit
 ) {
-    BoxWithConstraints(modifier = modifier) {
-        val viewportWidthDp = maxWidth
-        val viewportHeightDp = maxHeight
-        val verticalScrollState = rememberScrollState()
-        val horizontalScrollState = rememberScrollState()
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val density = LocalDensity.current
+        val viewportWidthPx = with(density) { maxWidth.toPx() }
+        val viewportHeightPx = with(density) { maxHeight.toPx() }
 
-        androidx.compose.runtime.LaunchedEffect(viewportWidthDp) {
-            val viewportPx = with(density) { viewportWidthDp.toPx() }
-            if (viewportPx > 0) {
-                state.setInitialFitScale(viewportPx)
-            }
+        LaunchedEffect(viewportWidthPx, viewportHeightPx) {
+            state.updateViewportSize(viewportWidthPx, viewportHeightPx)
         }
 
-        val displayWidthDp = with(density) { (state.intrinsicWidthPx * state.scale).toDp() }
-        val displayHeightDp = with(density) { (state.intrinsicHeightPx * state.scale).toDp() }
-
-        val horizontalPadding = if (displayWidthDp < viewportWidthDp) {
-            (viewportWidthDp - displayWidthDp) / 2
-        } else {
-            0.dp
-        }
-
-        val verticalPadding = if (displayHeightDp < viewportHeightDp) {
-            (viewportHeightDp - displayHeightDp) / 2
-        } else {
-            0.dp
-        }
-
-        androidx.compose.runtime.LaunchedEffect(onReady) {
+        LaunchedEffect(onReady) {
             onReady { text ->
-                // Hitung ulang padding & scroll saat callback dipanggil agar
-                // tidak memakai nilai stale dari komposisi sebelumnya.
-                val viewportWidthPx = with(density) { viewportWidthDp.toPx() }
-                val viewportHeightPx = with(density) { viewportHeightDp.toPx() }
-                val displayWidthPx = state.intrinsicWidthPx * state.scale
-                val displayHeightPx = state.intrinsicHeightPx * state.scale
-
-                val padXPx = if (displayWidthPx < viewportWidthPx) {
-                    (viewportWidthPx - displayWidthPx) / 2f
-                } else 0f
-                val padYPx = if (displayHeightPx < viewportHeightPx) {
-                    (viewportHeightPx - displayHeightPx) / 2f
-                } else 0f
-
-                val centerScreenX = horizontalScrollState.value + viewportWidthPx / 2f - padXPx
-                val centerScreenY = verticalScrollState.value + viewportHeightPx / 2f - padYPx
-                state.addTextLayer(
-                    text,
-                    xInImagePx = centerScreenX / state.scale,
-                    yInImagePx = centerScreenY / state.scale
-                )
+                val vw = if (state.viewportWidthPx > 0f) state.viewportWidthPx else viewportWidthPx
+                val vh = if (state.viewportHeightPx > 0f) state.viewportHeightPx else viewportHeightPx
+                val centerViewportX = vw / 2f
+                val centerViewportY = vh / 2f
+                val imgX = (centerViewportX - state.offsetX) / state.scale
+                val imgY = (centerViewportY - state.offsetY) / state.scale
+                state.addTextLayer(text, imgX, imgY)
             }
         }
+
+        val isMaskingToolActive = isMaskingActive && maskToolMode != MaskToolMode.PAN_ZOOM
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(verticalScrollState)
-                .horizontalScroll(horizontalScrollState)
-                .pointerInput(Unit) {
+                .pointerInput(isMaskingToolActive, maskToolMode) {
                     awaitEachGesture {
-                        awaitFirstDown(pass = PointerEventPass.Initial)
+                        val down = awaitFirstDown(pass = PointerEventPass.Main)
+                        var previousCentroid = down.position
                         var previousDistance = 0f
-                        var initialFocus = androidx.compose.ui.geometry.Offset.Unspecified
+
+                        val strokePoints = mutableListOf<Pair<Float, Float>>()
+                        var isSingleTouchMasking = isMaskingToolActive
+
+                        if (isSingleTouchMasking) {
+                            val imgX = ((down.position.x - state.offsetX) / state.scale).coerceIn(0f, state.intrinsicWidthPx.toFloat())
+                            val imgY = ((down.position.y - state.offsetY) / state.scale).coerceIn(0f, state.intrinsicHeightPx.toFloat())
+                            strokePoints.add(imgX to imgY)
+                        }
 
                         while (true) {
-                            val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                            val event = awaitPointerEvent(pass = PointerEventPass.Main)
                             val pressed = event.changes.filter { it.pressed }
+                            if (pressed.isEmpty()) break
 
                             if (pressed.size >= 2) {
-                                // Multi-touch zoom gesture
+                                // Multi-touch zoom & pan mode
+                                isSingleTouchMasking = false
+                                strokePoints.clear()
+
                                 val p1 = pressed[0].position
                                 val p2 = pressed[1].position
-                                val distance = kotlin.math.hypot(
-                                    (p1.x - p2.x).toDouble(),
-                                    (p1.y - p2.y).toDouble()
-                                ).toFloat()
-                                val focus = androidx.compose.ui.geometry.Offset(
-                                    (p1.x + p2.x) / 2f,
-                                    (p1.y + p2.y) / 2f
-                                )
+                                val currentCentroid = Offset((p1.x + p2.x) / 2f, (p1.y + p2.y) / 2f)
+                                val currentDistance = hypot((p1.x - p2.x).toDouble(), (p1.y - p2.y).toDouble()).toFloat()
 
-                                // Simpan fokus awal untuk referensi
-                                if (initialFocus == androidx.compose.ui.geometry.Offset.Unspecified) {
-                                    initialFocus = focus
-                                }
+                                if (previousDistance > 0f) {
+                                    val zoomFactor = currentDistance / previousDistance
+                                    val panDx = currentCentroid.x - previousCentroid.x
+                                    val panDy = currentCentroid.y - previousCentroid.y
 
-                                if (previousDistance > 0f && previousDistance != distance) {
-                                    val zoomChange = distance / previousDistance
-                                    val oldScale = state.scale
-                                    val newScale = (oldScale * zoomChange).coerceIn(0.1f, 5.0f)
-
-                                    if (newScale != oldScale && kotlin.math.abs(zoomChange - 1f) > 0.01f) {
-                                        val paddingXPx = with(density) { horizontalPadding.toPx() }
-                                        val paddingYPx = with(density) { verticalPadding.toPx() }
-
-                                        val contentX = horizontalScrollState.value + focus.x - paddingXPx
-                                        val contentY = verticalScrollState.value + focus.y - paddingYPx
-                                        val ratio = newScale / oldScale
-
-                                        state.updateScale(newScale)
-
-                                        val viewportWidthPx = with(density) { viewportWidthDp.toPx() }
-                                        val viewportHeightPx = with(density) { viewportHeightDp.toPx() }
-                                        val newDisplayWidthPx = state.intrinsicWidthPx * newScale
-                                        val newDisplayHeightPx = state.intrinsicHeightPx * newScale
-
-                                        val newPaddingXPx = if (newDisplayWidthPx < viewportWidthPx) {
-                                            (viewportWidthPx - newDisplayWidthPx) / 2f
-                                        } else 0f
-
-                                        val newPaddingYPx = if (newDisplayHeightPx < viewportHeightPx) {
-                                            (viewportHeightPx - newDisplayHeightPx) / 2f
-                                        } else 0f
-
-                                        val newScrollX =
-                                            ((contentX * ratio) - focus.x + newPaddingXPx).roundToInt()
-                                        val newScrollY =
-                                            ((contentY * ratio) - focus.y + newPaddingYPx).roundToInt()
-
-                                        // Terapkan sinkron via dispatchRawDelta (bukan
-                                        // coroutine scrollTo) — saat pinch cepat, event
-                                        // gesture berikutnya harus membaca posisi scroll
-                                        // yang sudah diperbarui agar fokus zoom tidak drift.
-                                        horizontalScrollState.dispatchRawDelta(
-                                            (newScrollX.coerceAtLeast(0) - horizontalScrollState.value).toFloat()
-                                        )
-                                        verticalScrollState.dispatchRawDelta(
-                                            (newScrollY.coerceAtLeast(0) - verticalScrollState.value).toFloat()
-                                        )
+                                    if (abs(zoomFactor - 1f) > 0.001f) {
+                                        state.zoomAt(zoomFactor, currentCentroid.x, currentCentroid.y)
                                     }
+                                    state.panBy(panDx, panDy)
                                 }
-                                previousDistance = distance
+                                previousCentroid = currentCentroid
+                                previousDistance = currentDistance
                                 pressed.forEach { it.consume() }
-                            } else {
+                            } else if (pressed.size == 1) {
+                                val change = pressed[0]
+                                if (isSingleTouchMasking) {
+                                    if (!change.isConsumed) {
+                                        change.consume()
+                                        val imgX = ((change.position.x - state.offsetX) / state.scale).coerceIn(0f, state.intrinsicWidthPx.toFloat())
+                                        val imgY = ((change.position.y - state.offsetY) / state.scale).coerceIn(0f, state.intrinsicHeightPx.toFloat())
+                                        strokePoints.add(imgX to imgY)
+                                    }
+                                } else {
+                                    // 1-finger pan mode
+                                    if (!change.isConsumed) {
+                                        val panDx = change.position.x - previousCentroid.x
+                                        val panDy = change.position.y - previousCentroid.y
+                                        if (previousDistance == 0f) {
+                                            state.panBy(panDx, panDy)
+                                            change.consume()
+                                        }
+                                    }
+                                    previousCentroid = change.position
+                                }
                                 previousDistance = 0f
-                                initialFocus = androidx.compose.ui.geometry.Offset.Unspecified
                             }
+                        }
 
-                            if (event.changes.none { it.pressed }) break
+                        if (isSingleTouchMasking && strokePoints.isNotEmpty()) {
+                            val firstPt = strokePoints.first()
+                            if (maskToolMode == MaskToolMode.MAGIC_WAND || maskToolMode == MaskToolMode.COLOR_PIPETTE) {
+                                onMaskTap?.invoke(firstPt.first, firstPt.second)
+                            } else {
+                                onMaskStrokeComplete?.invoke(strokePoints)
+                            }
                         }
                     }
                 }
-                .padding(horizontal = horizontalPadding, vertical = verticalPadding)
         ) {
+            // Container transformed via matrix (offsetX, offsetY, scale)
+            val imgWidthDp = with(density) { state.intrinsicWidthPx.toDp() }
+            val imgHeightDp = with(density) { state.intrinsicHeightPx.toDp() }
+
             Box(
                 modifier = Modifier
-                    .size(width = displayWidthDp, height = displayHeightDp)
-                    .then(
-                        if (isMaskingActive && maskToolMode != com.mochits.common.MaskToolMode.PAN_ZOOM) {
-                            // Key TIDAK menyertakan state.scale: restart gesture
-                            // detector di tengah stroke saat zoom akan memutus
-                            // sapuan dan menghilangkan titik yang sudah terkumpul.
-                            // state.scale dibaca langsung dari closure per-event.
-                            Modifier.pointerInput(maskToolMode, isMaskingActive) {
-                                awaitEachGesture {
-                                    val down = awaitFirstDown(pass = PointerEventPass.Initial)
-                                    down.consume()
-                                    val points = mutableListOf<Pair<Float, Float>>()
-
-                                    val startImgX = (down.position.x / state.scale).coerceIn(0f, state.intrinsicWidthPx.toFloat())
-                                    val startImgY = (down.position.y / state.scale).coerceIn(0f, state.intrinsicHeightPx.toFloat())
-                                    points.add(startImgX to startImgY)
-
-                                    var isMultiTouch = false
-                                    while (true) {
-                                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                                        val pressed = event.changes.filter { it.pressed }
-
-                                        if (pressed.size >= 2) {
-                                            isMultiTouch = true
-                                            break
-                                        }
-
-                                        if (pressed.size == 1) {
-                                            val change = pressed[0]
-                                            change.consume()
-
-                                            val imgX = (change.position.x / state.scale).coerceIn(0f, state.intrinsicWidthPx.toFloat())
-                                            val imgY = (change.position.y / state.scale).coerceIn(0f, state.intrinsicHeightPx.toFloat())
-                                            points.add(imgX to imgY)
-                                        }
-
-                                        if (event.changes.none { it.pressed }) break
-                                    }
-
-                                    if (!isMultiTouch && points.isNotEmpty()) {
-                                        if (maskToolMode == com.mochits.common.MaskToolMode.MAGIC_WAND || maskToolMode == com.mochits.common.MaskToolMode.COLOR_PIPETTE) {
-                                            onMaskTap?.invoke(startImgX, startImgY)
-                                        } else {
-                                            onMaskStrokeComplete?.invoke(points)
-                                        }
-                                    }
-                                }
-                            }
-                        } else Modifier
-                    )
+                    .size(width = imgWidthDp, height = imgHeightDp)
+                    .graphicsLayer {
+                        scaleX = state.scale
+                        scaleY = state.scale
+                        translationX = state.offsetX
+                        translationY = state.offsetY
+                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                    }
             ) {
                 imageContent(
                     state.baseImagePath,
@@ -271,15 +197,9 @@ fun CanvasEditor(
                         isSelected = state.selectedLayerId == layer.id,
                         onSelect = { state.selectLayer(layer.id) },
                         onDragStarted = { state.pushUndoSnapshot() },
-                        onEditRequest = {
-                            onEditLayerRequest?.invoke(layer.id)
-                        },
+                        onEditRequest = { onEditLayerRequest?.invoke(layer.id) },
                         onDragBy = { deltaXPx, deltaYPx ->
-                            state.moveLayerBy(
-                                layer.id,
-                                deltaXPx / state.scale,
-                                deltaYPx / state.scale
-                            )
+                            state.moveLayerBy(layer.id, deltaXPx, deltaYPx)
                         },
                         onResizeFontSize = { deltaSp ->
                             state.updateLayerFontSize(layer.id, layer.fontSizeSp + deltaSp)
@@ -302,21 +222,13 @@ private fun DraggableTextLayer(
     onDragBy: (deltaXPx: Float, deltaYPx: Float) -> Unit,
     onResizeFontSize: (deltaSp: Float) -> Unit
 ) {
-    val screenX = layer.xInImagePx * scale
-    val screenY = layer.yInImagePx * scale
-    val scaleState = rememberUpdatedState(scale)
     val density = LocalDensity.current
 
-    val fontSizePx = with(density) {
-        (layer.fontSizeSp * scaleState.value).sp.toPx()
-    }
-    // Padding efek di sekeliling kanvas teks agar glow/shadow/stroke tidak
-    // terpotong. Box digeser -extraPx dari anchor layer supaya baseline preview
-    // PERSIS sama dengan hasil ekspor (drawStyledTextOnNativeCanvas menggambar
-    // baseline pada yPx + 1.2 x fontSize TANPA offset padding).
+    // fontSizePx disesuaikan untuk koordinat internal (graphicsLayer menagani scale visual)
+    val fontSizePx = with(density) { layer.fontSizeSp.sp.toPx() }
     val extraPx = fontSizePx * 0.5f
     val (textWidthPx, textHeightPx) = remember(layer.text, fontSizePx, layer.style) {
-        com.mochits.text.measureStyledText(layer.text, fontSizePx, layer.style)
+        measureStyledText(layer.text, fontSizePx, layer.style)
     }
 
     val widthDp = with(density) { (textWidthPx + extraPx * 2).toDp() }
@@ -327,8 +239,8 @@ private fun DraggableTextLayer(
         modifier = Modifier
             .offset {
                 IntOffset(
-                    (screenX - extraPx).roundToInt(),
-                    (screenY - extraPx).roundToInt()
+                    (layer.xInImagePx - extraPx).roundToInt(),
+                    (layer.yInImagePx - extraPx).roundToInt()
                 )
             }
             .then(
@@ -343,7 +255,10 @@ private fun DraggableTextLayer(
                 } else Modifier
             )
             .pointerInput(layer.id) {
-                detectTapGestures(onDoubleTap = { onEditRequest() })
+                detectTapGestures(
+                    onTap = { onSelect() },
+                    onDoubleTap = { onEditRequest() }
+                )
             }
             .pointerInput(layer.id) {
                 detectDragGestures(
@@ -353,11 +268,12 @@ private fun DraggableTextLayer(
                     }
                 ) { change, dragAmount ->
                     change.consume()
+                    // dragAmount ada di dalam koordinat unscaled graphicsLayer
                     onDragBy(dragAmount.x, dragAmount.y)
                 }
             }
     ) {
-        com.mochits.text.StyledText(
+        StyledText(
             text = layer.text,
             fontSizePx = fontSizePx,
             style = layer.style,
@@ -366,7 +282,6 @@ private fun DraggableTextLayer(
                 .size(width = widthDp, height = heightDp)
         )
 
-        // Corner Resize Handle when selected
         if (isSelected) {
             Box(
                 modifier = Modifier
