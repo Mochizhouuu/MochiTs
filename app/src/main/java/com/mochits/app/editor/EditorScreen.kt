@@ -82,8 +82,19 @@ fun EditorScreen(
     val presetManager = remember { TextPresetManager(context) }
     val maskSelectionTools = remember { MaskSelectionToolsImpl() }
 
-    var installedFonts by remember { mutableStateOf(fontManager.getInstalledFonts()) }
-    var availablePresets by remember { mutableStateOf(presetManager.getPresets()) }
+    var installedFonts by remember { mutableStateOf<List<CustomFontItem>>(emptyList()) }
+    var availablePresets by remember { mutableStateOf<List<TextStylePreset>>(emptyList()) }
+
+    // Baca daftar font & preset dari disk di thread IO, bukan saat komposisi
+    // (getInstalledFonts/getPresets melakukan scan file).
+    LaunchedEffect(fontManager, presetManager) {
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            val fonts = fontManager.getInstalledFonts()
+            val presets = presetManager.getPresets()
+            installedFonts = fonts
+            availablePresets = presets
+        }
+    }
 
     var currentBaseBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var currentMaskBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -155,117 +166,47 @@ fun EditorScreen(
         if (canvasState != null && projectId.isNotBlank()) {
             val json = projectRepo.loadProjectLayersJson(projectId)
             if (!json.isNullOrBlank()) {
-                try {
-                    val jsonArray = org.json.JSONArray(json)
-                    for (i in 0 until jsonArray.length()) {
-                        val obj = jsonArray.getJSONObject(i)
-                        val text = obj.getString("text")
-                        val x = obj.getDouble("xInImagePx").toFloat()
-                        val y = obj.getDouble("yInImagePx").toFloat()
-                        val fontSize = obj.optDouble("fontSizeSp", 24.0).toFloat()
-
-                        // recordUndo = false: memuat layer tersimpan bukan aksi
-                        // user — jangan membuat tombol undo aktif palsu.
-                        canvasState.addTextLayer(text, x, y, recordUndo = false)
-                        val layerId = canvasState.textLayers.lastOrNull()?.id
-                        if (layerId != null) {
-                            canvasState.updateLayerFontSize(layerId, fontSize)
-                            if (obj.has("style")) {
-                                val sObj = obj.getJSONObject("style")
-                                val style = TextStyleConfig(
-                                    colorArgb = sObj.optInt("colorArgb", 0xFF000000.toInt()),
-                                    fontPath = sObj.optString("fontPath", null).let { if (it == "null") null else it },
-                                    isBold = sObj.optBoolean("isBold", false),
-                                    isItalic = sObj.optBoolean("isItalic", false),
-                                    isUnderline = sObj.optBoolean("isUnderline", false),
-                                    isStrikethrough = sObj.optBoolean("isStrikethrough", false),
-                                    alignment = try {
-                                        TextAlignment.valueOf(sObj.optString("alignment", "LEFT"))
-                                    } catch (e: Exception) { TextAlignment.LEFT },
-                                    strokeEnabled = sObj.optBoolean("strokeEnabled", false),
-                                    strokeColorArgb = sObj.optInt("strokeColorArgb", 0xFF000000.toInt()),
-                                    strokeWidthPx = sObj.optDouble("strokeWidthPx", 3.0).toFloat(),
-                                    glowEnabled = sObj.optBoolean("glowEnabled", false),
-                                    glowColorArgb = sObj.optInt("glowColorArgb", 0xFFFFE082.toInt()),
-                                    glowRadius = sObj.optDouble("glowRadius", 12.0).toFloat(),
-                                    shadowEnabled = sObj.optBoolean("shadowEnabled", false),
-                                    shadowColorArgb = sObj.optInt("shadowColorArgb", 0x80000000.toInt()),
-                                    shadowRadius = sObj.optDouble("shadowRadius", 6.0).toFloat(),
-                                    shadowDx = sObj.optDouble("shadowDx", 4.0).toFloat(),
-                                    shadowDy = sObj.optDouble("shadowDy", 4.0).toFloat(),
-                                    motionBlurEnabled = sObj.optBoolean("motionBlurEnabled", false),
-                                    motionBlurAngle = sObj.optDouble("motionBlurAngle", 0.0).toFloat(),
-                                    motionBlurDistance = sObj.optDouble("motionBlurDistance", 10.0).toFloat(),
-                                    gradientEnabled = sObj.optBoolean("gradientEnabled", false),
-                                    curveEnabled = sObj.optBoolean("curveEnabled", false),
-                                    curveRadius = sObj.optDouble("curveRadius", 200.0).toFloat()
-                                )
-                                canvasState.updateLayerStyle(layerId, style)
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+                // restoreLayers tidak mencatat undo: memuat layer tersimpan
+                // bukan aksi user — tombol undo harus tetap nonaktif.
+                canvasState.restoreLayers(LayerJsonSerializer.deserialize(json))
             }
         }
     }
 
-    fun saveProjectState() {
-        if (projectId.isBlank() || canvasState == null) return
-        coroutineScope.launch(Dispatchers.IO) {
-            val jsonArray = org.json.JSONArray()
-            canvasState.textLayers.forEach { layer ->
-                val obj = org.json.JSONObject()
-                obj.put("id", layer.id)
-                obj.put("text", layer.text)
-                obj.put("xInImagePx", layer.xInImagePx)
-                obj.put("yInImagePx", layer.yInImagePx)
-                obj.put("fontSizeSp", layer.fontSizeSp)
-
-                val s = layer.style
-                val sObj = org.json.JSONObject()
-                sObj.put("colorArgb", s.colorArgb)
-                sObj.put("fontPath", s.fontPath ?: org.json.JSONObject.NULL)
-                sObj.put("isBold", s.isBold)
-                sObj.put("isItalic", s.isItalic)
-                sObj.put("isUnderline", s.isUnderline)
-                sObj.put("isStrikethrough", s.isStrikethrough)
-                sObj.put("alignment", s.alignment.name)
-                sObj.put("strokeEnabled", s.strokeEnabled)
-                sObj.put("strokeColorArgb", s.strokeColorArgb)
-                sObj.put("strokeWidthPx", s.strokeWidthPx)
-                sObj.put("glowEnabled", s.glowEnabled)
-                sObj.put("glowColorArgb", s.glowColorArgb)
-                sObj.put("glowRadius", s.glowRadius)
-                sObj.put("shadowEnabled", s.shadowEnabled)
-                sObj.put("shadowColorArgb", s.shadowColorArgb)
-                sObj.put("shadowRadius", s.shadowRadius)
-                sObj.put("shadowDx", s.shadowDx)
-                sObj.put("shadowDy", s.shadowDy)
-                sObj.put("motionBlurEnabled", s.motionBlurEnabled)
-                sObj.put("motionBlurAngle", s.motionBlurAngle)
-                sObj.put("motionBlurDistance", s.motionBlurDistance)
-                sObj.put("gradientEnabled", s.gradientEnabled)
-                sObj.put("curveEnabled", s.curveEnabled)
-                sObj.put("curveRadius", s.curveRadius)
-
-                obj.put("style", sObj)
-                jsonArray.put(obj)
-            }
-
-            var maskBytes: ByteArray? = null
-            currentMaskBitmap?.let { maskBmp ->
+    /**
+     * Simpan state editor (layers.json + mask.png). Snapshot layer & JSON
+     * dibangun di main thread (menghindari ConcurrentModification dengan
+     * mutasi UI), kompresi mask + tulis file di IO.
+     * @return Job penyimpanan, bisa di-join sebelum navigasi keluar.
+     */
+    fun saveProjectState(): kotlinx.coroutines.Job? {
+        if (projectId.isBlank() || canvasState == null) return null
+        val layersSnapshot = canvasState.textLayers.toList()
+        val layersJson = LayerJsonSerializer.serialize(layersSnapshot)
+        val maskBmp = currentMaskBitmap
+        return coroutineScope.launch(Dispatchers.IO) {
+            val maskBytes = maskBmp?.let { bmp ->
                 val baos = ByteArrayOutputStream()
-                maskBmp.compress(Bitmap.CompressFormat.PNG, 100, baos)
-                maskBytes = baos.toByteArray()
+                bmp.compress(Bitmap.CompressFormat.PNG, 100, baos)
+                baos.toByteArray()
             }
+            projectRepo.saveProjectState(projectId, layersJson, maskBytes)
+        }
+    }
 
-            projectRepo.saveProjectState(projectId, jsonArray.toString(), maskBytes)
+    /** Simpan lalu keluar — tunggu persistensi selesai agar data tidak hilang. */
+    fun saveAndClose() {
+        coroutineScope.launch {
+            saveProjectState()?.join()
+            onBack()
         }
     }
 
     val selectedLayer = canvasState?.textLayers?.find { it.id == canvasState.selectedLayerId }
+
+    // Gesture back / tombol back sistem juga harus menyimpan state dulu,
+    // bukan langsung pop navigation (sebelumnya hanya tombol di app bar).
+    androidx.activity.compose.BackHandler { saveAndClose() }
 
     fun showToast(message: String) {
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
@@ -279,8 +220,13 @@ fun EditorScreen(
                     Column {
                         Text(projectName, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
                         if (canvasState != null) {
+                            // derivedStateOf: label zoom hanya recompose saat
+                            // persen berubah, bukan tiap frame pinch-zoom.
+                            val zoomPercent by remember(canvasState) {
+                                androidx.compose.runtime.derivedStateOf { (canvasState.scale * 100).toInt() }
+                            }
                             Text(
-                                "Zoom ${(canvasState.scale * 100).toInt()}% • " +
+                                "Zoom $zoomPercent% • " +
                                     "${canvasState.textLayers.size} layer" +
                                     (if (selectedLayer != null) " • teks terpilih" else ""),
                                 style = MaterialTheme.typography.labelSmall,
@@ -290,10 +236,7 @@ fun EditorScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = {
-                        saveProjectState()
-                        onBack()
-                    }) {
+                    IconButton(onClick = { saveAndClose() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
                     }
                 },
@@ -744,41 +687,65 @@ fun EditorScreen(
             onSelectTelea = {
                 showInpaintDialog = false
                 coroutineScope.launch {
+                    // Tangkap referensi lokal non-null: bitmap bisa berubah/
+                    // ternull-kan sebelum callback dieksekusi — jangan pakai !!
+                    val base = currentBaseBitmap ?: return@launch
+                    val mask = currentMaskBitmap ?: return@launch
                     isProcessingMask = true
                     val telea = TeleaInpainterImpl()
-                    val res = telea.inpaint(currentBaseBitmap!!, currentMaskBitmap!!)
+                    val res = telea.inpaint(base, mask)
                     isProcessingMask = false
                     if (res is OperationResult.Success) {
                         currentBaseBitmap = res.data
                         showToast("Inpaint Telea berhasil!")
                         saveProjectState()
+                    } else if (res is OperationResult.Failure) {
+                        showToast(res.message ?: "Inpaint Telea gagal")
                     }
                 }
             },
             onSelectLama = {
                 showInpaintDialog = false
                 coroutineScope.launch {
+                    val base = currentBaseBitmap ?: return@launch
+                    val mask = currentMaskBitmap ?: return@launch
                     isProcessingMask = true
                     val modelMgr = ModelManager(context)
                     if (!modelMgr.isModelAvailable()) {
                         Toast.makeText(context, "Model LaMa belum diunduh, otomatis fallback ke Telea", Toast.LENGTH_LONG).show()
                         val telea = TeleaInpainterImpl()
-                        val res = telea.inpaint(currentBaseBitmap!!, currentMaskBitmap!!)
+                        val res = telea.inpaint(base, mask)
                         isProcessingMask = false
                         if (res is OperationResult.Success) {
                             currentBaseBitmap = res.data
                             saveProjectState()
+                        } else if (res is OperationResult.Failure) {
+                            showToast(res.message ?: "Inpaint gagal")
                         }
                     } else {
                         val lamaEngine = LamaInpaintEngineImpl(context)
-                        lamaEngine.loadModel(modelMgr.getModelFilePath())
-                        val res = lamaEngine.infer(currentBaseBitmap!!, currentMaskBitmap!!)
-                        lamaEngine.release()
-                        isProcessingMask = false
-                        if (res is OperationResult.Success) {
-                            currentBaseBitmap = res.data
-                            showToast("Inpaint LaMa AI berhasil!")
-                            saveProjectState()
+                        try {
+                            val loadRes = lamaEngine.loadModel(modelMgr.getModelFilePath())
+                            if (loadRes is OperationResult.Failure) {
+                                isProcessingMask = false
+                                showToast(loadRes.message ?: "Gagal memuat model LaMa")
+                                return@launch
+                            }
+                            val res = lamaEngine.infer(base, mask)
+                            when (res) {
+                                is OperationResult.Success -> {
+                                    currentBaseBitmap = res.data
+                                    showToast("Inpaint LaMa AI berhasil!")
+                                    saveProjectState()
+                                }
+                                is OperationResult.Failure ->
+                                    showToast(res.message ?: "Inpaint LaMa gagal")
+                            }
+                        } finally {
+                            // Wajib: tanpa finally, interpreter/GPU delegate
+                            // bocor saat inferensi melempar exception.
+                            lamaEngine.release()
+                            isProcessingMask = false
                         }
                     }
                 }

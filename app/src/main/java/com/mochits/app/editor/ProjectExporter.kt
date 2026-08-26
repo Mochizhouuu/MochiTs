@@ -46,7 +46,10 @@ object ProjectExporter {
             val resultBitmap = renderComposite(baseImageBitmap, state)
 
             val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-            val fileName = "MochiTs_$timestamp.png"
+            // Ekstensi & MIME harus konsisten dengan format kompresi —
+            // sebelumnya hardcode PNG meski format bisa JPEG.
+            val extension = if (format == Bitmap.CompressFormat.PNG) "png" else "jpg"
+            val fileName = "MochiTs_$timestamp.$extension"
             val safeSubfolder = subfolder.split('/')
                 .map { it.trim() }
                 .filter { it.isNotEmpty() && it != "." && it != ".." }
@@ -115,7 +118,10 @@ object ProjectExporter {
 
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
-            put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+            put(
+                MediaStore.Images.Media.MIME_TYPE,
+                if (format == Bitmap.CompressFormat.PNG) "image/png" else "image/jpeg"
+            )
             put(MediaStore.Images.Media.RELATIVE_PATH, relativePath)
             put(MediaStore.Images.Media.IS_PENDING, 1)
         }

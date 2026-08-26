@@ -16,8 +16,7 @@ import com.mochits.app.editor.EditorScreen
 import com.mochits.app.home.HomeScreen
 import com.mochits.app.settings.SettingsScreen
 import dagger.hilt.android.AndroidEntryPoint
-import java.net.URLDecoder
-import java.net.URLEncoder
+import android.net.Uri
 
 private val MochiSoftDarkColorScheme = darkColorScheme(
     primary = Color(0xFF8B85FF),
@@ -62,8 +61,10 @@ private fun MochiTsNavHost() {
         composable(ROUTE_HOME) {
             HomeScreen(
                 onOpenProject = { project ->
-                    val encodedPath = URLEncoder.encode(project.baseImagePath, "UTF-8")
-                    val encodedName = URLEncoder.encode(project.name, "UTF-8")
+                    // Uri.encode (bukan URLEncoder): URLEncoder mengubah spasi
+                    // menjadi "+" yang korup saat decode round-trip.
+                    val encodedPath = Uri.encode(project.baseImagePath, "")
+                    val encodedName = Uri.encode(project.name, "")
                     navController.navigate("editor/${project.id}/$encodedName/$encodedPath")
                 },
                 onOpenSettings = {
@@ -85,11 +86,11 @@ private fun MochiTsNavHost() {
             )
         ) { backStackEntry ->
             val projectId = backStackEntry.arguments?.getString("projectId") ?: ""
-            val name = URLDecoder.decode(
-                backStackEntry.arguments?.getString("projectName") ?: "", "UTF-8"
+            val name = Uri.decode(
+                backStackEntry.arguments?.getString("projectName") ?: ""
             )
-            val path = URLDecoder.decode(
-                backStackEntry.arguments?.getString("baseImagePath") ?: "", "UTF-8"
+            val path = Uri.decode(
+                backStackEntry.arguments?.getString("baseImagePath") ?: ""
             )
             EditorScreen(
                 projectId = projectId,
