@@ -58,4 +58,74 @@ class CanvasEditorStateTest {
         assertEquals(1, state.textLayers.size)
         assertEquals("Layer 2", state.textLayers.first().text)
     }
+
+    @Test
+    fun testUpdateDenganRecordUndoFalseTidakMencemariStackUndo() {
+        val state = CanvasEditorState("path/to/img.png", 1000, 2000)
+        val layer = CanvasTextLayer(id = "l1", text = "awal", xInImagePx = 0f, yInImagePx = 0f)
+        state.restoreLayers(listOf(layer))
+        assertFalse(state.canUndo)
+
+        // Simulasi loading project: update tanpa record undo
+        state.updateLayerFontSize("l1", 40f, recordUndo = false)
+        state.updateLayerText("l1", "baru", recordUndo = false)
+        state.updateLayerStyle("l1", TextStyleConfig(isBold = true), recordUndo = false)
+
+        assertEquals(40f, state.textLayers.first().fontSizeSp)
+        assertEquals("baru", state.textLayers.first().text)
+        assertTrue(state.textLayers.first().style.isBold)
+        assertFalse(state.canUndo)
+    }
+
+    @Test
+    fun testFontSizeDiBatasClampTidakMendorongSnapshotNoOp() {
+        val state = CanvasEditorState("path/to/img.png", 1000, 2000)
+        state.addTextLayer("tes", 0f, 0f)
+        val id = state.textLayers.first().id
+
+        Thread.sleep(400) // lewati window coalescing snapshot
+        state.updateLayerFontSize(id, 200f)
+        assertTrue(state.canUndo)
+
+        Thread.sleep(400)
+        // Nilai sudah di batas atas: tekan "+" lagi tidak boleh menambah entri undo baru.
+        // Verifikasi via redoStack tetap ter-reset & undo tetap hanya satu langkah efektif:
+        val snapshotBefore = state.canUndo to state.canRedo
+        state.updateLayerFontSize(id, 300f) // akan di-coerce ke 200f == nilai sekarang
+        assertEquals(snapshotBefore, state.canUndo to state.canRedo)
+        assertEquals(200f, state.textLayers.first().fontSizeSp)
+
+        // undo mengembalikan ke default 24sp (bukan no-op berulang)
+        state.undo()
+        assertEquals(24f, state.textLayers.first().fontSizeSp)
+    }
+
+    @Test
+    fun testRestoreLayersMenggantiIsiTanpaUndo() {
+        val state = CanvasEditorState("path/to/img.png", 1000, 2000)
+        state.addTextLayer("sementara", 0f, 0f)
+
+        val loaded = listOf(
+            CanvasTextLayer(id = "a", text = "A", xInImagePx = 1f, yInImagePx = 2f),
+            CanvasTextLayer(id = "b", text = "B", xInImagePx = 3f, yInImagePx = 4f, fontSizeSp = 30f)
+        )
+        state.restoreLayers(loaded)
+
+        assertEquals(2, state.textLayers.size)
+        assertEquals("a", state.textLayers[0].id)
+        assertEquals(30f, state.textLayers[1].fontSizeSp)
+        assertFalse(state.canUndo)
+    }
+
+    @Test
+    fun testSetInitialFitScaleHanyaBerlakuSekali() {
+        val state = CanvasEditorState("path/to/img.png", 1000, 4000)
+        state.setInitialFitScale(500f)
+        assertEquals(0.5f, state.scale)
+
+        // Panggilan ulang (rotasi/insets berubah) TIDAK boleh mereset zoom user
+        state.updateScale(2f)
+        state.setInitialFitScale(500f)
+        assertEquals(2f, state.scale)
+    }
 }

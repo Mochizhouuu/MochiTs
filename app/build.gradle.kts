@@ -95,6 +95,12 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    testOptions {
+        // Tanpa ini, dependency org.junit.jupiter TIDAK akan dieksekusi
+        // (unit test AGP default pakai JUnit4 runner).
+        unitTests.all { it.useJUnitPlatform() }
+    }
 }
 
 dependencies {
@@ -130,6 +136,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    // Implementasi org.json asli untuk unit test JVM (stub Android melempar
+    // "not mocked") — dipakai LayerJsonSerializer.
+    testImplementation("org.json:json:20240303")
     testImplementation("app.cash.turbine:turbine:1.1.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
