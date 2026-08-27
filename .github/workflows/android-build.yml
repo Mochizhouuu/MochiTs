@@ -24,7 +24,7 @@ jobs:
 
       - name: Cache OpenCV Android SDK
         id: cache-opencv
-        uses: actions/cache@d4323d4df104b026a6aa633fdb11d7715d3bc0e6 # v4.2.2
+        uses: actions/cache@v4
         with:
           path: third_party/opencv
           key: opencv-android-sdk-${{ env.OPENCV_VERSION }}
