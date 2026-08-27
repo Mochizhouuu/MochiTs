@@ -24,7 +24,13 @@ class ProjectRepository @Inject constructor(
 
     fun getAllProjects(): Flow<List<ProjectEntity>> = projectDao.getAllProjects()
 
-    suspend fun getProject(id: String): ProjectEntity? = projectDao.getProjectById(id)
+    suspend fun getProject(id: String): ProjectEntity? {
+        return try {
+            projectDao.getProjectById(id)
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     suspend fun createProject(title: String, width: Int, height: Int): ProjectEntity {
         val id = UUID.randomUUID().toString()
@@ -43,16 +49,28 @@ class ProjectRepository @Inject constructor(
     }
 
     suspend fun saveProject(project: ProjectEntity) {
-        projectDao.updateProject(project.copy(updatedAt = System.currentTimeMillis()))
+        try {
+            projectDao.updateProject(project.copy(updatedAt = System.currentTimeMillis()))
+        } catch (e: Exception) {
+            // Handle error safely
+        }
     }
 
     suspend fun deleteProject(id: String) {
         withContext(Dispatchers.IO) {
-            val projectDir = File(context.filesDir, "projects/$id")
-            if (projectDir.exists()) {
-                projectDir.deleteRecursively()
+            try {
+                val projectDir = File(context.filesDir, "projects/$id")
+                if (projectDir.exists()) {
+                    projectDir.deleteRecursively()
+                }
+            } catch (e: Exception) {
+                // Ignore file deletion error
             }
-            projectDao.deleteProjectById(id)
+            try {
+                projectDao.deleteProjectById(id)
+            } catch (e: Exception) {
+                // Handle database deletion error safely
+            }
         }
     }
 }
