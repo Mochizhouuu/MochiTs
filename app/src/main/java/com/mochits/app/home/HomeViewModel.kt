@@ -43,7 +43,7 @@ class HomeViewModel @Inject constructor(
                 val project = repository.createProject(title, width, height, imageUri)
                 onCreated(project.id)
             } catch (e: Exception) {
-                // Log or handle error gracefully
+                e.printStackTrace()
             }
         }
     }

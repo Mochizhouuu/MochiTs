@@ -63,15 +63,18 @@ class EditorViewModel @Inject constructor(
             if (proj != null) {
                 project.value = proj
                 layers.value = serializer.deserialize(proj.layersJson)
-                setupCanvasSize(proj.width, proj.height)
+                var loadedBmp: Bitmap? = null
                 proj.thumbnailPath?.let { path ->
                     val file = File(path)
                     if (file.exists()) {
-                        val bmp = android.graphics.BitmapFactory.decodeFile(file.absolutePath)
-                        bmp?.let { loadedBmp ->
-                            baseBitmap.value = loadedBmp
-                        }
+                        loadedBmp = android.graphics.BitmapFactory.decodeFile(file.absolutePath)
                     }
+                }
+                if (loadedBmp != null) {
+                    baseBitmap.value = loadedBmp
+                    setupCanvasSize(loadedBmp!!.width, loadedBmp!!.height)
+                } else {
+                    setupCanvasSize(proj.width, proj.height)
                 }
             }
         }
@@ -99,7 +102,28 @@ class EditorViewModel @Inject constructor(
     fun setBaseImage(bitmap: Bitmap) {
         baseBitmap.value = bitmap
         setupCanvasSize(bitmap.width, bitmap.height)
-        autoSave()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val projectDir = File(context.filesDir, "projects/$projectId").apply { mkdirs() }
+                val imageFile = File(projectDir, "base_image.png")
+                java.io.FileOutputStream(imageFile).use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                }
+                val currentProj = project.value
+                if (currentProj != null) {
+                    val updated = currentProj.copy(
+                        width = bitmap.width,
+                        height = bitmap.height,
+                        thumbnailPath = imageFile.absolutePath,
+                        layersJson = serializer.serialize(layers.value)
+                    )
+                    project.value = updated
+                    repository.saveProject(updated)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     fun setActivePanel(panel: EditorPanel) {

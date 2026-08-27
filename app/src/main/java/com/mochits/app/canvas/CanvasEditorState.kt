@@ -14,6 +14,8 @@ class CanvasEditorState {
     var minScale by mutableFloatStateOf(0.1f)
     var maxScale by mutableFloatStateOf(10f)
 
+    var isTransformInitialized by mutableStateOf(false)
+
     val mapper = PrecisionCoordinateMapper()
 
     fun updateTransform(newScale: Float, newOffsetX: Float, newOffsetY: Float) {
@@ -44,5 +46,6 @@ class CanvasEditorState {
         val initialY = (viewportHeight - imageHeight * fitScale) / 2f
 
         updateTransform(fitScale, initialX, initialY)
+        isTransformInitialized = true
     }
 }

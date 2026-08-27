@@ -13,6 +13,7 @@ class MochiTsApp : Application() {
             if (!OpenCVLoader.initLocal()) {
                 Log.w("MochiTsApp", "OpenCV initLocal returned false, attempting initDebug fallback.")
                 try {
+                    @Suppress("DEPRECATION")
                     OpenCVLoader.initDebug()
                 } catch (t: Throwable) {
                     Log.e("MochiTsApp", "OpenCV initDebug fallback failed safely", t)

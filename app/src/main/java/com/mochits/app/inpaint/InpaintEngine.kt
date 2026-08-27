@@ -16,7 +16,7 @@ class InpaintEngine {
     suspend fun inpaintTelea(
         sourceBitmap: Bitmap,
         maskBitmap: Bitmap,
-        radius: Float = 5f
+        @Suppress("UNUSED_PARAMETER") radius: Float = 5f
     ): Result<Bitmap> = withContext(Dispatchers.Default) {
         try {
             val width = sourceBitmap.width
