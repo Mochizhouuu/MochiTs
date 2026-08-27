@@ -32,7 +32,7 @@ class ProjectRepository @Inject constructor(
         }
     }
 
-    suspend fun createProject(title: String, width: Int, height: Int, imageUri: android.net.Uri? = null): ProjectEntity {
+    suspend fun createProject(title: String, width: Int, height: Int, imageUri: android.net.Uri? = null): ProjectEntity = withContext(Dispatchers.IO) {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
         var thumbnailPath: String? = null
@@ -46,9 +46,11 @@ class ProjectRepository @Inject constructor(
                         input.copyTo(output)
                     }
                 }
-                thumbnailPath = imageFile.absolutePath
+                if (imageFile.exists() && imageFile.length() > 0) {
+                    thumbnailPath = imageFile.absolutePath
+                }
             } catch (e: Exception) {
-                // Handle image copy error safely
+                e.printStackTrace()
             }
         }
 
@@ -63,7 +65,7 @@ class ProjectRepository @Inject constructor(
             layersJson = "[]"
         )
         projectDao.insertProject(entity)
-        return entity
+        entity
     }
 
     suspend fun saveProject(project: ProjectEntity) {

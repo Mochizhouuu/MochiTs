@@ -108,7 +108,7 @@ class MaskSelectionTools(
         }
     }
 
-    fun endStroke(point: Offset, mode: MaskToolMode, brushSize: Float) {
+    fun endStroke(point: Offset, mode: MaskToolMode, @Suppress("UNUSED_PARAMETER") brushSize: Float = 0f) {
         when (mode) {
             MaskToolMode.LASSO -> {
                 currentPath?.let { path ->

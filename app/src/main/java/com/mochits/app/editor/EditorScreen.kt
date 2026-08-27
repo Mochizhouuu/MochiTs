@@ -46,6 +46,7 @@ fun EditorScreen(
     val maskToolMode by viewModel.maskToolMode.collectAsState()
     val brushSize by viewModel.brushSize.collectAsState()
     val isProcessingInpaint by viewModel.isProcessingInpaint.collectAsState()
+    @Suppress("UNUSED_VARIABLE")
     val isExporting by viewModel.isExporting.collectAsState()
 
     val textRenderer = remember { TextRenderer(context) }
@@ -75,7 +76,12 @@ fun EditorScreen(
             val file = File(context.cacheDir, "temp_export.${selectedFormat.lowercase()}")
             val compressFormat = when (selectedFormat.uppercase()) {
                 "JPEG", "JPG" -> android.graphics.Bitmap.CompressFormat.JPEG
-                "WEBP" -> android.graphics.Bitmap.CompressFormat.WEBP
+                "WEBP" -> if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    android.graphics.Bitmap.CompressFormat.WEBP_LOSSY
+                } else {
+                    @Suppress("DEPRECATION")
+                    android.graphics.Bitmap.CompressFormat.WEBP
+                }
                 else -> android.graphics.Bitmap.CompressFormat.PNG
             }
             viewModel.exportProject(file, compressFormat, exportQuality.toInt()) { success ->
@@ -165,6 +171,8 @@ fun EditorScreen(
                 .fillMaxSize()
                 .background(Color.DarkGray)
         ) {
+            var lastTouchCanvasPt by remember { mutableStateOf(Offset.Zero) }
+
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
@@ -173,16 +181,18 @@ fun EditorScreen(
                             detectDragGestures(
                                 onDragStart = { screenOffset ->
                                     val canvasPt = viewModel.canvasState.mapper.screenToCanvas(screenOffset.x, screenOffset.y)
+                                    lastTouchCanvasPt = canvasPt
                                     viewModel.maskSelectionTools?.startStroke(canvasPt, maskToolMode, brushSize)
                                     triggerRedraw++
                                 },
                                 onDrag = { change, _ ->
                                     val canvasPt = viewModel.canvasState.mapper.screenToCanvas(change.position.x, change.position.y)
+                                    lastTouchCanvasPt = canvasPt
                                     viewModel.maskSelectionTools?.updateStroke(canvasPt, maskToolMode, brushSize)
                                     triggerRedraw++
                                 },
                                 onDragEnd = {
-                                    viewModel.maskSelectionTools?.endStroke(Offset.Zero, maskToolMode, brushSize)
+                                    viewModel.maskSelectionTools?.endStroke(lastTouchCanvasPt, maskToolMode, brushSize)
                                     triggerRedraw++
                                 }
                             )
@@ -201,7 +211,7 @@ fun EditorScreen(
                 val canvasHeight = size.height
 
                 baseBitmap?.let { bmp ->
-                    if (viewModel.canvasState.scale == 1f && viewModel.canvasState.offsetX == 0f) {
+                    if (!viewModel.canvasState.isTransformInitialized) {
                         viewModel.canvasState.resetTransform(canvasWidth, canvasHeight, bmp.width.toFloat(), bmp.height.toFloat())
                     }
                 }
