@@ -37,7 +37,8 @@ class ProjectRepository @Inject constructor(
         width: Int,
         height: Int,
         imageUri: android.net.Uri? = null,
-        isTransparent: Boolean = false
+        isTransparent: Boolean = false,
+        backgroundColor: Int = android.graphics.Color.WHITE
     ): ProjectEntity = withContext(Dispatchers.IO) {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
@@ -46,24 +47,59 @@ class ProjectRepository @Inject constructor(
         val projectDir = File(context.filesDir, "projects/$id").apply { mkdirs() }
         val imageFile = File(projectDir, "base_image.png")
 
+        var finalWidth = width.coerceIn(1, 8192)
+        var finalHeight = height.coerceIn(1, 8192)
+
         if (imageUri != null) {
             try {
+                // Decode bounds first to check image dimensions
+                val boundsOptions = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 context.contentResolver.openInputStream(imageUri)?.use { input ->
-                    FileOutputStream(imageFile).use { output ->
-                        input.copyTo(output)
-                    }
+                    android.graphics.BitmapFactory.decodeStream(input, null, boundsOptions)
                 }
-                if (imageFile.exists() && imageFile.length() > 0) {
-                    thumbnailPath = imageFile.absolutePath
+
+                val originalWidth = boundsOptions.outWidth
+                val originalHeight = boundsOptions.outHeight
+
+                if (originalWidth > 0 && originalHeight > 0) {
+                    // Calculate sample size to limit max dimension to 4096px
+                    val maxDimension = 4096
+                    var sampleSize = 1
+                    while ((originalWidth / sampleSize) > maxDimension || (originalHeight / sampleSize) > maxDimension) {
+                        sampleSize *= 2
+                    }
+
+                    val decodeOptions = android.graphics.BitmapFactory.Options().apply {
+                        inSampleSize = sampleSize
+                    }
+
+                    val decodedBmp = context.contentResolver.openInputStream(imageUri)?.use { input ->
+                        android.graphics.BitmapFactory.decodeStream(input, null, decodeOptions)
+                    }
+
+                    if (decodedBmp != null) {
+                        finalWidth = decodedBmp.width
+                        finalHeight = decodedBmp.height
+                        FileOutputStream(imageFile).use { output ->
+                            decodedBmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output)
+                        }
+                        decodedBmp.recycle()
+                        if (imageFile.exists() && imageFile.length() > 0) {
+                            thumbnailPath = imageFile.absolutePath
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
-        } else {
+        }
+
+        if (thumbnailPath == null) {
+            // Create canvas bitmap with specified width/height and background color
             try {
-                val bmp = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+                val bmp = android.graphics.Bitmap.createBitmap(finalWidth, finalHeight, android.graphics.Bitmap.Config.ARGB_8888)
                 if (!isTransparent) {
-                    bmp.eraseColor(android.graphics.Color.WHITE)
+                    bmp.eraseColor(backgroundColor)
                 } else {
                     bmp.eraseColor(android.graphics.Color.TRANSPARENT)
                 }
@@ -73,22 +109,7 @@ class ProjectRepository @Inject constructor(
                 if (imageFile.exists()) {
                     thumbnailPath = imageFile.absolutePath
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-
-        var finalWidth = width
-        var finalHeight = height
-
-        if (imageUri != null && thumbnailPath != null) {
-            try {
-                val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                android.graphics.BitmapFactory.decodeFile(thumbnailPath, options)
-                if (options.outWidth > 0 && options.outHeight > 0) {
-                    finalWidth = options.outWidth
-                    finalHeight = options.outHeight
-                }
+                bmp.recycle()
             } catch (e: Exception) {
                 e.printStackTrace()
             }
