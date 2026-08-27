@@ -64,6 +64,15 @@ class EditorViewModel @Inject constructor(
                 project.value = proj
                 layers.value = serializer.deserialize(proj.layersJson)
                 setupCanvasSize(proj.width, proj.height)
+                proj.thumbnailPath?.let { path ->
+                    val file = File(path)
+                    if (file.exists()) {
+                        val bmp = android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                        bmp?.let { loadedBmp ->
+                            baseBitmap.value = loadedBmp
+                        }
+                    }
+                }
             }
         }
     }
@@ -187,11 +196,16 @@ class EditorViewModel @Inject constructor(
         autoSave()
     }
 
-    fun exportProject(outputFile: File, onComplete: (Boolean) -> Unit) {
+    fun exportProject(
+        outputFile: File,
+        format: android.graphics.Bitmap.CompressFormat = android.graphics.Bitmap.CompressFormat.PNG,
+        quality: Int = 100,
+        onComplete: (Boolean) -> Unit
+    ) {
         val base = baseBitmap.value ?: return
         viewModelScope.launch {
             isExporting.value = true
-            val success = exporter.exportToFile(base, layers.value, outputFile)
+            val success = exporter.exportToFile(base, layers.value, outputFile, format, quality)
             isExporting.value = false
             onComplete(success)
         }

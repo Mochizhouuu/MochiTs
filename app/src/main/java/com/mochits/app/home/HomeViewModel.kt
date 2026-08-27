@@ -37,10 +37,10 @@ class HomeViewModel @Inject constructor(
         _themeMode.value = mode
     }
 
-    fun createProject(title: String, width: Int, height: Int, onCreated: (String) -> Unit) {
+    fun createProject(title: String, width: Int, height: Int, imageUri: android.net.Uri? = null, onCreated: (String) -> Unit) {
         viewModelScope.launch {
             try {
-                val project = repository.createProject(title, width, height)
+                val project = repository.createProject(title, width, height, imageUri)
                 onCreated(project.id)
             } catch (e: Exception) {
                 // Log or handle error gracefully

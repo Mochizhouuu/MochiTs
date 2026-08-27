@@ -32,9 +32,26 @@ class ProjectRepository @Inject constructor(
         }
     }
 
-    suspend fun createProject(title: String, width: Int, height: Int): ProjectEntity {
+    suspend fun createProject(title: String, width: Int, height: Int, imageUri: android.net.Uri? = null): ProjectEntity {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
+        var thumbnailPath: String? = null
+
+        if (imageUri != null) {
+            try {
+                val projectDir = File(context.filesDir, "projects/$id").apply { mkdirs() }
+                val imageFile = File(projectDir, "base_image.png")
+                context.contentResolver.openInputStream(imageUri)?.use { input ->
+                    FileOutputStream(imageFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                thumbnailPath = imageFile.absolutePath
+            } catch (e: Exception) {
+                // Handle image copy error safely
+            }
+        }
+
         val entity = ProjectEntity(
             id = id,
             title = title,
@@ -42,6 +59,7 @@ class ProjectRepository @Inject constructor(
             height = height,
             createdAt = now,
             updatedAt = now,
+            thumbnailPath = thumbnailPath,
             layersJson = "[]"
         )
         projectDao.insertProject(entity)
