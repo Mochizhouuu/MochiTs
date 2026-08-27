@@ -51,12 +51,11 @@ import java.util.Locale
 @Composable
 fun HomeScreen(
     onOpenEditor: (String) -> Unit,
+    onOpenSettings: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val projects by viewModel.projects.collectAsState()
-    val themeMode by viewModel.themeMode.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
-    var showSettingsDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -68,7 +67,7 @@ fun HomeScreen(
                     )
                 },
                 actions = {
-                    IconButton(onClick = { showSettingsDialog = true }) {
+                    IconButton(onClick = onOpenSettings) {
                         Icon(
                             imageVector = Icons.Default.Settings,
                             contentDescription = "Pengaturan"
@@ -81,13 +80,37 @@ fun HomeScreen(
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { showCreateDialog = true },
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Proyek Baru") },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
-            )
+            val directImagePicker = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.GetContent()
+            ) { uri: Uri? ->
+                uri?.let {
+                    val sdf = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
+                    val title = "Proyek ${sdf.format(Date())}"
+                    viewModel.createProject(title, 1080, 1920, it) { newId ->
+                        onOpenEditor(newId)
+                    }
+                }
+            }
+
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                FloatingActionButton(
+                    onClick = { directImagePicker.launch("image/*") },
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                ) {
+                    Icon(Icons.Default.Image, contentDescription = "Upload Gambar")
+                }
+                ExtendedFloatingActionButton(
+                    onClick = { showCreateDialog = true },
+                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                    text = { Text("Proyek Baru") },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            }
         }
     ) { innerPadding ->
         Box(
@@ -136,15 +159,6 @@ fun HomeScreen(
             )
         }
 
-        if (showSettingsDialog) {
-            AppSettingsDialog(
-                currentTheme = themeMode,
-                onDismiss = { showSettingsDialog = false },
-                onThemeSelected = { mode ->
-                    viewModel.setThemeMode(mode)
-                }
-            )
-        }
     }
 }
 

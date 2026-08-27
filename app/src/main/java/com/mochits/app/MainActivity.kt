@@ -17,6 +17,7 @@ import androidx.navigation.navArgument
 import com.mochits.app.editor.EditorScreen
 import com.mochits.app.home.HomeScreen
 import com.mochits.app.home.HomeViewModel
+import com.mochits.app.settings.SettingsScreen
 import com.mochits.app.ui.theme.MochiTsTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -36,6 +37,17 @@ class MainActivity : ComponentActivity() {
                             HomeScreen(
                                 onOpenEditor = { projectId ->
                                     navController.navigate("editor/$projectId")
+                                },
+                                onOpenSettings = {
+                                    navController.navigate("settings")
+                                },
+                                viewModel = homeViewModel
+                            )
+                        }
+                        composable("settings") {
+                            SettingsScreen(
+                                onNavigateBack = {
+                                    navController.popBackStack()
                                 },
                                 viewModel = homeViewModel
                             )
