@@ -1,6 +1,10 @@
 package com.mochits.app.editor
 
 import android.graphics.BitmapFactory
+import android.graphics.Color as AndroidColor
+import android.graphics.DashPathEffect
+import android.graphics.Paint as AndroidPaint
+import android.graphics.RectF
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -12,6 +16,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -46,27 +52,58 @@ fun EditorScreen(
     val maskToolMode by viewModel.maskToolMode.collectAsState()
     val brushSize by viewModel.brushSize.collectAsState()
     val isProcessingInpaint by viewModel.isProcessingInpaint.collectAsState()
-    @Suppress("UNUSED_VARIABLE")
-    val isExporting by viewModel.isExporting.collectAsState()
+    val canUndo by viewModel.canUndo.collectAsState()
+    val canRedo by viewModel.canRedo.collectAsState()
 
     val textRenderer = remember { TextRenderer(context) }
-    var triggerRedraw by remember { mutableStateOf(0) }
+    var triggerRedraw by remember { mutableIntStateOf(0) }
+    var isMaskPanelCollapsed by remember { mutableStateOf(false) }
 
-    val imagePickerLauncher = rememberLauncherForActivityResult(
+    // Dialog & Dropdown Menu States
+    var showAddMenu by remember { mutableStateOf(false) }
+    var showAddTextDialog by remember { mutableStateOf(false) }
+    var newTextValue by remember { mutableStateOf("") }
+
+    var showExportDialog by remember { mutableStateOf(false) }
+    var outputFileName by remember { mutableStateOf(project?.title ?: "export") }
+    var projectTitleName by remember { mutableStateOf(project?.title ?: "") }
+    var selectedFormat by remember { mutableStateOf("PNG") }
+    var exportQuality by remember { mutableFloatStateOf(100f) }
+
+    LaunchedEffect(project?.title) {
+        project?.title?.let { title ->
+            if (outputFileName.isBlank() || outputFileName == "export") {
+                outputFileName = title
+            }
+            projectTitleName = title
+        }
+    }
+
+    // Image Picker Launchers
+    val baseImagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         uri?.let {
             val inputStream = context.contentResolver.openInputStream(it)
             val bmp = BitmapFactory.decodeStream(inputStream)
             bmp?.let { loadedBmp ->
+                viewModel.saveUndoSnapshot()
                 viewModel.setBaseImage(loadedBmp)
             }
         }
     }
 
-    var showExportDialog by remember { mutableStateOf(false) }
-    var selectedFormat by remember { mutableStateOf("PNG") }
-    var exportQuality by remember { mutableFloatStateOf(100f) }
+    val addImageLayerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            val inputStream = context.contentResolver.openInputStream(it)
+            val bmp = BitmapFactory.decodeStream(inputStream)
+            bmp?.let { loadedBmp ->
+                viewModel.addImageLayer(loadedBmp)
+            }
+        }
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("image/*")
@@ -106,14 +143,54 @@ fun EditorScreen(
                     }
                 },
                 actions = {
+                    // Undo Button
+                    IconButton(
+                        onClick = { viewModel.undo() },
+                        enabled = canUndo
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
+                    }
+                    // Redo Button
+                    IconButton(
+                        onClick = { viewModel.redo() },
+                        enabled = canRedo
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo")
+                    }
+                    // Add Menu (+)
+                    Box {
+                        IconButton(onClick = { showAddMenu = true }) {
+                            Icon(Icons.Default.Add, contentDescription = "Tambah Layer")
+                        }
+                        DropdownMenu(
+                            expanded = showAddMenu,
+                            onDismissRequest = { showAddMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Tambah Teks") },
+                                leadingIcon = { Icon(Icons.Default.TextFields, contentDescription = null) },
+                                onClick = {
+                                    showAddMenu = false
+                                    showAddTextDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Tambah Gambar") },
+                                leadingIcon = { Icon(Icons.Default.Image, contentDescription = null) },
+                                onClick = {
+                                    showAddMenu = false
+                                    addImageLayerLauncher.launch("image/*")
+                                }
+                            )
+                        }
+                    }
+                    // Eraser / Mask Selection Shortcut Button
+                    IconButton(onClick = { viewModel.setActivePanel(EditorPanel.MASK) }) {
+                        Icon(Icons.Default.CleaningServices, contentDescription = "Hapus / Seleksi Objek")
+                    }
+                    // Save As / Rename Menu
                     IconButton(onClick = { showExportDialog = true }) {
-                        Icon(Icons.Default.Save, contentDescription = "Export")
-                    }
-                    IconButton(onClick = { imagePickerLauncher.launch("image/*") }) {
-                        Icon(Icons.Default.Image, contentDescription = "Load Image")
-                    }
-                    IconButton(onClick = { viewModel.setActivePanel(EditorPanel.LAYERS) }) {
-                        Icon(Icons.Default.Layers, contentDescription = "Layers")
+                        Icon(Icons.Default.Save, contentDescription = "Simpan / Save As")
                     }
                 }
             )
@@ -124,13 +201,17 @@ fun EditorScreen(
                     EditorPanel.MASK -> MaskToolPanel(
                         mode = maskToolMode,
                         brushSize = brushSize,
+                        isCollapsed = isMaskPanelCollapsed,
+                        onToggleCollapse = { isMaskPanelCollapsed = !isMaskPanelCollapsed },
                         onModeSelected = { viewModel.setMaskToolMode(it) },
                         onSizeChange = { viewModel.setBrushSize(it) },
                         onClear = {
+                            viewModel.saveUndoSnapshot()
                             viewModel.maskSelectionTools?.clearMask()
                             triggerRedraw++
                         },
                         onInvert = {
+                            viewModel.saveUndoSnapshot()
                             viewModel.maskSelectionTools?.invertMask()
                             triggerRedraw++
                         }
@@ -153,7 +234,8 @@ fun EditorScreen(
                         onSelectLayer = { viewModel.selectLayer(it) },
                         onMoveLayer = { id, dir -> viewModel.moveLayer(id, dir) },
                         onToggleVisibility = { viewModel.toggleLayerVisibility(it) },
-                        onDeleteLayer = { viewModel.deleteLayer(it) }
+                        onDeleteLayer = { viewModel.deleteLayer(it) },
+                        onLoadBaseImage = { baseImagePickerLauncher.launch("image/*") }
                     )
                     else -> {}
                 }
@@ -173,13 +255,34 @@ fun EditorScreen(
         ) {
             var lastTouchCanvasPt by remember { mutableStateOf(Offset.Zero) }
 
+            // Selected text layer & handle bounds calculation
+            val selectedTextLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer
+            val handleCanvasCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text) {
+                if (selectedTextLayer != null) {
+                    val bounds = textRenderer.getTextBounds(
+                        selectedTextLayer.text,
+                        selectedTextLayer.style,
+                        selectedTextLayer.x,
+                        selectedTextLayer.y
+                    )
+                    Offset(bounds.right, bounds.bottom)
+                } else {
+                    Offset.Zero
+                }
+            }
+
+            var isResizingText by remember { mutableStateOf(false) }
+            var initialDragDist by remember { mutableFloatStateOf(0f) }
+            var initialFontSize by remember { mutableFloatStateOf(36f) }
+
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(activePanel) {
+                    .pointerInput(activePanel, selectedLayerId, handleCanvasCenter) {
                         if (activePanel == EditorPanel.MASK) {
                             detectDragGestures(
                                 onDragStart = { screenOffset ->
+                                    viewModel.saveUndoSnapshot()
                                     val canvasPt = viewModel.canvasState.mapper.screenToCanvas(screenOffset.x, screenOffset.y)
                                     lastTouchCanvasPt = canvasPt
                                     viewModel.maskSelectionTools?.startStroke(canvasPt, maskToolMode, brushSize)
@@ -203,8 +306,49 @@ fun EditorScreen(
                             }
                         }
                     }
+                    .pointerInput(selectedTextLayer, handleCanvasCenter) {
+                        if (selectedTextLayer != null) {
+                            detectDragGestures(
+                                onDragStart = { screenPt ->
+                                    val canvasPt = viewModel.canvasState.mapper.screenToCanvas(screenPt.x, screenPt.y)
+                                    val handleRadius = 32f / viewModel.canvasState.scale
+                                    val dx = canvasPt.x - handleCanvasCenter.x
+                                    val dy = canvasPt.y - handleCanvasCenter.y
+                                    if (dx * dx + dy * dy <= handleRadius * handleRadius) {
+                                        isResizingText = true
+                                        viewModel.saveUndoSnapshot()
+                                        val textCenterX = selectedTextLayer.x
+                                        val textCenterY = selectedTextLayer.y
+                                        initialDragDist = kotlin.math.hypot(canvasPt.x - textCenterX, canvasPt.y - textCenterY)
+                                        initialFontSize = selectedTextLayer.style.fontSize
+                                    } else {
+                                        isResizingText = false
+                                    }
+                                },
+                                onDrag = { change, _ ->
+                                    if (isResizingText) {
+                                        val canvasPt = viewModel.canvasState.mapper.screenToCanvas(change.position.x, change.position.y)
+                                        val textCenterX = selectedTextLayer.x
+                                        val textCenterY = selectedTextLayer.y
+                                        val currentDist = kotlin.math.hypot(canvasPt.x - textCenterX, canvasPt.y - textCenterY)
+                                        if (initialDragDist > 0f) {
+                                            val scaleFactor = currentDist / initialDragDist
+                                            val newSize = (initialFontSize * scaleFactor).coerceIn(10f, 300f)
+                                            viewModel.updateSelectedTextLayerStyle(
+                                                selectedTextLayer.style.copy(fontSize = newSize),
+                                                saveUndo = false
+                                            )
+                                            triggerRedraw++
+                                        }
+                                    }
+                                },
+                                onDragEnd = {
+                                    isResizingText = false
+                                }
+                            )
+                        }
+                    }
             ) {
-                // Read state to register Compose recomposition loop
                 @Suppress("UNUSED_VARIABLE")
                 val redraw = triggerRedraw
                 val canvasWidth = size.width
@@ -253,6 +397,32 @@ fun EditorScreen(
                                         x = layer.x,
                                         y = layer.y
                                     )
+
+                                    // Render bounding box & bottom-right resize handle if selected
+                                    if (layer.id == selectedLayerId) {
+                                        val bounds: RectF = textRenderer.getTextBounds(layer.text, layer.style, layer.x, layer.y)
+                                        val boxPaint = AndroidPaint().apply {
+                                            style = AndroidPaint.Style.STROKE
+                                            strokeWidth = 3f / viewModel.canvasState.scale
+                                            color = AndroidColor.BLUE
+                                            pathEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
+                                        }
+                                        drawContext.canvas.nativeCanvas.drawRect(bounds, boxPaint)
+
+                                        // Draw Bottom-Right Handle Circle
+                                        val handleRadius = 14f / viewModel.canvasState.scale
+                                        val handleFillPaint = AndroidPaint().apply {
+                                            style = AndroidPaint.Style.FILL
+                                            color = AndroidColor.WHITE
+                                        }
+                                        val handleStrokePaint = AndroidPaint().apply {
+                                            style = AndroidPaint.Style.STROKE
+                                            strokeWidth = 3f / viewModel.canvasState.scale
+                                            color = AndroidColor.BLUE
+                                        }
+                                        drawContext.canvas.nativeCanvas.drawCircle(bounds.right, bounds.bottom, handleRadius, handleFillPaint)
+                                        drawContext.canvas.nativeCanvas.drawCircle(bounds.right, bounds.bottom, handleRadius, handleStrokePaint)
+                                    }
                                 }
                                 is Layer.ImageLayer -> {
                                     layer.bitmap?.let { imgBmp ->
@@ -272,13 +442,60 @@ fun EditorScreen(
             }
         }
 
+        // Add Text Dialog
+        if (showAddTextDialog) {
+            AlertDialog(
+                onDismissRequest = { showAddTextDialog = false },
+                title = { Text("Tambah Layer Teks", style = MaterialTheme.typography.titleLarge) },
+                text = {
+                    OutlinedTextField(
+                        value = newTextValue,
+                        onValueChange = { newTextValue = it },
+                        label = { Text("Masukkan Teks") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (newTextValue.isNotBlank()) {
+                                viewModel.addTextLayer(newTextValue)
+                                newTextValue = ""
+                                showAddTextDialog = false
+                            }
+                        }
+                    ) {
+                        Text("Tambah")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAddTextDialog = false }) {
+                        Text("Batal")
+                    }
+                }
+            )
+        }
+
+        // Save As / Export / Rename Dialog
         if (showExportDialog) {
             AlertDialog(
                 onDismissRequest = { showExportDialog = false },
-                title = { Text("Simpan / Ekspor Gambar", style = MaterialTheme.typography.titleLarge) },
+                title = { Text("Simpan / Save As & Ubah Nama", style = MaterialTheme.typography.titleLarge) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Pilih Format Gambar:", style = MaterialTheme.typography.bodyMedium)
+                        OutlinedTextField(
+                            value = projectTitleName,
+                            onValueChange = { projectTitleName = it },
+                            label = { Text("Nama Project") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = outputFileName,
+                            onValueChange = { outputFileName = it },
+                            label = { Text("Nama File Output") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text("Format Gambar:", style = MaterialTheme.typography.bodyMedium)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf("PNG", "JPEG", "WEBP").forEach { fmt ->
                                 FilterChip(
@@ -301,9 +518,13 @@ fun EditorScreen(
                 confirmButton = {
                     Button(
                         onClick = {
+                            if (projectTitleName.isNotBlank() && projectTitleName != project?.title) {
+                                viewModel.updateProjectTitle(projectTitleName)
+                            }
                             showExportDialog = false
                             val ext = selectedFormat.lowercase()
-                            exportLauncher.launch("${project?.title ?: "export"}.$ext")
+                            val saveName = if (outputFileName.isNotBlank()) outputFileName else "export"
+                            exportLauncher.launch("$saveName.$ext")
                         }
                     ) {
                         Text("Ekspor")
@@ -356,44 +577,72 @@ fun EditorBottomBar(
 fun MaskToolPanel(
     mode: MaskToolMode,
     brushSize: Float,
+    isCollapsed: Boolean,
+    onToggleCollapse: () -> Unit,
     onModeSelected: (MaskToolMode) -> Unit,
     onSizeChange: (Float) -> Unit,
     onClear: () -> Unit,
     onInvert: () -> Unit
 ) {
     Surface(tonalElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = mode == MaskToolMode.BRUSH,
-                    onClick = { onModeSelected(MaskToolMode.BRUSH) },
-                    label = { Text("Brush") }
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Tool Mask (${mode.name})",
+                    style = MaterialTheme.typography.titleMedium
                 )
-                FilterChip(
-                    selected = mode == MaskToolMode.ERASER,
-                    onClick = { onModeSelected(MaskToolMode.ERASER) },
-                    label = { Text("Eraser") }
-                )
-                FilterChip(
-                    selected = mode == MaskToolMode.LASSO,
-                    onClick = { onModeSelected(MaskToolMode.LASSO) },
-                    label = { Text("Lasso") }
-                )
-                FilterChip(
-                    selected = mode == MaskToolMode.RECTANGLE,
-                    onClick = { onModeSelected(MaskToolMode.RECTANGLE) },
-                    label = { Text("Rect") }
-                )
-                OutlinedButton(onClick = onClear) { Text("Clear") }
-                OutlinedButton(onClick = onInvert) { Text("Invert") }
+                IconButton(onClick = onToggleCollapse) {
+                    Icon(
+                        if (isCollapsed) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (isCollapsed) "Expand Panel" else "Collapse Panel"
+                    )
+                }
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("Ukuran Kuas: ${brushSize.toInt()} px")
-            Slider(
-                value = brushSize,
-                onValueChange = onSizeChange,
-                valueRange = 5f..200f
-            )
+
+            if (!isCollapsed) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = mode == MaskToolMode.BRUSH,
+                        onClick = { onModeSelected(MaskToolMode.BRUSH) },
+                        label = { Text("Brush") }
+                    )
+                    FilterChip(
+                        selected = mode == MaskToolMode.ERASER,
+                        onClick = { onModeSelected(MaskToolMode.ERASER) },
+                        label = { Text("Eraser") }
+                    )
+                    FilterChip(
+                        selected = mode == MaskToolMode.LASSO,
+                        onClick = { onModeSelected(MaskToolMode.LASSO) },
+                        label = { Text("Lasso") }
+                    )
+                    FilterChip(
+                        selected = mode == MaskToolMode.RECTANGLE,
+                        onClick = { onModeSelected(MaskToolMode.RECTANGLE) },
+                        label = { Text("Rect") }
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onClear) { Text("Clear") }
+                    OutlinedButton(onClick = onInvert) { Text("Invert") }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Ukuran Kuas: ${brushSize.toInt()} px")
+                Slider(
+                    value = brushSize,
+                    onValueChange = onSizeChange,
+                    valueRange = 5f..200f
+                )
+            }
         }
     }
 }
@@ -473,44 +722,55 @@ fun LayersToolPanel(
     onSelectLayer: (String?) -> Unit,
     onMoveLayer: (String, Int) -> Unit,
     onToggleVisibility: (String) -> Unit,
-    onDeleteLayer: (String) -> Unit
+    onDeleteLayer: (String) -> Unit,
+    onLoadBaseImage: () -> Unit = {}
 ) {
-    Surface(tonalElevation = 4.dp, modifier = Modifier.fillMaxWidth().height(200.dp)) {
-        LazyColumn(modifier = Modifier.padding(8.dp)) {
-            items(layers) { layer ->
-                val isSelected = layer.id == selectedId
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    onClick = { onSelectLayer(layer.id) }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(8.dp).fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+    Surface(tonalElevation = 4.dp, modifier = Modifier.fillMaxWidth().height(220.dp)) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            OutlinedButton(
+                onClick = onLoadBaseImage,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp)
+            ) {
+                Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Ganti Gambar Latar (Base Image)")
+            }
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                items(layers) { layer ->
+                    val isSelected = layer.id == selectedId
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        onClick = { onSelectLayer(layer.id) }
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { onToggleVisibility(layer.id) }) {
-                                Icon(
-                                    if (layer.isVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                    contentDescription = "Toggle Visibility"
-                                )
+                        Row(
+                            modifier = Modifier.padding(8.dp).fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { onToggleVisibility(layer.id) }) {
+                                    Icon(
+                                        if (layer.isVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                        contentDescription = "Toggle Visibility"
+                                    )
+                                }
+                                Text(text = layer.name)
                             }
-                            Text(text = layer.name)
-                        }
-                        Row {
-                            IconButton(onClick = { onMoveLayer(layer.id, -1) }) {
-                                Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up")
-                            }
-                            IconButton(onClick = { onMoveLayer(layer.id, 1) }) {
-                                Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down")
-                            }
-                            IconButton(onClick = { onDeleteLayer(layer.id) }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Delete Layer")
+                            Row {
+                                IconButton(onClick = { onMoveLayer(layer.id, -1) }) {
+                                    Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up")
+                                }
+                                IconButton(onClick = { onMoveLayer(layer.id, 1) }) {
+                                    Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down")
+                                }
+                                IconButton(onClick = { onDeleteLayer(layer.id) }) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete Layer")
+                                }
                             }
                         }
                     }
