@@ -66,10 +66,16 @@ fun HomeScreen(
     ) { uri: Uri? ->
         uri?.let { selectedUri ->
             coroutineScope.launch {
-                val sdf = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
-                val title = "Proyek ${sdf.format(Date())}"
-                val newId = viewModel.createProject(title, 1080, 1920, selectedUri)
-                onOpenEditor(newId)
+                try {
+                    val sdf = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
+                    val title = "Proyek ${sdf.format(Date())}"
+                    val newId = viewModel.createProject(title, 1080, 1920, selectedUri)
+                    if (newId.isNotBlank()) {
+                        onOpenEditor(newId)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
         }
     }
@@ -79,10 +85,16 @@ fun HomeScreen(
     ) { uri: Uri? ->
         uri?.let { selectedUri ->
             coroutineScope.launch {
-                val sdf = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
-                val title = "Proyek ${sdf.format(Date())}"
-                val newId = viewModel.createProject(title, 1080, 1920, selectedUri)
-                onOpenEditor(newId)
+                try {
+                    val sdf = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
+                    val title = "Proyek ${sdf.format(Date())}"
+                    val newId = viewModel.createProject(title, 1080, 1920, selectedUri)
+                    if (newId.isNotBlank()) {
+                        onOpenEditor(newId)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
         }
     }
@@ -287,15 +299,21 @@ fun HomeScreen(
                 onCreate = { title, width, height, isTransparent, backgroundColor ->
                     showCreateDialog = false
                     coroutineScope.launch {
-                        val newId = viewModel.createProject(
-                            title = title,
-                            width = width,
-                            height = height,
-                            imageUri = null,
-                            isTransparent = isTransparent,
-                            backgroundColor = backgroundColor
-                        )
-                        onOpenEditor(newId)
+                        try {
+                            val newId = viewModel.createProject(
+                                title = title,
+                                width = width,
+                                height = height,
+                                imageUri = null,
+                                isTransparent = isTransparent,
+                                backgroundColor = backgroundColor
+                            )
+                            if (newId.isNotBlank()) {
+                                onOpenEditor(newId)
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
                     }
                 }
             )
