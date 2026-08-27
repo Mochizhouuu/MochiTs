@@ -54,11 +54,27 @@ class ProjectRepository @Inject constructor(
             }
         }
 
+        var finalWidth = width
+        var finalHeight = height
+
+        if (thumbnailPath != null) {
+            try {
+                val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeFile(thumbnailPath, options)
+                if (options.outWidth > 0 && options.outHeight > 0) {
+                    finalWidth = options.outWidth
+                    finalHeight = options.outHeight
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
         val entity = ProjectEntity(
             id = id,
             title = title,
-            width = width,
-            height = height,
+            width = finalWidth,
+            height = finalHeight,
             createdAt = now,
             updatedAt = now,
             thumbnailPath = thumbnailPath,

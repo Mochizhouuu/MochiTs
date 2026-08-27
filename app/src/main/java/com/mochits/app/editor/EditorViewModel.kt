@@ -67,7 +67,13 @@ class EditorViewModel @Inject constructor(
                 proj.thumbnailPath?.let { path ->
                     val file = File(path)
                     if (file.exists()) {
-                        loadedBmp = android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                        val options = android.graphics.BitmapFactory.Options().apply {
+                            inMutable = true
+                        }
+                        val decoded = android.graphics.BitmapFactory.decodeFile(file.absolutePath, options)
+                        if (decoded != null) {
+                            loadedBmp = decoded.copy(Bitmap.Config.ARGB_8888, true)
+                        }
                     }
                 }
                 if (loadedBmp != null) {
@@ -76,6 +82,8 @@ class EditorViewModel @Inject constructor(
                 } else {
                     setupCanvasSize(proj.width, proj.height)
                 }
+            } else {
+                setupCanvasSize(1080, 1920)
             }
         }
     }
