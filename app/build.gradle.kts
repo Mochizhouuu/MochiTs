@@ -92,6 +92,8 @@ android {
 }
 
 dependencies {
+    implementation(project(":core-imaging"))
+
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
     implementation("androidx.activity:activity-compose:1.9.1")
@@ -109,9 +111,6 @@ dependencies {
 
     // Gson JSON serialization
     implementation("com.google.code.gson:gson:2.10.1")
-
-    // OpenCV Android SDK
-    implementation("org.opencv:opencv:4.9.0")
 
     // TensorFlow Lite (LaMa ML Inpaint)
     implementation("org.tensorflow:tensorflow-lite:2.14.0")

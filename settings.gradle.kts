@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 rootProject.name = "MochiTs"
 
 include(":app")
+include(":core-imaging")
