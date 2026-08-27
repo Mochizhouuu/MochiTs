@@ -37,8 +37,15 @@ class HomeViewModel @Inject constructor(
         _themeMode.value = mode
     }
 
-    suspend fun createProject(title: String, width: Int, height: Int, imageUri: android.net.Uri? = null, isTransparent: Boolean = false): String {
-        val project = repository.createProject(title, width, height, imageUri, isTransparent)
+    suspend fun createProject(
+        title: String,
+        width: Int,
+        height: Int,
+        imageUri: android.net.Uri? = null,
+        isTransparent: Boolean = false,
+        backgroundColor: Int = android.graphics.Color.WHITE
+    ): String {
+        val project = repository.createProject(title, width, height, imageUri, isTransparent, backgroundColor)
         return project.id
     }
 

@@ -3,14 +3,18 @@ package com.mochits.app.home
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -20,13 +24,16 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -55,6 +62,19 @@ fun HomeScreen(
     val coroutineScope = rememberCoroutineScope()
 
     val galleryPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        uri?.let { selectedUri ->
+            coroutineScope.launch {
+                val sdf = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
+                val title = "Proyek ${sdf.format(Date())}"
+                val newId = viewModel.createProject(title, 1080, 1920, selectedUri)
+                onOpenEditor(newId)
+            }
+        }
+    }
+
+    val fallbackContentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let { selectedUri ->
@@ -72,7 +92,7 @@ fun HomeScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "AstralTyper",
+                        text = "MochiTs",
                         style = MaterialTheme.typography.headlineMedium.copy(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
@@ -187,60 +207,75 @@ fun HomeScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                    .padding(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 // Button 1: NEW PROJECT
-                Button(
+                FilledTonalButton(
                     onClick = { showCreateDialog = true },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = MaterialTheme.colorScheme.onSurface
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 ) {
+                    Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(22.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = "NEW PROJECT",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
                     )
                 }
 
                 // Button 2: OPEN PROJECT
-                Button(
+                FilledTonalButton(
                     onClick = { showOpenProjectDialog = true },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant,
                         contentColor = MaterialTheme.colorScheme.onSurface
                     )
                 ) {
+                    Icon(imageVector = Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(22.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = "OPEN PROJECT",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
                     )
                 }
 
-                // Button 3: IMPORT IMAGE (Highlighted Lavender Button)
+                // Button 3: IMPORT IMAGE (Highlighted Lavender Button with Gradient / Vibrant Styling)
                 Button(
-                    onClick = { galleryPickerLauncher.launch("image/*") },
+                    onClick = {
+                        try {
+                            galleryPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        } catch (e: Exception) {
+                            fallbackContentLauncher.launch("image/*")
+                        }
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
+                    ),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp, pressedElevation = 8.dp)
                 ) {
+                    Icon(imageVector = Icons.Default.Image, contentDescription = null, modifier = Modifier.size(22.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = "IMPORT IMAGE",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
                     )
                 }
             }
@@ -249,10 +284,17 @@ fun HomeScreen(
         if (showCreateDialog) {
             CreateProjectDialog(
                 onDismiss = { showCreateDialog = false },
-                onCreate = { title, width, height, imageUri, isTransparent ->
+                onCreate = { title, width, height, isTransparent, backgroundColor ->
                     showCreateDialog = false
                     coroutineScope.launch {
-                        val newId = viewModel.createProject(title, width, height, imageUri, isTransparent)
+                        val newId = viewModel.createProject(
+                            title = title,
+                            width = width,
+                            height = height,
+                            imageUri = null,
+                            isTransparent = isTransparent,
+                            backgroundColor = backgroundColor
+                        )
                         onOpenEditor(newId)
                     }
                 }
@@ -345,35 +387,35 @@ fun RecentProjectCard(
 @Composable
 fun CreateProjectDialog(
     onDismiss: () -> Unit,
-    onCreate: (title: String, width: Int, height: Int, imageUri: Uri?, isTransparent: Boolean) -> Unit
+    onCreate: (title: String, width: Int, height: Int, isTransparent: Boolean, backgroundColor: Int) -> Unit
 ) {
-    val context = LocalContext.current
     var title by remember { mutableStateOf("Proyek Baru") }
     var widthText by remember { mutableStateOf("1080") }
     var heightText by remember { mutableStateOf("1920") }
     var isTransparent by remember { mutableStateOf(false) }
-    var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
-    var imageName by remember { mutableStateOf<String?>(null) }
 
-    val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        uri?.let {
-            selectedImageUri = it
-            try {
-                context.contentResolver.openInputStream(it)?.use { inputStream ->
-                    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeStream(inputStream, null, options)
-                    if (options.outWidth > 0 && options.outHeight > 0) {
-                        widthText = options.outWidth.toString()
-                        heightText = options.outHeight.toString()
-                    }
-                }
-                imageName = "Gambar Terpilih (${widthText}x${heightText})"
+    val presetColors = listOf(
+        Color.White,
+        Color.Black,
+        Color(0xFFE0E0E0), // Soft Gray
+        Color(0xFFFFFDD0), // Cream
+        Color(0xFFE6E6FA)  // Lavender
+    )
+
+    var selectedColor by remember { mutableStateOf(Color.White) }
+    var hexColorInput by remember { mutableStateOf("FFFFFF") }
+
+    fun parseHexColor(input: String): Color? {
+        val clean = input.removePrefix("#").trim()
+        if (clean.length == 6 || clean.length == 8) {
+            return try {
+                val parsed = clean.toLong(16)
+                if (clean.length == 6) Color(parsed or 0xFF000000) else Color(parsed)
             } catch (e: Exception) {
-                imageName = "Gambar Terpilih"
+                null
             }
         }
+        return null
     }
 
     AlertDialog(
@@ -395,16 +437,6 @@ fun CreateProjectDialog(
                     shape = RoundedCornerShape(12.dp)
                 )
 
-                OutlinedButton(
-                    onClick = { imagePickerLauncher.launch("image/*") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(Icons.Default.Image, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = imageName ?: "Pilih Gambar Gambar (Opsional)")
-                }
-
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = widthText,
@@ -424,34 +456,102 @@ fun CreateProjectDialog(
                     )
                 }
 
-                Text(
-                    text = "Latar Belakang Kanvas:",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
+                // Checkbox: Kanvas Transparan
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isTransparent = !isTransparent }
+                        .padding(vertical = 4.dp)
+                ) {
+                    Checkbox(
+                        checked = isTransparent,
+                        onCheckedChange = { isTransparent = it }
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Kanvas Transparan",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                // Section: Color Selector (Disabled if isTransparent is true)
+                val alphaContent = if (isTransparent) 0.38f else 1.0f
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    FilterChip(
-                        selected = !isTransparent,
-                        onClick = { isTransparent = false },
-                        label = { Text("Putih (Default)") },
-                        leadingIcon = if (!isTransparent) {
-                            { Icon(Icons.Default.Check, contentDescription = null) }
-                        } else null,
-                        modifier = Modifier.weight(1f)
+                    Text(
+                        text = "Warna Latar Belakang Kanvas:",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = alphaContent)
                     )
-                    FilterChip(
-                        selected = isTransparent,
-                        onClick = { isTransparent = true },
-                        label = { Text("Transparan") },
-                        leadingIcon = if (isTransparent) {
-                            { Icon(Icons.Default.Check, contentDescription = null) }
-                        } else null,
-                        modifier = Modifier.weight(1f)
-                    )
+
+                    // Preset Color Badges
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        presetColors.forEach { color ->
+                            val isSelected = !isTransparent && selectedColor == color
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(color.copy(alpha = alphaContent))
+                                    .border(
+                                        width = if (isSelected) 3.dp else 1.dp,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = alphaContent),
+                                        shape = CircleShape
+                                    )
+                                    .clickable(enabled = !isTransparent) {
+                                        selectedColor = color
+                                        val argb = color.toArgb()
+                                        hexColorInput = String.format("%06X", (argb and 0xFFFFFF))
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = if (color == Color.White || color == Color(0xFFFFFDD0) || color == Color(0xFFE6E6FA) || color == Color(0xFFE0E0E0)) Color.Black else Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Custom Hex Color Input with live preview
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(top = 4.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background((if (isTransparent) Color.Transparent else selectedColor).copy(alpha = alphaContent))
+                                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = alphaContent), RoundedCornerShape(8.dp))
+                        )
+                        OutlinedTextField(
+                            value = hexColorInput,
+                            onValueChange = { newHex ->
+                                hexColorInput = newHex
+                                parseHexColor(newHex)?.let { color ->
+                                    selectedColor = color
+                                }
+                            },
+                            enabled = !isTransparent,
+                            label = { Text("Kode Warna Hex (mis. FFFFFF)") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    }
                 }
             }
         },
@@ -460,7 +560,13 @@ fun CreateProjectDialog(
                 onClick = {
                     val w = widthText.toIntOrNull() ?: 1080
                     val h = heightText.toIntOrNull() ?: 1920
-                    onCreate(title.ifBlank { "Proyek Tanpa Nama" }, w, h, selectedImageUri, isTransparent)
+                    onCreate(
+                        title.ifBlank { "Proyek Tanpa Nama" },
+                        w,
+                        h,
+                        isTransparent,
+                        selectedColor.toArgb()
+                    )
                 },
                 shape = RoundedCornerShape(10.dp)
             ) {
