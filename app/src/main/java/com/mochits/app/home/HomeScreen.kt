@@ -2,47 +2,42 @@ package com.mochits.app.home
 
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.FontDownload
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Style
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.mochits.app.project.ProjectEntity
-import com.mochits.app.ui.theme.AppThemeMode
+import kotlinx.coroutines.launch
 import java.io.File
-import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -56,93 +51,197 @@ fun HomeScreen(
 ) {
     val projects by viewModel.projects.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
+    var showOpenProjectDialog by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+
+    val galleryPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { selectedUri ->
+            coroutineScope.launch {
+                val sdf = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
+                val title = "Proyek ${sdf.format(Date())}"
+                val newId = viewModel.createProject(title, 1080, 1920, selectedUri)
+                onOpenEditor(newId)
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        text = "MochiTs",
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                        text = "AstralTyper",
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     )
                 },
                 actions = {
                     IconButton(onClick = onOpenSettings) {
                         Icon(
                             imageVector = Icons.Default.Settings,
-                            contentDescription = "Pengaturan"
+                            contentDescription = "Settings",
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = MaterialTheme.colorScheme.background
                 )
             )
-        },
-        floatingActionButton = {
-            val directImagePicker = rememberLauncherForActivityResult(
-                contract = ActivityResultContracts.GetContent()
-            ) { uri: Uri? ->
-                uri?.let {
-                    val sdf = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
-                    val title = "Proyek ${sdf.format(Date())}"
-                    viewModel.createProject(title, 1080, 1920, it) { newId ->
-                        onOpenEditor(newId)
-                    }
-                }
-            }
-
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                FloatingActionButton(
-                    onClick = { directImagePicker.launch("image/*") },
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                ) {
-                    Icon(Icons.Default.Image, contentDescription = "Upload Gambar")
-                }
-                ExtendedFloatingActionButton(
-                    onClick = { showCreateDialog = true },
-                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    text = { Text("Proyek Baru") },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            }
         }
     ) { innerPadding ->
-        Box(
+        Column(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            if (projects.isEmpty()) {
-                EmptyProjectsView(onNewProject = { showCreateDialog = true })
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(top = 16.dp, bottom = 88.dp, start = 16.dp, end = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    item {
-                        Text(
-                            text = "Daftar Proyek (${projects.size})",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
-                        )
-                    }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                Spacer(modifier = Modifier.height(8.dp))
 
-                    items(projects, key = { it.id }) { project ->
-                        ProjectItemCard(
-                            project = project,
-                            onClick = { onOpenEditor(project.id) },
-                            onDelete = { viewModel.deleteProject(project.id) }
-                        )
+                // Section: Recent Projects
+                Text(
+                    text = "Recent Projects",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                )
+
+                if (projects.isEmpty()) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Belum Ada Proyek",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
+                } else {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        contentPadding = PaddingValues(end = 16.dp)
+                    ) {
+                        val recentList = projects.take(5)
+                        items(recentList, key = { it.id }) { project ->
+                            RecentProjectCard(
+                                project = project,
+                                onClick = { onOpenEditor(project.id) }
+                            )
+                        }
+
+                        if (projects.size > 5) {
+                            item {
+                                Card(
+                                    modifier = Modifier
+                                        .size(width = 130.dp, height = 150.dp)
+                                        .clickable { showOpenProjectDialog = true },
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.fillMaxSize(),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.FolderOpen,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(32.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = "View All",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Stacked Main Action Buttons at Bottom
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Button 1: NEW PROJECT
+                Button(
+                    onClick = { showCreateDialog = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurface
+                    )
+                ) {
+                    Text(
+                        text = "NEW PROJECT",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    )
+                }
+
+                // Button 2: OPEN PROJECT
+                Button(
+                    onClick = { showOpenProjectDialog = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurface
+                    )
+                ) {
+                    Text(
+                        text = "OPEN PROJECT",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    )
+                }
+
+                // Button 3: IMPORT IMAGE (Highlighted Lavender Button)
+                Button(
+                    onClick = { galleryPickerLauncher.launch("image/*") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) {
+                    Text(
+                        text = "IMPORT IMAGE",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    )
                 }
             }
         }
@@ -150,178 +249,94 @@ fun HomeScreen(
         if (showCreateDialog) {
             CreateProjectDialog(
                 onDismiss = { showCreateDialog = false },
-                onCreate = { title, width, height, imageUri ->
+                onCreate = { title, width, height, imageUri, isTransparent ->
                     showCreateDialog = false
-                    viewModel.createProject(title, width, height, imageUri) { newId ->
+                    coroutineScope.launch {
+                        val newId = viewModel.createProject(title, width, height, imageUri, isTransparent)
                         onOpenEditor(newId)
                     }
                 }
             )
         }
 
-    }
-}
-
-@Composable
-fun EmptyProjectsView(onNewProject: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-            modifier = Modifier.size(100.dp)
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Default.FolderOpen,
-                    contentDescription = null,
-                    modifier = Modifier.size(48.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(24.dp))
-        Text(
-            text = "Belum Ada Proyek",
-            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = "Mulai buat proyek typesetting komik baru dengan menekan tombol di bawah ini.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp),
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-        )
-        Spacer(modifier = Modifier.height(24.dp))
-        Button(
-            onClick = onNewProject,
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Icon(Icons.Default.Add, contentDescription = null)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Buat Proyek Pertama")
+        if (showOpenProjectDialog) {
+            OpenProjectDialog(
+                projects = projects,
+                onDismiss = { showOpenProjectDialog = false },
+                onSelectProject = { id ->
+                    showOpenProjectDialog = false
+                    onOpenEditor(id)
+                },
+                onDeleteProject = { id ->
+                    viewModel.deleteProject(id)
+                }
+            )
         }
     }
 }
 
 @Composable
-fun ProjectItemCard(
+fun RecentProjectCard(
     project: ProjectEntity,
-    onClick: () -> Unit,
-    onDelete: () -> Unit
+    onClick: () -> Unit
 ) {
-    var showMenu by remember { mutableStateOf(false) }
-    val formattedDate = remember(project.updatedAt) {
-        val sdf = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
+    val formattedTime = remember(project.updatedAt) {
+        val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
         sdf.format(Date(project.updatedAt))
+    }
+
+    val bitmap = remember(project.thumbnailPath) {
+        project.thumbnailPath?.let { path ->
+            val file = File(path)
+            if (file.exists()) {
+                BitmapFactory.decodeFile(file.absolutePath)
+            } else null
+        }
     }
 
     Card(
         modifier = Modifier
-            .fillMaxWidth()
+            .size(width = 130.dp, height = 150.dp)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
-        Row(
-            modifier = Modifier
-                .padding(16.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(48.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = project.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
                     Icon(
                         imageVector = Icons.Default.AspectRatio,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = project.title,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = MaterialTheme.colorScheme.secondaryContainer
-                    ) {
-                        Text(
-                            text = "${project.width} x ${project.height} px",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                    Text(
-                        text = formattedDate,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp
-                    )
-                }
-            }
-
-            Box {
-                IconButton(onClick = { showMenu = true }) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "Opsi Proyek",
+                        modifier = Modifier.size(40.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Buka Proyek") },
-                        onClick = {
-                            showMenu = false
-                            onClick()
-                        },
-                        leadingIcon = { Icon(Icons.Default.FolderOpen, contentDescription = null) }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Hapus Proyek", color = MaterialTheme.colorScheme.error) },
-                        onClick = {
-                            showMenu = false
-                            onDelete()
-                        },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    )
-                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+                    .padding(vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = formattedTime,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 12.sp
+                )
             }
         }
     }
@@ -330,12 +345,13 @@ fun ProjectItemCard(
 @Composable
 fun CreateProjectDialog(
     onDismiss: () -> Unit,
-    onCreate: (title: String, width: Int, height: Int, imageUri: Uri?) -> Unit
+    onCreate: (title: String, width: Int, height: Int, imageUri: Uri?, isTransparent: Boolean) -> Unit
 ) {
     val context = LocalContext.current
     var title by remember { mutableStateOf("Proyek Baru") }
     var widthText by remember { mutableStateOf("1080") }
     var heightText by remember { mutableStateOf("1920") }
+    var isTransparent by remember { mutableStateOf(false) }
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var imageName by remember { mutableStateOf<String?>(null) }
 
@@ -355,7 +371,7 @@ fun CreateProjectDialog(
                 }
                 imageName = "Gambar Terpilih (${widthText}x${heightText})"
             } catch (e: Exception) {
-                imageName = "Terpilih"
+                imageName = "Gambar Terpilih"
             }
         }
     }
@@ -369,7 +385,7 @@ fun CreateProjectDialog(
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
@@ -386,7 +402,7 @@ fun CreateProjectDialog(
                 ) {
                     Icon(Icons.Default.Image, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = imageName ?: "Upload / Pilih Gambar Galeri")
+                    Text(text = imageName ?: "Pilih Gambar Gambar (Opsional)")
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -407,6 +423,36 @@ fun CreateProjectDialog(
                         shape = RoundedCornerShape(12.dp)
                     )
                 }
+
+                Text(
+                    text = "Latar Belakang Kanvas:",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    FilterChip(
+                        selected = !isTransparent,
+                        onClick = { isTransparent = false },
+                        label = { Text("Putih (Default)") },
+                        leadingIcon = if (!isTransparent) {
+                            { Icon(Icons.Default.Check, contentDescription = null) }
+                        } else null,
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilterChip(
+                        selected = isTransparent,
+                        onClick = { isTransparent = true },
+                        label = { Text("Transparan") },
+                        leadingIcon = if (isTransparent) {
+                            { Icon(Icons.Default.Check, contentDescription = null) }
+                        } else null,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         },
         confirmButton = {
@@ -414,9 +460,9 @@ fun CreateProjectDialog(
                 onClick = {
                     val w = widthText.toIntOrNull() ?: 1080
                     val h = heightText.toIntOrNull() ?: 1920
-                    onCreate(title.ifBlank { "Proyek Tanpa Nama" }, w, h, selectedImageUri)
+                    onCreate(title.ifBlank { "Proyek Tanpa Nama" }, w, h, selectedImageUri, isTransparent)
                 },
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(10.dp)
             ) {
                 Text("Buat Proyek")
             }
@@ -431,157 +477,71 @@ fun CreateProjectDialog(
 }
 
 @Composable
-fun AppSettingsDialog(
-    currentTheme: AppThemeMode,
+fun OpenProjectDialog(
+    projects: List<ProjectEntity>,
     onDismiss: () -> Unit,
-    onThemeSelected: (AppThemeMode) -> Unit
+    onSelectProject: (String) -> Unit,
+    onDeleteProject: (String) -> Unit
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Tema", "Model", "Style", "Font")
-
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "Pengaturan MochiTs",
+                text = "Daftar Seluruh Proyek (${projects.size})",
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
             )
         },
         text = {
-            Column(modifier = Modifier.fillMaxWidth().height(320.dp)) {
-                TabRow(selectedTabIndex = selectedTab) {
-                    tabs.forEachIndexed { index, title ->
-                        Tab(
-                            selected = selectedTab == index,
-                            onClick = { selectedTab = index },
-                            text = { Text(title, fontSize = 12.sp) }
-                        )
-                    }
+            if (projects.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(150.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Belum ada proyek tersimpan.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                when (selectedTab) {
-                    0 -> {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                text = "Pilih mode tampilan favorit Lavender MochiTs:",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            ThemeOptionRow(
-                                label = "Ikuti Sistem",
-                                selected = currentTheme == AppThemeMode.SYSTEM,
-                                onClick = { onThemeSelected(AppThemeMode.SYSTEM) }
-                            )
-                            ThemeOptionRow(
-                                label = "Lavender Terang (Light)",
-                                selected = currentTheme == AppThemeMode.LIGHT,
-                                onClick = { onThemeSelected(AppThemeMode.LIGHT) }
-                            )
-                            ThemeOptionRow(
-                                label = "Lavender Gelap (Dark)",
-                                selected = currentTheme == AppThemeMode.DARK,
-                                onClick = { onThemeSelected(AppThemeMode.DARK) }
-                            )
-                        }
-                    }
-                    1 -> {
-                        val context = LocalContext.current
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                text = "Model Inpainting",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column {
-                                        Text("Telea Fast Diffusion", fontWeight = FontWeight.Bold)
-                                        Text("Bawaan Sistem (Aktif)", style = MaterialTheme.typography.bodySmall)
-                                    }
-                                    Badge(containerColor = MaterialTheme.colorScheme.primary) { Text("Terpasang") }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 360.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(projects, key = { it.id }) { project ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelectProject(project.id) },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .padding(12.dp)
+                                    .fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = project.title,
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "${project.width} x ${project.height} px",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
-                            }
-                            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column {
-                                        Text("LaMa AI Neural Inpaint", fontWeight = FontWeight.Bold)
-                                        Text("Model AI Kualitas Tinggi", style = MaterialTheme.typography.bodySmall)
-                                    }
-                                    IconButton(onClick = {
-                                        Toast.makeText(context, "Model LaMa siap/sudah terintegrasi.", Toast.LENGTH_SHORT).show()
-                                    }) {
-                                        Icon(Icons.Default.Download, contentDescription = "Unduh Model")
-                                    }
+                                IconButton(onClick = { onDeleteProject(project.id) }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Hapus",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
                                 }
-                            }
-                        }
-                    }
-                    2 -> {
-                        val context = LocalContext.current
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                text = "Manajemen Style Presets",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "Ekspor dan impor preset gaya teks komik Anda (JSON):",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = {
-                                    Toast.makeText(context, "Impor preset style berhasil.", Toast.LENGTH_SHORT).show()
-                                }, modifier = Modifier.weight(1f)) {
-                                    Icon(Icons.Default.Download, contentDescription = null)
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Impor")
-                                }
-                                Button(onClick = {
-                                    Toast.makeText(context, "Preset style berhasil diekspor.", Toast.LENGTH_SHORT).show()
-                                }, modifier = Modifier.weight(1f)) {
-                                    Icon(Icons.Default.Style, contentDescription = null)
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Ekspor")
-                                }
-                            }
-                        }
-                    }
-                    3 -> {
-                        val context = LocalContext.current
-                        val fontPicker = rememberLauncherForActivityResult(
-                            contract = ActivityResultContracts.GetContent()
-                        ) { uri ->
-                            uri?.let {
-                                Toast.makeText(context, "Font kustom berhasil ditambahkan.", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                text = "Font Manager",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "Tambahkan font kustom (.ttf / .otf) untuk typesetting:",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Button(onClick = { fontPicker.launch("*/*") }, modifier = Modifier.fillMaxWidth()) {
-                                Icon(Icons.Default.FontDownload, contentDescription = null)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Tambah Font TTF/OTF Baru")
                             }
                         }
                     }
@@ -590,35 +550,9 @@ fun AppSettingsDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Selesai")
+                Text("Tutup")
             }
         },
         shape = RoundedCornerShape(20.dp)
     )
-}
-
-@Composable
-fun ThemeOptionRow(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
-            .padding(vertical = 8.dp, horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        RadioButton(
-            selected = selected,
-            onClick = onClick
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium
-        )
-    }
 }
