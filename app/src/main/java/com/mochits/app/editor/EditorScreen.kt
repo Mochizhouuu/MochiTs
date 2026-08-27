@@ -63,13 +63,22 @@ fun EditorScreen(
         }
     }
 
+    var showExportDialog by remember { mutableStateOf(false) }
+    var selectedFormat by remember { mutableStateOf("PNG") }
+    var exportQuality by remember { mutableFloatStateOf(100f) }
+
     val exportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("image/png")
+        contract = ActivityResultContracts.CreateDocument("image/*")
     ) { uri ->
         uri?.let {
             val pfd = context.contentResolver.openFileDescriptor(it, "w") ?: return@rememberLauncherForActivityResult
-            val file = File(context.cacheDir, "temp_export.png")
-            viewModel.exportProject(file) { success ->
+            val file = File(context.cacheDir, "temp_export.${selectedFormat.lowercase()}")
+            val compressFormat = when (selectedFormat.uppercase()) {
+                "JPEG", "JPG" -> android.graphics.Bitmap.CompressFormat.JPEG
+                "WEBP" -> android.graphics.Bitmap.CompressFormat.WEBP
+                else -> android.graphics.Bitmap.CompressFormat.PNG
+            }
+            viewModel.exportProject(file, compressFormat, exportQuality.toInt()) { success ->
                 if (success) {
                     val input = file.inputStream()
                     val output = java.io.FileOutputStream(pfd.fileDescriptor)
@@ -91,7 +100,7 @@ fun EditorScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { exportLauncher.launch("${project?.title ?: "export"}.png") }) {
+                    IconButton(onClick = { showExportDialog = true }) {
                         Icon(Icons.Default.Save, contentDescription = "Export")
                     }
                     IconButton(onClick = { imagePickerLauncher.launch("image/*") }) {
@@ -241,6 +250,51 @@ fun EditorScreen(
 
                 drawContext.canvas.nativeCanvas.restore()
             }
+        }
+
+        if (showExportDialog) {
+            AlertDialog(
+                onDismissRequest = { showExportDialog = false },
+                title = { Text("Simpan / Ekspor Gambar", style = MaterialTheme.typography.titleLarge) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Pilih Format Gambar:", style = MaterialTheme.typography.bodyMedium)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("PNG", "JPEG", "WEBP").forEach { fmt ->
+                                FilterChip(
+                                    selected = selectedFormat == fmt,
+                                    onClick = { selectedFormat = fmt },
+                                    label = { Text(fmt) }
+                                )
+                            }
+                        }
+                        if (selectedFormat != "PNG") {
+                            Text("Kualitas: ${exportQuality.toInt()}%")
+                            Slider(
+                                value = exportQuality,
+                                onValueChange = { exportQuality = it },
+                                valueRange = 10f..100f
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showExportDialog = false
+                            val ext = selectedFormat.lowercase()
+                            exportLauncher.launch("${project?.title ?: "export"}.$ext")
+                        }
+                    ) {
+                        Text("Ekspor")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showExportDialog = false }) {
+                        Text("Batal")
+                    }
+                }
+            )
         }
     }
 }
