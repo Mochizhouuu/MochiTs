@@ -2,19 +2,9 @@ package com.mochits.app.model
 
 import android.graphics.Bitmap
 import android.graphics.Color
+import com.mochits.core.imaging.Result
 
-sealed class Result<out T> {
-    data class Success<out T>(val data: T) : Result<T>()
-    data class Error(val exception: Throwable) : Result<Nothing>()
-    object Loading : Result<Nothing>()
-}
-
-enum class MaskToolMode {
-    BRUSH,
-    ERASER,
-    LASSO,
-    RECTANGLE
-}
+typealias MaskToolMode = com.mochits.core.imaging.MaskToolMode
 
 enum class EditorPanel {
     NONE,

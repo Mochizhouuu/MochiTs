@@ -6,12 +6,12 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mochits.app.canvas.CanvasEditorState
-import com.mochits.app.imaging.MaskSelectionTools
-import com.mochits.app.inpaint.InpaintEngine
+import com.mochits.core.imaging.InpaintEngine
+import com.mochits.core.imaging.MaskSelectionTools
+import com.mochits.core.imaging.Result
 import com.mochits.app.model.EditorPanel
 import com.mochits.app.model.Layer
 import com.mochits.app.model.MaskToolMode
-import com.mochits.app.model.Result
 import com.mochits.app.model.TextStyleConfig
 import com.mochits.app.project.ProjectEntity
 import com.mochits.app.project.ProjectRepository

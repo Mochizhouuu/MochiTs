@@ -2,27 +2,18 @@ package com.mochits.app
 
 import android.app.Application
 import android.util.Log
+import com.mochits.core.imaging.NativeBridge
 import dagger.hilt.android.HiltAndroidApp
-import org.opencv.android.OpenCVLoader
 
 @HiltAndroidApp
 class MochiTsApp : Application() {
     override fun onCreate() {
         super.onCreate()
         try {
-            if (!OpenCVLoader.initLocal()) {
-                Log.w("MochiTsApp", "OpenCV initLocal returned false, attempting initDebug fallback.")
-                try {
-                    @Suppress("DEPRECATION")
-                    OpenCVLoader.initDebug()
-                } catch (t: Throwable) {
-                    Log.e("MochiTsApp", "OpenCV initDebug fallback failed safely", t)
-                }
-            } else {
-                Log.i("MochiTsApp", "OpenCV initialized successfully via initLocal.")
-            }
+            val cvVersion = NativeBridge.nativeGetOpenCVVersion()
+            Log.i("MochiTsApp", "Native imaging engine initialized. OpenCV version: $cvVersion")
         } catch (e: Throwable) {
-            Log.e("MochiTsApp", "Failed to initialize OpenCV library safely", e)
+            Log.e("MochiTsApp", "Failed to initialize native imaging library", e)
         }
     }
 }
