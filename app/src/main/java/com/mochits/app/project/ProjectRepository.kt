@@ -47,8 +47,8 @@ class ProjectRepository @Inject constructor(
         val projectDir = File(context.filesDir, "projects/$id").apply { mkdirs() }
         val imageFile = File(projectDir, "base_image.png")
 
-        var finalWidth = width.coerceIn(1, 8192)
-        var finalHeight = height.coerceIn(1, 8192)
+        var finalWidth = width.coerceIn(1, 32768)
+        var finalHeight = height.coerceIn(1, 32768)
 
         if (imageUri != null) {
             try {
@@ -62,15 +62,19 @@ class ProjectRepository @Inject constructor(
                 val originalHeight = boundsOptions.outHeight
 
                 if (originalWidth > 0 && originalHeight > 0) {
-                    // Calculate sample size to limit max dimension to 4096px
-                    val maxDimension = 4096
+                    finalWidth = originalWidth
+                    finalHeight = originalHeight
+
                     var sampleSize = 1
-                    while ((originalWidth / sampleSize) > maxDimension || (originalHeight / sampleSize) > maxDimension) {
+                    // Max total pixels limit before downsampling for memory safety (e.g. 50 MP)
+                    val maxPixelCount = 50_000_000L
+                    while ((originalWidth.toLong() / sampleSize) * (originalHeight.toLong() / sampleSize) > maxPixelCount) {
                         sampleSize *= 2
                     }
 
                     val decodeOptions = android.graphics.BitmapFactory.Options().apply {
                         inSampleSize = sampleSize
+                        inMutable = true
                     }
 
                     val decodedBmp = context.contentResolver.openInputStream(imageUri)?.use { input ->
@@ -89,8 +93,8 @@ class ProjectRepository @Inject constructor(
                         }
                     }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
+            } catch (t: Throwable) {
+                t.printStackTrace()
             }
         }
 
@@ -110,8 +114,30 @@ class ProjectRepository @Inject constructor(
                     thumbnailPath = imageFile.absolutePath
                 }
                 bmp.recycle()
-            } catch (e: Exception) {
-                e.printStackTrace()
+            } catch (t: Throwable) {
+                t.printStackTrace()
+                // If direct creation failed (e.g. OOM for extreme resolution), fallback to safe downscaled canvas
+                try {
+                    val safeW = finalWidth.coerceAtMost(2048)
+                    val safeH = finalHeight.coerceAtMost(4096)
+                    val bmp = android.graphics.Bitmap.createBitmap(safeW, safeH, android.graphics.Bitmap.Config.ARGB_8888)
+                    if (!isTransparent) {
+                        bmp.eraseColor(backgroundColor)
+                    } else {
+                        bmp.eraseColor(android.graphics.Color.TRANSPARENT)
+                    }
+                    FileOutputStream(imageFile).use { output ->
+                        bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output)
+                    }
+                    if (imageFile.exists()) {
+                        thumbnailPath = imageFile.absolutePath
+                    }
+                    bmp.recycle()
+                    finalWidth = safeW
+                    finalHeight = safeH
+                } catch (t2: Throwable) {
+                    t2.printStackTrace()
+                }
             }
         }
 

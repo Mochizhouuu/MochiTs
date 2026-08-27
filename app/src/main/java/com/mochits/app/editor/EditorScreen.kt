@@ -211,7 +211,7 @@ fun EditorScreen(
                 val canvasHeight = size.height
 
                 baseBitmap?.let { bmp ->
-                    if (!viewModel.canvasState.isTransformInitialized) {
+                    if (!viewModel.canvasState.isTransformInitialized && bmp.width > 0 && bmp.height > 0) {
                         viewModel.canvasState.resetTransform(canvasWidth, canvasHeight, bmp.width.toFloat(), bmp.height.toFloat())
                     }
                 }
@@ -226,36 +226,46 @@ fun EditorScreen(
                     viewModel.canvasState.scale
                 )
 
-                // 1. Base Image
-                baseBitmap?.let { bmp ->
-                    drawContext.canvas.nativeCanvas.drawBitmap(bmp, 0f, 0f, null)
-                }
+                try {
+                    // 1. Base Image
+                    baseBitmap?.let { bmp ->
+                        if (!bmp.isRecycled) {
+                            drawContext.canvas.nativeCanvas.drawBitmap(bmp, 0f, 0f, null)
+                        }
+                    }
 
-                // 2. Mask Selection Overlay
-                viewModel.maskSelectionTools?.maskBitmap?.let { maskBmp ->
-                    drawContext.canvas.nativeCanvas.drawBitmap(maskBmp, 0f, 0f, null)
-                }
+                    // 2. Mask Selection Overlay
+                    viewModel.maskSelectionTools?.maskBitmap?.let { maskBmp ->
+                        if (!maskBmp.isRecycled) {
+                            drawContext.canvas.nativeCanvas.drawBitmap(maskBmp, 0f, 0f, null)
+                        }
+                    }
 
-                // 3. Render Layers
-                layers.forEach { layer ->
-                    if (layer.isVisible) {
-                        when (layer) {
-                            is Layer.TextLayer -> {
-                                textRenderer.drawStyledText(
-                                    canvas = drawContext.canvas.nativeCanvas,
-                                    text = layer.text,
-                                    style = layer.style,
-                                    x = layer.x,
-                                    y = layer.y
-                                )
-                            }
-                            is Layer.ImageLayer -> {
-                                layer.bitmap?.let { imgBmp ->
-                                    drawContext.canvas.nativeCanvas.drawBitmap(imgBmp, layer.x, layer.y, null)
+                    // 3. Render Layers
+                    layers.forEach { layer ->
+                        if (layer.isVisible) {
+                            when (layer) {
+                                is Layer.TextLayer -> {
+                                    textRenderer.drawStyledText(
+                                        canvas = drawContext.canvas.nativeCanvas,
+                                        text = layer.text,
+                                        style = layer.style,
+                                        x = layer.x,
+                                        y = layer.y
+                                    )
+                                }
+                                is Layer.ImageLayer -> {
+                                    layer.bitmap?.let { imgBmp ->
+                                        if (!imgBmp.isRecycled) {
+                                            drawContext.canvas.nativeCanvas.drawBitmap(imgBmp, layer.x, layer.y, null)
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
+                } catch (t: Throwable) {
+                    t.printStackTrace()
                 }
 
                 drawContext.canvas.nativeCanvas.restore()

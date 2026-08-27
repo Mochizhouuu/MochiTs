@@ -59,30 +59,45 @@ class EditorViewModel @Inject constructor(
 
     private fun loadProject() {
         viewModelScope.launch {
-            val proj = repository.getProject(projectId)
-            if (proj != null) {
-                project.value = proj
-                layers.value = serializer.deserialize(proj.layersJson)
-                var loadedBmp: Bitmap? = null
-                proj.thumbnailPath?.let { path ->
-                    val file = File(path)
-                    if (file.exists()) {
-                        val options = android.graphics.BitmapFactory.Options().apply {
-                            inMutable = true
-                        }
-                        val decoded = android.graphics.BitmapFactory.decodeFile(file.absolutePath, options)
-                        if (decoded != null) {
-                            loadedBmp = decoded.copy(Bitmap.Config.ARGB_8888, true)
+            try {
+                val proj = repository.getProject(projectId)
+                if (proj != null) {
+                    project.value = proj
+                    layers.value = serializer.deserialize(proj.layersJson)
+                    var loadedBmp: Bitmap? = null
+                    proj.thumbnailPath?.let { path ->
+                        val file = File(path)
+                        if (file.exists()) {
+                            try {
+                                val options = android.graphics.BitmapFactory.Options().apply {
+                                    inMutable = true
+                                }
+                                val decoded = android.graphics.BitmapFactory.decodeFile(file.absolutePath, options)
+                                if (decoded != null) {
+                                    loadedBmp = if (decoded.isMutable && decoded.config == Bitmap.Config.ARGB_8888) {
+                                        decoded
+                                    } else {
+                                        val copy = decoded.copy(Bitmap.Config.ARGB_8888, true)
+                                        decoded.recycle()
+                                        copy
+                                    }
+                                }
+                            } catch (t: Throwable) {
+                                t.printStackTrace()
+                            }
                         }
                     }
-                }
-                if (loadedBmp != null) {
-                    baseBitmap.value = loadedBmp
-                    setupCanvasSize(loadedBmp!!.width, loadedBmp!!.height)
+                    if (loadedBmp != null) {
+                        baseBitmap.value = loadedBmp
+                        setupCanvasSize(loadedBmp!!.width, loadedBmp!!.height)
+                    } else {
+                        setupCanvasSize(proj.width, proj.height)
+                    }
                 } else {
-                    setupCanvasSize(proj.width, proj.height)
+                    setupCanvasSize(1080, 1920)
                 }
-            } else {
+            } catch (t: Throwable) {
+                t.printStackTrace()
                 setupCanvasSize(1080, 1920)
             }
         }
@@ -97,13 +112,29 @@ class EditorViewModel @Inject constructor(
     }
 
     fun setupCanvasSize(width: Int, height: Int) {
-        if (maskSelectionTools == null || maskSelectionTools?.width != width || maskSelectionTools?.height != height) {
-            maskSelectionTools = MaskSelectionTools(width, height)
+        val safeW = width.coerceIn(1, 32768)
+        val safeH = height.coerceIn(1, 32768)
+        if (maskSelectionTools == null || maskSelectionTools?.width != safeW || maskSelectionTools?.height != safeH) {
+            maskSelectionTools = MaskSelectionTools(safeW, safeH)
         }
         if (baseBitmap.value == null) {
-            val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            bmp.eraseColor(android.graphics.Color.WHITE)
-            baseBitmap.value = bmp
+            try {
+                val bmp = Bitmap.createBitmap(safeW, safeH, Bitmap.Config.ARGB_8888)
+                bmp.eraseColor(android.graphics.Color.WHITE)
+                baseBitmap.value = bmp
+            } catch (t: Throwable) {
+                t.printStackTrace()
+                // Fallback to safe standard dimensions if extreme allocation fails
+                val fallbackW = safeW.coerceAtMost(2048)
+                val fallbackH = safeH.coerceAtMost(4096)
+                try {
+                    val bmp = Bitmap.createBitmap(fallbackW, fallbackH, Bitmap.Config.ARGB_8888)
+                    bmp.eraseColor(android.graphics.Color.WHITE)
+                    baseBitmap.value = bmp
+                } catch (t2: Throwable) {
+                    t2.printStackTrace()
+                }
+            }
         }
     }
 

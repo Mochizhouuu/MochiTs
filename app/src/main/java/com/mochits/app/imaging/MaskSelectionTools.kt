@@ -11,13 +11,32 @@ import androidx.compose.ui.geometry.Offset
 import com.mochits.app.model.MaskToolMode
 
 class MaskSelectionTools(
-    var width: Int,
-    var height: Int
+    w: Int,
+    h: Int
 ) {
-    var maskBitmap: Bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ALPHA_8)
+    var width: Int = w.coerceIn(1, 32768)
+        private set
+    var height: Int = h.coerceIn(1, 32768)
+        private set
+
+    var maskBitmap: Bitmap = createSafeMaskBitmap(width, height)
         private set
 
     private var maskCanvas: Canvas = Canvas(maskBitmap)
+
+    companion object {
+        private fun createSafeMaskBitmap(w: Int, h: Int): Bitmap {
+            return try {
+                Bitmap.createBitmap(w, h, Bitmap.Config.ALPHA_8)
+            } catch (t: Throwable) {
+                t.printStackTrace()
+                // Safe downsampled fallback if allocation fails
+                val safeW = w.coerceAtMost(2048)
+                val safeH = h.coerceAtMost(4096)
+                Bitmap.createBitmap(safeW, safeH, Bitmap.Config.ALPHA_8)
+            }
+        }
+    }
 
     private val brushPaint = Paint().apply {
         isAntiAlias = false
