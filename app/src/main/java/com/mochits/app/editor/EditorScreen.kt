@@ -34,11 +34,12 @@ import com.mochits.app.model.EditorPanel
 import com.mochits.app.model.Layer
 import com.mochits.app.model.MaskToolMode
 import com.mochits.app.model.TextStyleConfig
+import androidx.documentfile.provider.DocumentFile
 import com.mochits.app.text.TextRenderer
 import java.io.File
 
 private enum class TextHandleType {
-    RESIZE, ROTATE, DELETE
+    RESIZE, ROTATE, DELETE, BODY_MOVE
 }
 
 private fun isPointInsideTextLayer(
@@ -103,6 +104,8 @@ fun EditorScreen(
     var showAddMenu by remember { mutableStateOf(false) }
     var showAddTextDialog by remember { mutableStateOf(false) }
     var newTextValue by remember { mutableStateOf("") }
+    var currentViewportW by remember { mutableFloatStateOf(1080f) }
+    var currentViewportH by remember { mutableFloatStateOf(1920f) }
 
     var showExportDialog by remember { mutableStateOf(false) }
     var outputFileName by remember { mutableStateOf(project?.title ?: "export") }
@@ -116,6 +119,22 @@ fun EditorScreen(
                 outputFileName = title
             }
             projectTitleName = title
+        }
+    }
+
+    var targetFolderUri by remember { mutableStateOf<android.net.Uri?>(null) }
+
+    val folderPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        uri?.let {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    it,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (_: Throwable) {}
+            targetFolderUri = it
         }
     }
 
@@ -268,7 +287,7 @@ fun EditorScreen(
                     EditorPanel.TEXT -> TextToolPanel(
                         selectedLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer,
                         defaultStyle = defaultTextStyle,
-                        onAddText = { text -> viewModel.addTextLayer(text, viewportWidth = 1080f, viewportHeight = 1920f) },
+                        onAddText = { text -> viewModel.addTextLayer(text, viewportWidth = currentViewportW, viewportHeight = currentViewportH) },
                         onUpdateStyle = { style -> viewModel.updateSelectedTextLayerStyle(style) },
                         onCapitalizationTransform = { newText -> viewModel.updateSelectedTextContent(newText) }
                     )
@@ -305,6 +324,12 @@ fun EditorScreen(
         ) {
             val viewportW = with(androidx.compose.ui.platform.LocalDensity.current) { maxWidth.toPx() }
             val viewportH = with(androidx.compose.ui.platform.LocalDensity.current) { maxHeight.toPx() }
+            LaunchedEffect(viewportW, viewportH) {
+                if (viewportW > 0f && viewportH > 0f) {
+                    currentViewportW = viewportW
+                    currentViewportH = viewportH
+                }
+            }
             var lastTouchCanvasPt by remember { mutableStateOf(Offset.Zero) }
 
             // Selected text layer & handle bounds calculation
@@ -328,6 +353,9 @@ fun EditorScreen(
             var initialFontSize by remember { mutableFloatStateOf(36f) }
             var initialTextRotation by remember { mutableFloatStateOf(0f) }
             var initialTouchAngle by remember { mutableFloatStateOf(0f) }
+            var initialTextX by remember { mutableFloatStateOf(0f) }
+            var initialTextY by remember { mutableFloatStateOf(0f) }
+            var initialTouchCanvasPt by remember { mutableStateOf(Offset.Zero) }
 
             // Handle positions in canvas coordinates
             val deleteHandleCanvasCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text) {
@@ -357,10 +385,31 @@ fun EditorScreen(
                                 val changes = event.changes
                                 if (changes.isEmpty()) continue
 
-                                // 1. MASK TOOL ACTIVE: Handle mask drawing strokes
+                                // 1. MASK TOOL ACTIVE: Handle mask drawing strokes (1 finger) vs Pan/Zoom (2+ fingers)
                                 if (activePanel == EditorPanel.ERASE || activePanel == EditorPanel.MASK) {
-                                    val firstChange = changes.first()
-                                    if (firstChange.pressed) {
+                                    val pressedList = changes.filter { it.pressed }
+                                    if (pressedList.size >= 2) {
+                                        // 2+ fingers: Pinch zoom / pan canvas
+                                        val p0 = pressedList[0].position
+                                        val p1 = pressedList[1].position
+                                        val prevP0 = pressedList[0].previousPosition
+                                        val prevP1 = pressedList[1].previousPosition
+
+                                        val center = Offset((p0.x + p1.x) / 2f, (p0.y + p1.y) / 2f)
+                                        val prevCenter = Offset((prevP0.x + prevP1.x) / 2f, (prevP0.y + prevP1.y) / 2f)
+
+                                        val currentDist = kotlin.math.hypot(p0.x - p1.x, p0.y - p1.y)
+                                        val prevDist = kotlin.math.hypot(prevP0.x - prevP1.x, prevP0.y - prevP1.y)
+
+                                        val zoomFactor = if (prevDist > 0f) currentDist / prevDist else 1f
+                                        val panDelta = center - prevCenter
+
+                                        viewModel.canvasState.onGestureTransform(center, panDelta, zoomFactor)
+                                        triggerRedraw++
+                                        pressedList.forEach { it.consume() }
+                                    } else if (pressedList.size == 1) {
+                                        // 1 finger: Draw mask stroke
+                                        val firstChange = pressedList[0]
                                         val isJustDown = !firstChange.previousPressed && firstChange.pressed
                                         if (isJustDown) {
                                             viewModel.saveUndoSnapshot()
@@ -375,9 +424,13 @@ fun EditorScreen(
                                             triggerRedraw++
                                         }
                                         firstChange.consume()
-                                    } else if (firstChange.previousPressed && !firstChange.pressed) {
-                                        viewModel.maskSelectionTools?.endStroke(lastTouchCanvasPt, maskToolMode, brushSize)
-                                        triggerRedraw++
+                                    } else {
+                                        // Finger released
+                                        val releasedChange = changes.find { it.previousPressed && !it.pressed }
+                                        if (releasedChange != null) {
+                                            viewModel.maskSelectionTools?.endStroke(lastTouchCanvasPt, maskToolMode, brushSize)
+                                            triggerRedraw++
+                                        }
                                     }
                                     continue
                                 }
@@ -429,6 +482,15 @@ fun EditorScreen(
                                             hitHandle = true
                                             firstChange.consume()
                                             continue
+                                        } else if (isPointInsideTextLayer(selectedTextLayer, touchCanvasPt, textRenderer)) {
+                                            activeHandleType = TextHandleType.BODY_MOVE
+                                            viewModel.saveUndoSnapshot()
+                                            initialTextX = selectedTextLayer.x
+                                            initialTextY = selectedTextLayer.y
+                                            initialTouchCanvasPt = touchCanvasPt
+                                            hitHandle = true
+                                            firstChange.consume()
+                                            continue
                                         }
                                     }
                                     if (!hitHandle) {
@@ -465,6 +527,18 @@ fun EditorScreen(
                                                 val deltaAngle = currentAngle - initialTouchAngle
                                                 val newRotation = (initialTextRotation + deltaAngle) % 360f
                                                 viewModel.updateSelectedTextLayerRotation(newRotation, saveUndo = false)
+                                                triggerRedraw++
+                                            }
+                                        }
+                                        TextHandleType.BODY_MOVE -> {
+                                            if (selectedTextLayer != null) {
+                                                val deltaX = touchCanvasPt.x - initialTouchCanvasPt.x
+                                                val deltaY = touchCanvasPt.y - initialTouchCanvasPt.y
+                                                viewModel.updateSelectedTextLayerPosition(
+                                                    initialTextX + deltaX,
+                                                    initialTextY + deltaY,
+                                                    saveUndo = false
+                                                )
                                                 triggerRedraw++
                                             }
                                         }
@@ -612,6 +686,26 @@ fun EditorScreen(
                         }
                     }
 
+                    // 2b. Real-time Lasso visual path line overlay
+                    viewModel.maskSelectionTools?.currentLassoPoints?.let { pts ->
+                        if (pts.size >= 2) {
+                            val currentScale = viewModel.canvasState.scale.coerceAtLeast(0.1f)
+                            val lassoPaint = AndroidPaint().apply {
+                                style = AndroidPaint.Style.STROKE
+                                strokeWidth = 4f / currentScale
+                                color = AndroidColor.RED
+                                isAntiAlias = true
+                                pathEffect = DashPathEffect(floatArrayOf(8f / currentScale, 8f / currentScale), 0f)
+                            }
+                            val path = android.graphics.Path()
+                            path.moveTo(pts.first().x, pts.first().y)
+                            for (i in 1 until pts.size) {
+                                path.lineTo(pts[i].x, pts[i].y)
+                            }
+                            drawContext.canvas.nativeCanvas.drawPath(path, lassoPaint)
+                        }
+                    }
+
                     // 3. Render Layers
                     layers.forEach { layer ->
                         if (layer.isVisible) {
@@ -743,7 +837,7 @@ fun EditorScreen(
                     Button(
                         onClick = {
                             if (newTextValue.isNotBlank()) {
-                                viewModel.addTextLayer(newTextValue)
+                                viewModel.addTextLayer(newTextValue, viewportWidth = currentViewportW, viewportHeight = currentViewportH)
                                 newTextValue = ""
                                 showAddTextDialog = false
                             }
@@ -821,6 +915,24 @@ fun EditorScreen(
                                 valueRange = 10f..100f
                             )
                         }
+                        Text("Folder Tujuan (SAF Direct Folder):", style = MaterialTheme.typography.bodyMedium)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(onClick = { folderPickerLauncher.launch(null) }) {
+                                Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(if (targetFolderUri != null) "Ganti Folder" else "Pilih Folder Tujuan")
+                            }
+                            if (targetFolderUri != null) {
+                                Text(
+                                    text = targetFolderUri?.path?.takeLast(25) ?: "Folder Dipilih",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
                     }
                 },
                 confirmButton = {
@@ -832,7 +944,44 @@ fun EditorScreen(
                             showExportDialog = false
                             val ext = selectedFormat.lowercase()
                             val saveName = if (outputFileName.isNotBlank()) outputFileName else "export"
-                            exportLauncher.launch("$saveName.$ext")
+                            val currentTreeUri = targetFolderUri
+                            if (currentTreeUri != null) {
+                                val mimeType = when (selectedFormat.uppercase()) {
+                                    "JPEG", "JPG" -> "image/jpeg"
+                                    "WEBP" -> "image/webp"
+                                    else -> "image/png"
+                                }
+                                val docTree = DocumentFile.fromTreeUri(context, currentTreeUri)
+                                val createdFile = docTree?.createFile(mimeType, "$saveName.$ext")
+                                createdFile?.uri?.let { destUri ->
+                                    val pfd = context.contentResolver.openFileDescriptor(destUri, "w")
+                                    if (pfd != null) {
+                                        val tempFile = File(context.cacheDir, "temp_export.$ext")
+                                        val compressFormat = when (selectedFormat.uppercase()) {
+                                            "JPEG", "JPG" -> android.graphics.Bitmap.CompressFormat.JPEG
+                                            "WEBP" -> if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                                                android.graphics.Bitmap.CompressFormat.WEBP_LOSSY
+                                            } else {
+                                                @Suppress("DEPRECATION")
+                                                android.graphics.Bitmap.CompressFormat.WEBP
+                                            }
+                                            else -> android.graphics.Bitmap.CompressFormat.PNG
+                                        }
+                                        viewModel.exportProject(tempFile, compressFormat, exportQuality.toInt()) { success ->
+                                            if (success) {
+                                                val input = tempFile.inputStream()
+                                                val output = java.io.FileOutputStream(pfd.fileDescriptor)
+                                                input.copyTo(output)
+                                                input.close()
+                                                output.close()
+                                                pfd.close()
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                exportLauncher.launch("$saveName.$ext")
+                            }
                         }
                     ) {
                         Text("Simpan & Ekspor")
@@ -1089,6 +1238,42 @@ fun TextToolPanel(
                 }
             }
 
+            Text("Warna Teks:", style = MaterialTheme.typography.bodyMedium)
+            SimpleColorPickerRow(
+                selectedColor = currentStyle.textColor,
+                onColorSelected = { col -> onUpdateStyle(currentStyle.copy(textColor = col)) }
+            )
+
+            Text("Opacity Teks (Fill): ${(currentStyle.textOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+            Slider(
+                value = currentStyle.textOpacity,
+                onValueChange = { onUpdateStyle(currentStyle.copy(textOpacity = it)) },
+                valueRange = 0f..1f
+            )
+
+            Text("Warna Stroke/Outline Teks:", style = MaterialTheme.typography.bodyMedium)
+            SimpleColorPickerRow(
+                selectedColor = currentStyle.strokeColor,
+                onColorSelected = { col -> onUpdateStyle(currentStyle.copy(strokeColor = col)) }
+            )
+
+            Text("Ketebalan Stroke: ${currentStyle.strokeWidth.toInt()} px", style = MaterialTheme.typography.bodySmall)
+            Slider(
+                value = currentStyle.strokeWidth,
+                onValueChange = {
+                    val strokeCol = if (it > 0f && currentStyle.strokeColor == AndroidColor.TRANSPARENT) AndroidColor.BLACK else currentStyle.strokeColor
+                    onUpdateStyle(currentStyle.copy(strokeWidth = it, strokeColor = strokeCol))
+                },
+                valueRange = 0f..20f
+            )
+
+            Text("Opacity Stroke: ${(currentStyle.strokeOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+            Slider(
+                value = currentStyle.strokeOpacity,
+                onValueChange = { onUpdateStyle(currentStyle.copy(strokeOpacity = it)) },
+                valueRange = 0f..1f
+            )
+
             if (selectedLayer != null) {
                 Text("Kapitalisasi Teks:", style = MaterialTheme.typography.bodyMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1132,6 +1317,50 @@ fun TextToolPanel(
 }
 
 @Composable
+fun SimpleColorPickerRow(
+    selectedColor: Int,
+    onColorSelected: (Int) -> Unit
+) {
+    val colors = listOf(
+        AndroidColor.BLACK,
+        AndroidColor.WHITE,
+        AndroidColor.RED,
+        AndroidColor.BLUE,
+        AndroidColor.GREEN,
+        AndroidColor.YELLOW,
+        AndroidColor.MAGENTA,
+        AndroidColor.CYAN
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        colors.forEach { c ->
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .background(Color(c), shape = androidx.compose.foundation.shape.CircleShape)
+                    .padding(2.dp)
+                    .pointerInput(Unit) {
+                        detectDragGestures { _, _ -> }
+                    }
+            ) {
+                IconButton(
+                    onClick = { onColorSelected(c) },
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    if (selectedColor == c) {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = null,
+                            tint = if (c == AndroidColor.WHITE || c == AndroidColor.YELLOW || c == AndroidColor.CYAN) Color.Black else Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun EffectToolPanel(
     selectedLayer: Layer?,
     onUpdateOpacity: (Float) -> Unit,
@@ -1149,7 +1378,7 @@ fun EffectToolPanel(
             if (selectedLayer == null) {
                 Text("Pilih layer terlebih dahulu untuk mengatur transparansi dan bayangan.", style = MaterialTheme.typography.bodyMedium)
             } else {
-                Text("Transparansi (Opacity): ${(selectedLayer.opacity * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
+                Text("Transparansi Layer (Opacity): ${(selectedLayer.opacity * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
                 Slider(
                     value = selectedLayer.opacity,
                     onValueChange = { onUpdateOpacity(it) },
@@ -1158,14 +1387,38 @@ fun EffectToolPanel(
 
                 if (selectedLayer is Layer.TextLayer) {
                     val currentStyle = selectedLayer.style
-                    Text("Bayangan (Drop Shadow): Radius ${currentStyle.shadowRadius.toInt()} px", style = MaterialTheme.typography.bodyMedium)
+                    Text("Drop Shadow Details:", style = MaterialTheme.typography.titleSmall)
+
+                    Text("Warna Bayangan:", style = MaterialTheme.typography.bodySmall)
+                    SimpleColorPickerRow(
+                        selectedColor = currentStyle.shadowColor,
+                        onColorSelected = { col ->
+                            onUpdateStyle(currentStyle.copy(shadowColor = col))
+                        }
+                    )
+
+                    Text("Blur Radius: ${currentStyle.shadowRadius.toInt()} px", style = MaterialTheme.typography.bodySmall)
                     Slider(
                         value = currentStyle.shadowRadius,
                         onValueChange = {
-                            val shadowCol = if (it > 0f) AndroidColor.BLACK else AndroidColor.TRANSPARENT
-                            onUpdateStyle(currentStyle.copy(shadowRadius = it, shadowColor = shadowCol, shadowDx = it * 0.5f, shadowDy = it * 0.5f))
+                            val shadowCol = if (it > 0f && currentStyle.shadowColor == AndroidColor.TRANSPARENT) AndroidColor.BLACK else currentStyle.shadowColor
+                            onUpdateStyle(currentStyle.copy(shadowRadius = it, shadowColor = shadowCol))
                         },
                         valueRange = 0f..30f
+                    )
+
+                    Text("Offset X: ${currentStyle.shadowDx.toInt()} px", style = MaterialTheme.typography.bodySmall)
+                    Slider(
+                        value = currentStyle.shadowDx,
+                        onValueChange = { onUpdateStyle(currentStyle.copy(shadowDx = it)) },
+                        valueRange = -30f..30f
+                    )
+
+                    Text("Offset Y: ${currentStyle.shadowDy.toInt()} px", style = MaterialTheme.typography.bodySmall)
+                    Slider(
+                        value = currentStyle.shadowDy,
+                        onValueChange = { onUpdateStyle(currentStyle.copy(shadowDy = it)) },
+                        valueRange = -30f..30f
                     )
                 }
             }

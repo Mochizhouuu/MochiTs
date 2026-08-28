@@ -100,13 +100,27 @@ class LaMaInpaintEngine(private val context: Context) {
             }
             result512.setPixels(outPixels, 0, targetSize, 0, 0, targetSize, targetSize)
 
-            // Blend output bitmap onto baseBitmap
+            // Blend output bitmap ONLY over masked regions onto baseBitmap
             val finalBitmap = baseBitmap.copy(Bitmap.Config.ARGB_8888, true)
             val canvas = Canvas(finalBitmap)
-            val paint = Paint().apply { isAntiAlias = true }
+            val paint = Paint().apply {
+                isAntiAlias = true
+                isFilterBitmap = true
+            }
             val scaledResult = Bitmap.createScaledBitmap(result512, baseBitmap.width, baseBitmap.height, true)
 
-            canvas.drawBitmap(scaledResult, 0f, 0f, paint)
+            // Create composite bitmap that masks the scaled inpainted result
+            val maskedResult = Bitmap.createBitmap(baseBitmap.width, baseBitmap.height, Bitmap.Config.ARGB_8888)
+            val tempCanvas = Canvas(maskedResult)
+            tempCanvas.drawBitmap(scaledResult, 0f, 0f, paint)
+
+            val maskPaint = Paint().apply {
+                isAntiAlias = true
+                xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
+            }
+            tempCanvas.drawBitmap(maskBitmap, 0f, 0f, maskPaint)
+
+            canvas.drawBitmap(maskedResult, 0f, 0f, paint)
 
             Result.Success(finalBitmap)
         } catch (t: Throwable) {

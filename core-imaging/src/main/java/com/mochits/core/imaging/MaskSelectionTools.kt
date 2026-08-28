@@ -28,6 +28,7 @@ class MaskSelectionTools(
         }
     }
 
+    val currentLassoPoints = mutableListOf<Offset>()
     private val lassoPathX = mutableListOf<Float>()
     private val lassoPathY = mutableListOf<Float>()
     private var lastPoint: Offset? = null
@@ -56,8 +57,10 @@ class MaskSelectionTools(
             MaskToolMode.LASSO -> {
                 lassoPathX.clear()
                 lassoPathY.clear()
+                currentLassoPoints.clear()
                 lassoPathX.add(point.x)
                 lassoPathY.add(point.y)
+                currentLassoPoints.add(point)
                 lastPoint = point
             }
             MaskToolMode.RECTANGLE -> {
@@ -80,6 +83,7 @@ class MaskSelectionTools(
             MaskToolMode.LASSO -> {
                 lassoPathX.add(point.x)
                 lassoPathY.add(point.y)
+                currentLassoPoints.add(point)
             }
             MaskToolMode.RECTANGLE -> {
                 // Interactive preview rendered on UI layer if needed; endStroke fills mask
@@ -92,11 +96,13 @@ class MaskSelectionTools(
             MaskToolMode.LASSO -> {
                 lassoPathX.add(point.x)
                 lassoPathY.add(point.y)
+                currentLassoPoints.add(point)
                 if (lassoPathX.size >= 3) {
                     NativeBridge.nativeDrawPolygon(maskBitmap, lassoPathX.toFloatArray(), lassoPathY.toFloatArray(), true)
                 }
                 lassoPathX.clear()
                 lassoPathY.clear()
+                currentLassoPoints.clear()
             }
             MaskToolMode.RECTANGLE -> {
                 lastPoint?.let { start ->

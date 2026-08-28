@@ -18,10 +18,14 @@ class TextRenderer(private val context: Context) {
     ) {
         if (text.isEmpty()) return
 
+        val fillAlpha = (style.textOpacity * 255).toInt().coerceIn(0, 255)
+        val strokeAlpha = (style.strokeOpacity * 255).toInt().coerceIn(0, 255)
+
         val paint = Paint().apply {
             isAntiAlias = true
             textSize = style.fontSize
             color = style.textColor
+            alpha = fillAlpha
             typeface = getTypeface(style.fontName, style.fontStyle)
         }
 
@@ -32,6 +36,7 @@ class TextRenderer(private val context: Context) {
         if (style.glowColor != Color.TRANSPARENT && style.glowRadius > 0f) {
             val glowPaint = Paint(paint).apply {
                 color = style.glowColor
+                alpha = fillAlpha
                 setShadowLayer(style.glowRadius, 0f, 0f, style.glowColor)
             }
             canvas.drawText(text, x, baselineY, glowPaint)
@@ -39,7 +44,8 @@ class TextRenderer(private val context: Context) {
 
         if (style.shadowColor != Color.TRANSPARENT && style.shadowRadius > 0f) {
             val shadowPaint = Paint(paint).apply {
-                color = style.textColor
+                color = style.shadowColor
+                alpha = fillAlpha
                 setShadowLayer(style.shadowRadius, style.shadowDx, style.shadowDy, style.shadowColor)
             }
             canvas.drawText(text, x, baselineY, shadowPaint)
@@ -51,6 +57,7 @@ class TextRenderer(private val context: Context) {
                 this.style = Paint.Style.STROKE
                 strokeWidth = style.strokeWidth
                 color = style.strokeColor
+                alpha = strokeAlpha
             }
             canvas.drawText(text, x, baselineY, strokePaint)
         }
