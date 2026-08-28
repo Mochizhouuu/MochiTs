@@ -30,7 +30,23 @@ class TextRenderer(private val context: Context) {
         }
 
         val fontMetrics = paint.fontMetrics
+        val textHeight = (fontMetrics.bottom - fontMetrics.top).coerceAtLeast(20f)
+        val textWidth = paint.measureText(if (text.isEmpty()) " " else text).coerceAtLeast(20f)
         val baselineY = y - fontMetrics.top
+
+        if (style.isGradientEnabled) {
+            val (x0, y0, x1, y1) = if (style.gradientDirection.equals("VERTICAL", ignoreCase = true)) {
+                floatArrayOf(x, y, x, y + textHeight)
+            } else {
+                floatArrayOf(x, y, x + textWidth, y)
+            }
+            paint.shader = android.graphics.LinearGradient(
+                x0, y0, x1, y1,
+                style.gradientStartColor,
+                style.gradientEndColor,
+                android.graphics.Shader.TileMode.CLAMP
+            )
+        }
 
         // Draw Glow / Drop Shadow if present
         if (style.glowColor != Color.TRANSPARENT && style.glowRadius > 0f) {

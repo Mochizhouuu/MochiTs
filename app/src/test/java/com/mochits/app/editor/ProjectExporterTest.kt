@@ -48,4 +48,35 @@ class ProjectExporterTest {
 
         assertEquals("Exported image pixel should be white", Color.WHITE, topLeftPx)
     }
+
+    @Test
+    fun testExportToBitmap_withGradientTextLayer() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val exporter = ProjectExporter(context)
+
+        val baseBmp = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888)
+        baseBmp.eraseColor(Color.WHITE)
+
+        val gradientStyle = com.mochits.app.model.TextStyleConfig(
+            fontName = "Sans",
+            fontSize = 48f,
+            isGradientEnabled = true,
+            gradientStartColor = Color.BLUE,
+            gradientEndColor = Color.YELLOW,
+            gradientDirection = "HORIZONTAL"
+        )
+        val textLayer = Layer.TextLayer(
+            id = "layer_1",
+            name = "Text Layer",
+            x = 50f,
+            y = 50f,
+            text = "Export Test",
+            style = gradientStyle
+        )
+
+        val exportedBmp = exporter.exportToBitmap(baseBmp, listOf(textLayer))
+        assertNotNull(exportedBmp)
+        assertEquals(400, exportedBmp.width)
+        assertEquals(400, exportedBmp.height)
+    }
 }

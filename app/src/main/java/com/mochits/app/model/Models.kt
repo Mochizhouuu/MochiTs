@@ -34,7 +34,11 @@ data class TextStyleConfig(
     val glowRadius: Float = 0f,
     val isVertical: Boolean = false,
     val letterSpacing: Float = 0f,
-    val lineSpacing: Float = 1.0f
+    val lineSpacing: Float = 1.0f,
+    val isGradientEnabled: Boolean = false,
+    val gradientStartColor: Int = Color.BLACK,
+    val gradientEndColor: Int = Color.WHITE,
+    val gradientDirection: String = "HORIZONTAL" // "HORIZONTAL", "VERTICAL"
 )
 
 sealed class Layer(

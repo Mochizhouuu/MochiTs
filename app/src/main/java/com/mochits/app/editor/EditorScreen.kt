@@ -13,6 +13,8 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -1192,7 +1194,12 @@ fun TextToolPanel(
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(
+            modifier = Modifier
+                .padding(14.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -1238,42 +1245,6 @@ fun TextToolPanel(
                 }
             }
 
-            Text("Warna Teks:", style = MaterialTheme.typography.bodyMedium)
-            SimpleColorPickerRow(
-                selectedColor = currentStyle.textColor,
-                onColorSelected = { col -> onUpdateStyle(currentStyle.copy(textColor = col)) }
-            )
-
-            Text("Opacity Teks (Fill): ${(currentStyle.textOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
-            Slider(
-                value = currentStyle.textOpacity,
-                onValueChange = { onUpdateStyle(currentStyle.copy(textOpacity = it)) },
-                valueRange = 0f..1f
-            )
-
-            Text("Warna Stroke/Outline Teks:", style = MaterialTheme.typography.bodyMedium)
-            SimpleColorPickerRow(
-                selectedColor = currentStyle.strokeColor,
-                onColorSelected = { col -> onUpdateStyle(currentStyle.copy(strokeColor = col)) }
-            )
-
-            Text("Ketebalan Stroke: ${currentStyle.strokeWidth.toInt()} px", style = MaterialTheme.typography.bodySmall)
-            Slider(
-                value = currentStyle.strokeWidth,
-                onValueChange = {
-                    val strokeCol = if (it > 0f && currentStyle.strokeColor == AndroidColor.TRANSPARENT) AndroidColor.BLACK else currentStyle.strokeColor
-                    onUpdateStyle(currentStyle.copy(strokeWidth = it, strokeColor = strokeCol))
-                },
-                valueRange = 0f..20f
-            )
-
-            Text("Opacity Stroke: ${(currentStyle.strokeOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
-            Slider(
-                value = currentStyle.strokeOpacity,
-                onValueChange = { onUpdateStyle(currentStyle.copy(strokeOpacity = it)) },
-                valueRange = 0f..1f
-            )
-
             if (selectedLayer != null) {
                 Text("Kapitalisasi Teks:", style = MaterialTheme.typography.bodyMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1306,7 +1277,7 @@ fun TextToolPanel(
                 }
             }
 
-            Text("Ukuran Font: ${currentStyle.fontSize.toInt()} px")
+            Text("Ukuran Font: ${currentStyle.fontSize.toInt()} px", style = MaterialTheme.typography.bodyMedium)
             Slider(
                 value = currentStyle.fontSize,
                 onValueChange = { onUpdateStyle(currentStyle.copy(fontSize = it)) },
@@ -1321,6 +1292,9 @@ fun SimpleColorPickerRow(
     selectedColor: Int,
     onColorSelected: (Int) -> Unit
 ) {
+    var showCustomHexDialog by remember { mutableStateOf(false) }
+    var hexInput by remember { mutableStateOf("") }
+
     val colors = listOf(
         AndroidColor.BLACK,
         AndroidColor.WHITE,
@@ -1331,16 +1305,16 @@ fun SimpleColorPickerRow(
         AndroidColor.MAGENTA,
         AndroidColor.CYAN
     )
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         colors.forEach { c ->
             Box(
                 modifier = Modifier
                     .size(28.dp)
                     .background(Color(c), shape = androidx.compose.foundation.shape.CircleShape)
                     .padding(2.dp)
-                    .pointerInput(Unit) {
-                        detectDragGestures { _, _ -> }
-                    }
             ) {
                 IconButton(
                     onClick = { onColorSelected(c) },
@@ -1357,6 +1331,56 @@ fun SimpleColorPickerRow(
                 }
             }
         }
+
+        IconButton(
+            onClick = {
+                hexInput = String.format("#%06X", 0xFFFFFF and selectedColor)
+                showCustomHexDialog = true
+            },
+            modifier = Modifier.size(28.dp)
+        ) {
+            Icon(
+                Icons.Default.Palette,
+                contentDescription = "Custom Hex",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+
+    if (showCustomHexDialog) {
+        AlertDialog(
+            onDismissRequest = { showCustomHexDialog = false },
+            title = { Text("Pilih Warna Custom (Hex)", style = MaterialTheme.typography.titleMedium) },
+            text = {
+                OutlinedTextField(
+                    value = hexInput,
+                    onValueChange = { hexInput = it },
+                    label = { Text("Hex Color (contoh: #FF5722)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        try {
+                            val parsed = AndroidColor.parseColor(hexInput)
+                            onColorSelected(parsed)
+                            showCustomHexDialog = false
+                        } catch (_: Throwable) {
+                        }
+                    }
+                ) {
+                    Text("Terapkan")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCustomHexDialog = false }) {
+                    Text("Batal")
+                }
+            }
+        )
     }
 }
 
@@ -1370,13 +1394,18 @@ fun EffectToolPanel(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp)
     ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(
+            modifier = Modifier
+                .padding(14.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             Text("Efek Layer", style = MaterialTheme.typography.titleMedium)
 
             if (selectedLayer == null) {
-                Text("Pilih layer terlebih dahulu untuk mengatur transparansi dan bayangan.", style = MaterialTheme.typography.bodyMedium)
+                Text("Pilih layer terlebih dahulu untuk mengatur transparansi dan efek.", style = MaterialTheme.typography.bodyMedium)
             } else {
                 Text("Transparansi Layer (Opacity): ${(selectedLayer.opacity * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
                 Slider(
@@ -1387,6 +1416,88 @@ fun EffectToolPanel(
 
                 if (selectedLayer is Layer.TextLayer) {
                     val currentStyle = selectedLayer.style
+
+                    Text("Warna Fill Teks:", style = MaterialTheme.typography.titleSmall)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        FilterChip(
+                            selected = !currentStyle.isGradientEnabled,
+                            onClick = { onUpdateStyle(currentStyle.copy(isGradientEnabled = false)) },
+                            label = { Text("Solid Color") }
+                        )
+                        FilterChip(
+                            selected = currentStyle.isGradientEnabled,
+                            onClick = { onUpdateStyle(currentStyle.copy(isGradientEnabled = true)) },
+                            label = { Text("Gradient") }
+                        )
+                    }
+
+                    if (!currentStyle.isGradientEnabled) {
+                        Text("Warna Teks (Solid):", style = MaterialTheme.typography.bodySmall)
+                        SimpleColorPickerRow(
+                            selectedColor = currentStyle.textColor,
+                            onColorSelected = { col -> onUpdateStyle(currentStyle.copy(textColor = col)) }
+                        )
+                    } else {
+                        Text("Warna Gradient Start:", style = MaterialTheme.typography.bodySmall)
+                        SimpleColorPickerRow(
+                            selectedColor = currentStyle.gradientStartColor,
+                            onColorSelected = { col -> onUpdateStyle(currentStyle.copy(gradientStartColor = col)) }
+                        )
+
+                        Text("Warna Gradient End:", style = MaterialTheme.typography.bodySmall)
+                        SimpleColorPickerRow(
+                            selectedColor = currentStyle.gradientEndColor,
+                            onColorSelected = { col -> onUpdateStyle(currentStyle.copy(gradientEndColor = col)) }
+                        )
+
+                        Text("Arah Gradient:", style = MaterialTheme.typography.bodySmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(
+                                selected = currentStyle.gradientDirection.equals("HORIZONTAL", ignoreCase = true),
+                                onClick = { onUpdateStyle(currentStyle.copy(gradientDirection = "HORIZONTAL")) },
+                                label = { Text("Horizontal") }
+                            )
+                            FilterChip(
+                                selected = currentStyle.gradientDirection.equals("VERTICAL", ignoreCase = true),
+                                onClick = { onUpdateStyle(currentStyle.copy(gradientDirection = "VERTICAL")) },
+                                label = { Text("Vertikal") }
+                            )
+                        }
+                    }
+
+                    Text("Opacity Teks (Fill): ${(currentStyle.textOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                    Slider(
+                        value = currentStyle.textOpacity,
+                        onValueChange = { onUpdateStyle(currentStyle.copy(textOpacity = it)) },
+                        valueRange = 0f..1f
+                    )
+
+                    Text("Warna Stroke/Outline Teks:", style = MaterialTheme.typography.bodySmall)
+                    SimpleColorPickerRow(
+                        selectedColor = currentStyle.strokeColor,
+                        onColorSelected = { col -> onUpdateStyle(currentStyle.copy(strokeColor = col)) }
+                    )
+
+                    Text("Ketebalan Stroke: ${currentStyle.strokeWidth.toInt()} px", style = MaterialTheme.typography.bodySmall)
+                    Slider(
+                        value = currentStyle.strokeWidth,
+                        onValueChange = {
+                            val strokeCol = if (it > 0f && currentStyle.strokeColor == AndroidColor.TRANSPARENT) AndroidColor.BLACK else currentStyle.strokeColor
+                            onUpdateStyle(currentStyle.copy(strokeWidth = it, strokeColor = strokeCol))
+                        },
+                        valueRange = 0f..20f
+                    )
+
+                    Text("Opacity Stroke: ${(currentStyle.strokeOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                    Slider(
+                        value = currentStyle.strokeOpacity,
+                        onValueChange = { onUpdateStyle(currentStyle.copy(strokeOpacity = it)) },
+                        valueRange = 0f..1f
+                    )
+
                     Text("Drop Shadow Details:", style = MaterialTheme.typography.titleSmall)
 
                     Text("Warna Bayangan:", style = MaterialTheme.typography.bodySmall)
