@@ -53,8 +53,113 @@ class EditorViewModel @Inject constructor(
     val isProcessingInpaint = MutableStateFlow(false)
     val isExporting = MutableStateFlow(false)
 
+    data class HistorySnapshot(
+        val layers: List<Layer>,
+        val baseBitmap: Bitmap?,
+        val maskBytes: ByteArray?
+    )
+
+    private val undoStack = ArrayDeque<HistorySnapshot>()
+    private val redoStack = ArrayDeque<HistorySnapshot>()
+
+    val canUndo = MutableStateFlow(false)
+    val canRedo = MutableStateFlow(false)
+
     init {
         loadProject()
+    }
+
+    private fun updateUndoRedoState() {
+        canUndo.value = undoStack.isNotEmpty()
+        canRedo.value = redoStack.isNotEmpty()
+    }
+
+    private fun calculateMaxHistorySteps(): Int {
+        val w = project.value?.width ?: 1080
+        val h = project.value?.height ?: 1920
+        val pixels = w.toLong() * h.toLong()
+        return when {
+            pixels > 12_000_000L -> 10
+            pixels > 4_000_000L -> 15
+            else -> 25
+        }
+    }
+
+    fun getMaskByteArray(): ByteArray? {
+        val tools = maskSelectionTools ?: return null
+        val bmp = tools.maskBitmap
+        if (bmp.isRecycled) return null
+        return try {
+            val buffer = java.nio.ByteBuffer.allocate(bmp.byteCount)
+            bmp.copyPixelsToBuffer(buffer)
+            buffer.array()
+        } catch (t: Throwable) {
+            t.printStackTrace()
+            null
+        }
+    }
+
+    fun restoreMaskByteArray(bytes: ByteArray) {
+        val tools = maskSelectionTools ?: return
+        val bmp = tools.maskBitmap
+        if (bmp.isRecycled) return
+        try {
+            val buffer = java.nio.ByteBuffer.wrap(bytes)
+            bmp.copyPixelsFromBuffer(buffer)
+        } catch (t: Throwable) {
+            t.printStackTrace()
+        }
+    }
+
+    fun saveUndoSnapshot() {
+        val snapshot = HistorySnapshot(
+            layers = layers.value,
+            baseBitmap = baseBitmap.value,
+            maskBytes = getMaskByteArray()
+        )
+        undoStack.addLast(snapshot)
+        val maxHistory = calculateMaxHistorySteps()
+        while (undoStack.size > maxHistory) {
+            undoStack.removeFirst()
+        }
+        redoStack.clear()
+        updateUndoRedoState()
+    }
+
+    fun undo() {
+        if (undoStack.isEmpty()) return
+        val currentSnapshot = HistorySnapshot(
+            layers = layers.value,
+            baseBitmap = baseBitmap.value,
+            maskBytes = getMaskByteArray()
+        )
+        redoStack.addLast(currentSnapshot)
+        val previousState = undoStack.removeLast()
+        restoreSnapshot(previousState)
+        updateUndoRedoState()
+        autoSave()
+    }
+
+    fun redo() {
+        if (redoStack.isEmpty()) return
+        val currentSnapshot = HistorySnapshot(
+            layers = layers.value,
+            baseBitmap = baseBitmap.value,
+            maskBytes = getMaskByteArray()
+        )
+        undoStack.addLast(currentSnapshot)
+        val nextState = redoStack.removeLast()
+        restoreSnapshot(nextState)
+        updateUndoRedoState()
+        autoSave()
+    }
+
+    private fun restoreSnapshot(snapshot: HistorySnapshot) {
+        layers.value = snapshot.layers
+        baseBitmap.value = snapshot.baseBitmap
+        snapshot.maskBytes?.let { bytes ->
+            restoreMaskByteArray(bytes)
+        }
     }
 
     private fun loadProject() {
@@ -177,10 +282,34 @@ class EditorViewModel @Inject constructor(
         brushSize.value = size
     }
 
+    fun updateProjectTitle(newTitle: String) {
+        val currentProj = project.value ?: return
+        val updated = currentProj.copy(title = newTitle)
+        project.value = updated
+        viewModelScope.launch {
+            repository.saveProject(updated)
+        }
+    }
+
+    fun addImageLayer(bitmap: Bitmap) {
+        saveUndoSnapshot()
+        val newLayer = Layer.ImageLayer(
+            id = UUID.randomUUID().toString(),
+            name = "Image ${layers.value.size + 1}",
+            x = (project.value?.width ?: 1080) / 4f,
+            y = (project.value?.height ?: 1920) / 4f,
+            bitmap = bitmap
+        )
+        layers.value = layers.value + newLayer
+        selectedLayerId.value = newLayer.id
+        autoSave()
+    }
+
     fun runTeleaInpaint() {
         val currentBase = baseBitmap.value ?: return
         val tools = maskSelectionTools ?: return
 
+        saveUndoSnapshot()
         viewModelScope.launch {
             isProcessingInpaint.value = true
             when (val result = inpaintEngine.inpaintTelea(currentBase, tools.maskBitmap)) {
@@ -197,6 +326,7 @@ class EditorViewModel @Inject constructor(
     }
 
     fun addTextLayer(text: String, style: TextStyleConfig = TextStyleConfig()) {
+        saveUndoSnapshot()
         val newLayer = Layer.TextLayer(
             id = UUID.randomUUID().toString(),
             name = "Text ${layers.value.size + 1}",
@@ -210,7 +340,10 @@ class EditorViewModel @Inject constructor(
         autoSave()
     }
 
-    fun updateSelectedTextLayerStyle(style: TextStyleConfig) {
+    fun updateSelectedTextLayerStyle(style: TextStyleConfig, saveUndo: Boolean = true) {
+        if (saveUndo) {
+            saveUndoSnapshot()
+        }
         val selectedId = selectedLayerId.value ?: return
         layers.value = layers.value.map { layer ->
             if (layer.id == selectedId && layer is Layer.TextLayer) {
@@ -232,6 +365,7 @@ class EditorViewModel @Inject constructor(
         if (index == -1) return
         val newIndex = index + direction
         if (newIndex in 0 until list.size) {
+            saveUndoSnapshot()
             val item = list.removeAt(index)
             list.add(newIndex, item)
             layers.value = list
@@ -240,6 +374,7 @@ class EditorViewModel @Inject constructor(
     }
 
     fun toggleLayerVisibility(id: String) {
+        saveUndoSnapshot()
         layers.value = layers.value.map { layer ->
             if (layer.id == id) {
                 when (layer) {
@@ -252,6 +387,7 @@ class EditorViewModel @Inject constructor(
     }
 
     fun deleteLayer(id: String) {
+        saveUndoSnapshot()
         layers.value = layers.value.filter { it.id != id }
         if (selectedLayerId.value == id) {
             selectedLayerId.value = null
