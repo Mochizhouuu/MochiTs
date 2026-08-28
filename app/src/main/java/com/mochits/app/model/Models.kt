@@ -17,6 +17,7 @@ enum class EditorPanel {
 
 data class TextStyleConfig(
     val fontName: String = "Default",
+    val fontStyle: String = "Regular", // "Regular", "Bold", "Italic", "BoldItalic"
     val fontSize: Float = 36f,
     val textColor: Int = Color.BLACK,
     val strokeColor: Int = Color.TRANSPARENT,

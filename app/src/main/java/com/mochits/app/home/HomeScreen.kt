@@ -10,6 +10,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -57,8 +58,10 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val projects by viewModel.projects.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
     var showOpenProjectDialog by remember { mutableStateOf(false) }
+    var selectedDeleteProjectId by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
 
     val galleryPickerLauncher = rememberLauncherForActivityResult(
@@ -66,6 +69,7 @@ fun HomeScreen(
     ) { uri: Uri? ->
         uri?.let { selectedUri ->
             coroutineScope.launch {
+                viewModel.isLoading.value = true
                 try {
                     val sdf = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
                     val title = "Proyek ${sdf.format(Date())}"
@@ -75,6 +79,8 @@ fun HomeScreen(
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
+                } finally {
+                    viewModel.isLoading.value = false
                 }
             }
         }
@@ -85,6 +91,7 @@ fun HomeScreen(
     ) { uri: Uri? ->
         uri?.let { selectedUri ->
             coroutineScope.launch {
+                viewModel.isLoading.value = true
                 try {
                     val sdf = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
                     val title = "Proyek ${sdf.format(Date())}"
@@ -94,6 +101,8 @@ fun HomeScreen(
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
+                } finally {
+                    viewModel.isLoading.value = false
                 }
             }
         }
@@ -177,7 +186,8 @@ fun HomeScreen(
                         items(recentList, key = { it.id }) { project ->
                             RecentProjectCard(
                                 project = project,
-                                onClick = { onOpenEditor(project.id) }
+                                onClick = { onOpenEditor(project.id) },
+                                onLongClick = { selectedDeleteProjectId = project.id }
                             )
                         }
 
@@ -319,6 +329,33 @@ fun HomeScreen(
             )
         }
 
+        if (selectedDeleteProjectId != null) {
+            val projToDelete = projects.find { it.id == selectedDeleteProjectId }
+            AlertDialog(
+                onDismissRequest = { selectedDeleteProjectId = null },
+                title = { Text("Hapus Proyek", style = MaterialTheme.typography.titleLarge) },
+                text = { Text("Apakah Anda yakin ingin menghapus proyek '${projToDelete?.title ?: ""}'? Aksi ini tidak dapat dibatalkan.") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            selectedDeleteProjectId?.let { id ->
+                                viewModel.deleteProject(id)
+                            }
+                            selectedDeleteProjectId = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Hapus")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { selectedDeleteProjectId = null }) {
+                        Text("Batal")
+                    }
+                }
+            )
+        }
+
         if (showOpenProjectDialog) {
             OpenProjectDialog(
                 projects = projects,
@@ -328,17 +365,48 @@ fun HomeScreen(
                     onOpenEditor(id)
                 },
                 onDeleteProject = { id ->
-                    viewModel.deleteProject(id)
+                    selectedDeleteProjectId = id
                 }
             )
+        }
+
+        if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable(enabled = false) {},
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 6.dp
+                ) {
+                    Row(
+                        modifier = Modifier.padding(24.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        Text(
+                            text = "Memuat & Mengimpor Gambar...",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun RecentProjectCard(
     project: ProjectEntity,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {}
 ) {
     val formattedTime = remember(project.updatedAt) {
         val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
@@ -357,7 +425,10 @@ fun RecentProjectCard(
     Card(
         modifier = Modifier
             .size(width = 130.dp, height = 150.dp)
-            .clickable(onClick = onClick),
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {

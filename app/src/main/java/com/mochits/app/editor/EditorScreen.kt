@@ -37,6 +37,10 @@ import com.mochits.app.model.TextStyleConfig
 import com.mochits.app.text.TextRenderer
 import java.io.File
 
+private enum class TextHandleType {
+    RESIZE, ROTATE, DELETE
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditorScreen(
@@ -54,6 +58,7 @@ fun EditorScreen(
     val isProcessingInpaint by viewModel.isProcessingInpaint.collectAsState()
     val canUndo by viewModel.canUndo.collectAsState()
     val canRedo by viewModel.canRedo.collectAsState()
+    val isLoadingImage by viewModel.isLoadingImage.collectAsState()
 
     val textRenderer = remember { TextRenderer(context) }
     var triggerRedraw by remember { mutableIntStateOf(0) }
@@ -136,7 +141,7 @@ fun EditorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(project?.title ?: "Editor Canvas") },
+                title = { },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -226,7 +231,9 @@ fun EditorScreen(
                     EditorPanel.TEXT -> TextToolPanel(
                         selectedLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer,
                         onAddText = { text -> viewModel.addTextLayer(text) },
-                        onUpdateStyle = { style -> viewModel.updateSelectedTextLayerStyle(style) }
+                        onUpdateStyle = { style -> viewModel.updateSelectedTextLayerStyle(style) },
+                        onCapitalizationTransform = { newText -> viewModel.updateSelectedTextContent(newText) },
+                        onUpdateOpacity = { opacity -> viewModel.updateSelectedLayerOpacity(opacity) }
                     )
                     EditorPanel.LAYERS -> LayersToolPanel(
                         layers = layers,
@@ -235,7 +242,8 @@ fun EditorScreen(
                         onMoveLayer = { id, dir -> viewModel.moveLayer(id, dir) },
                         onToggleVisibility = { viewModel.toggleLayerVisibility(it) },
                         onDeleteLayer = { viewModel.deleteLayer(it) },
-                        onLoadBaseImage = { baseImagePickerLauncher.launch("image/*") }
+                        onLoadBaseImage = { baseImagePickerLauncher.launch("image/*") },
+                        onUpdateOpacity = { opacity -> viewModel.updateSelectedLayerOpacity(opacity) }
                     )
                     else -> {}
                 }
@@ -271,81 +279,196 @@ fun EditorScreen(
                 }
             }
 
-            var isResizingText by remember { mutableStateOf(false) }
+            var activeHandleType by remember { mutableStateOf<TextHandleType?>(null) }
             var initialDragDist by remember { mutableFloatStateOf(0f) }
             var initialFontSize by remember { mutableFloatStateOf(36f) }
+            var initialTextRotation by remember { mutableFloatStateOf(0f) }
+            var initialTouchAngle by remember { mutableFloatStateOf(0f) }
+
+            // Handle positions in canvas coordinates
+            val deleteHandleCanvasCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text) {
+                if (selectedTextLayer != null) {
+                    val bounds = textRenderer.getTextBounds(selectedTextLayer.text, selectedTextLayer.style, selectedTextLayer.x, selectedTextLayer.y)
+                    Offset(bounds.left, bounds.top)
+                } else Offset.Zero
+            }
+
+            val rotateHandleCanvasCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text) {
+                if (selectedTextLayer != null) {
+                    val bounds = textRenderer.getTextBounds(selectedTextLayer.text, selectedTextLayer.style, selectedTextLayer.x, selectedTextLayer.y)
+                    val offsetDist = 36f / viewModel.canvasState.scale
+                    Offset(bounds.centerX(), bounds.top - offsetDist)
+                } else Offset.Zero
+            }
 
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(activePanel, selectedLayerId, handleCanvasCenter) {
-                        if (activePanel == EditorPanel.MASK) {
-                            detectDragGestures(
-                                onDragStart = { screenOffset ->
-                                    viewModel.saveUndoSnapshot()
-                                    val canvasPt = viewModel.canvasState.mapper.screenToCanvas(screenOffset.x, screenOffset.y)
-                                    lastTouchCanvasPt = canvasPt
-                                    viewModel.maskSelectionTools?.startStroke(canvasPt, maskToolMode, brushSize)
-                                    triggerRedraw++
-                                },
-                                onDrag = { change, _ ->
-                                    val canvasPt = viewModel.canvasState.mapper.screenToCanvas(change.position.x, change.position.y)
-                                    lastTouchCanvasPt = canvasPt
-                                    viewModel.maskSelectionTools?.updateStroke(canvasPt, maskToolMode, brushSize)
-                                    triggerRedraw++
-                                },
-                                onDragEnd = {
-                                    viewModel.maskSelectionTools?.endStroke(lastTouchCanvasPt, maskToolMode, brushSize)
-                                    triggerRedraw++
-                                }
-                            )
-                        } else {
-                            detectTransformGestures { centroid, pan, zoom, _ ->
-                                viewModel.canvasState.onGestureTransform(centroid, pan, zoom)
-                                triggerRedraw++
-                            }
-                        }
-                    }
-                    .pointerInput(selectedTextLayer, handleCanvasCenter) {
-                        if (selectedTextLayer != null) {
-                            detectDragGestures(
-                                onDragStart = { screenPt ->
-                                    val canvasPt = viewModel.canvasState.mapper.screenToCanvas(screenPt.x, screenPt.y)
-                                    val handleRadius = 32f / viewModel.canvasState.scale
-                                    val dx = canvasPt.x - handleCanvasCenter.x
-                                    val dy = canvasPt.y - handleCanvasCenter.y
-                                    if (dx * dx + dy * dy <= handleRadius * handleRadius) {
-                                        isResizingText = true
-                                        viewModel.saveUndoSnapshot()
-                                        val textCenterX = selectedTextLayer.x
-                                        val textCenterY = selectedTextLayer.y
-                                        initialDragDist = kotlin.math.hypot(canvasPt.x - textCenterX, canvasPt.y - textCenterY)
-                                        initialFontSize = selectedTextLayer.style.fontSize
-                                    } else {
-                                        isResizingText = false
+                    .pointerInput(activePanel, selectedTextLayer, handleCanvasCenter, deleteHandleCanvasCenter, rotateHandleCanvasCenter) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val changes = event.changes
+                                if (changes.isEmpty()) continue
+
+                                // 1. MASK TOOL ACTIVE: Handle mask drawing strokes
+                                if (activePanel == EditorPanel.MASK) {
+                                    val firstChange = changes.first()
+                                    if (firstChange.pressed) {
+                                        val isJustDown = !firstChange.previousPressed && firstChange.pressed
+                                        if (isJustDown) {
+                                            viewModel.saveUndoSnapshot()
+                                            val canvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
+                                            lastTouchCanvasPt = canvasPt
+                                            viewModel.maskSelectionTools?.startStroke(canvasPt, maskToolMode, brushSize)
+                                            triggerRedraw++
+                                        } else {
+                                            val canvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
+                                            lastTouchCanvasPt = canvasPt
+                                            viewModel.maskSelectionTools?.updateStroke(canvasPt, maskToolMode, brushSize)
+                                            triggerRedraw++
+                                        }
+                                        firstChange.consume()
+                                    } else if (firstChange.previousPressed && !firstChange.pressed) {
+                                        viewModel.maskSelectionTools?.endStroke(lastTouchCanvasPt, maskToolMode, brushSize)
+                                        triggerRedraw++
                                     }
-                                },
-                                onDrag = { change, _ ->
-                                    if (isResizingText) {
-                                        val canvasPt = viewModel.canvasState.mapper.screenToCanvas(change.position.x, change.position.y)
-                                        val textCenterX = selectedTextLayer.x
-                                        val textCenterY = selectedTextLayer.y
-                                        val currentDist = kotlin.math.hypot(canvasPt.x - textCenterX, canvasPt.y - textCenterY)
-                                        if (initialDragDist > 0f) {
-                                            val scaleFactor = currentDist / initialDragDist
-                                            val newSize = (initialFontSize * scaleFactor).coerceIn(10f, 300f)
-                                            viewModel.updateSelectedTextLayerStyle(
-                                                selectedTextLayer.style.copy(fontSize = newSize),
-                                                saveUndo = false
-                                            )
+                                    continue
+                                }
+
+                                // 2. TEXT HANDLES INTERCEPTION: Check hit-testing on handles
+                                val firstChange = changes.first()
+                                if (selectedTextLayer != null) {
+                                    val touchCanvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
+                                    val handleHitRadius = (32f / viewModel.canvasState.scale)
+
+                                    val isJustDown = !firstChange.previousPressed && firstChange.pressed
+                                    if (isJustDown) {
+                                        // Test Resize Handle (Bottom-Right)
+                                        val distResizeSq = (touchCanvasPt.x - handleCanvasCenter.x) * (touchCanvasPt.x - handleCanvasCenter.x) +
+                                                (touchCanvasPt.y - handleCanvasCenter.y) * (touchCanvasPt.y - handleCanvasCenter.y)
+                                        // Test Delete Handle (Top-Left)
+                                        val distDeleteSq = (touchCanvasPt.x - deleteHandleCanvasCenter.x) * (touchCanvasPt.x - deleteHandleCanvasCenter.x) +
+                                                (touchCanvasPt.y - deleteHandleCanvasCenter.y) * (touchCanvasPt.y - deleteHandleCanvasCenter.y)
+                                        // Test Rotate Handle (Top-Center)
+                                        val distRotateSq = (touchCanvasPt.x - rotateHandleCanvasCenter.x) * (touchCanvasPt.x - rotateHandleCanvasCenter.x) +
+                                                (touchCanvasPt.y - rotateHandleCanvasCenter.y) * (touchCanvasPt.y - rotateHandleCanvasCenter.y)
+
+                                        val rSq = handleHitRadius * handleHitRadius
+
+                                        if (distDeleteSq <= rSq) {
+                                            activeHandleType = TextHandleType.DELETE
+                                            viewModel.deleteLayer(selectedTextLayer.id)
+                                            firstChange.consume()
+                                            triggerRedraw++
+                                            continue
+                                        } else if (distResizeSq <= rSq) {
+                                            activeHandleType = TextHandleType.RESIZE
+                                            viewModel.saveUndoSnapshot()
+                                            val textCenterX = selectedTextLayer.x
+                                            val textCenterY = selectedTextLayer.y
+                                            initialDragDist = kotlin.math.hypot(touchCanvasPt.x - textCenterX, touchCanvasPt.y - textCenterY)
+                                            initialFontSize = selectedTextLayer.style.fontSize
+                                            firstChange.consume()
+                                            continue
+                                        } else if (distRotateSq <= rSq) {
+                                            activeHandleType = TextHandleType.ROTATE
+                                            viewModel.saveUndoSnapshot()
+                                            val bounds = textRenderer.getTextBounds(selectedTextLayer.text, selectedTextLayer.style, selectedTextLayer.x, selectedTextLayer.y)
+                                            val textCenterX = bounds.centerX()
+                                            val textCenterY = bounds.centerY()
+                                            initialTouchAngle = Math.toDegrees(kotlin.math.atan2((touchCanvasPt.y - textCenterY).toDouble(), (touchCanvasPt.x - textCenterX).toDouble())).toFloat()
+                                            initialTextRotation = selectedTextLayer.rotation
+                                            firstChange.consume()
+                                            continue
+                                        } else {
+                                            activeHandleType = null
+                                        }
+                                    }
+
+                                    // Handle active drag on text handles
+                                    if (activeHandleType != null && firstChange.pressed) {
+                                        firstChange.consume()
+                                        when (activeHandleType) {
+                                            TextHandleType.RESIZE -> {
+                                                val textCenterX = selectedTextLayer.x
+                                                val textCenterY = selectedTextLayer.y
+                                                val currentDist = kotlin.math.hypot(touchCanvasPt.x - textCenterX, touchCanvasPt.y - textCenterY)
+                                                if (initialDragDist > 0f) {
+                                                    val scaleFactor = currentDist / initialDragDist
+                                                    val newSize = (initialFontSize * scaleFactor).coerceIn(10f, 300f)
+                                                    viewModel.updateSelectedTextLayerStyle(
+                                                        selectedTextLayer.style.copy(fontSize = newSize),
+                                                        saveUndo = false
+                                                    )
+                                                    triggerRedraw++
+                                                }
+                                            }
+                                            TextHandleType.ROTATE -> {
+                                                val bounds = textRenderer.getTextBounds(selectedTextLayer.text, selectedTextLayer.style, selectedTextLayer.x, selectedTextLayer.y)
+                                                val textCenterX = bounds.centerX()
+                                                val textCenterY = bounds.centerY()
+                                                val currentAngle = Math.toDegrees(kotlin.math.atan2((touchCanvasPt.y - textCenterY).toDouble(), (touchCanvasPt.x - textCenterX).toDouble())).toFloat()
+                                                val deltaAngle = currentAngle - initialTouchAngle
+                                                val newRotation = (initialTextRotation + deltaAngle) % 360f
+                                                viewModel.updateSelectedTextLayerRotation(newRotation, saveUndo = false)
+                                                triggerRedraw++
+                                            }
+                                            else -> {}
+                                        }
+                                        continue
+                                    }
+
+                                    if (firstChange.previousPressed && !firstChange.pressed) {
+                                        if (activeHandleType != null) {
+                                            viewModel.finalizeTextTransform()
+                                        }
+                                        activeHandleType = null
+                                    }
+                                }
+
+                                // 3. TAP TO DESELECT OR GESTURE PAN/ZOOM:
+                                // If touch is not consuming a text handle, handle multi-touch transform or single tap
+                                if (activeHandleType == null) {
+                                    val pressedList = changes.filter { it.pressed }
+                                    if (pressedList.size >= 2) {
+                                        // Pinch zoom / pan gesture with 2+ fingers
+                                        val p0 = pressedList[0].position
+                                        val p1 = pressedList[1].position
+                                        val prevP0 = pressedList[0].previousPosition
+                                        val prevP1 = pressedList[1].previousPosition
+
+                                        val center = Offset((p0.x + p1.x) / 2f, (p0.y + p1.y) / 2f)
+                                        val prevCenter = Offset((prevP0.x + prevP1.x) / 2f, (prevP0.y + prevP1.y) / 2f)
+
+                                        val currentDist = kotlin.math.hypot(p0.x - p1.x, p0.y - p1.y)
+                                        val prevDist = kotlin.math.hypot(prevP0.x - prevP1.x, prevP0.y - prevP1.y)
+
+                                        val zoomFactor = if (prevDist > 0f) currentDist / prevDist else 1f
+                                        val panDelta = center - prevCenter
+
+                                        viewModel.canvasState.onGestureTransform(center, panDelta, zoomFactor)
+                                        triggerRedraw++
+                                        pressedList.forEach { it.consume() }
+                                    } else if (pressedList.size == 1) {
+                                        val c = pressedList[0]
+                                        val panDelta = c.position - c.previousPosition
+                                        val moved = panDelta.getDistance() > 2f
+                                        if (moved) {
+                                            viewModel.canvasState.onGestureTransform(c.position, panDelta, 1f)
+                                            triggerRedraw++
+                                            c.consume()
+                                        }
+                                    } else {
+                                        // All fingers released: check single tap release to deselect text
+                                        val releasedChange = changes.find { it.previousPressed && !it.pressed }
+                                        if (releasedChange != null && selectedLayerId != null) {
+                                            viewModel.selectLayer(null)
                                             triggerRedraw++
                                         }
                                     }
-                                },
-                                onDragEnd = {
-                                    isResizingText = false
                                 }
-                            )
+                            }
                         }
                     }
             ) {
@@ -378,10 +501,16 @@ fun EditorScreen(
                         }
                     }
 
-                    // 2. Mask Selection Overlay
+                    // 2. Red Translucent Mask Selection Overlay (alpha = 0.25f)
                     viewModel.maskSelectionTools?.maskBitmap?.let { maskBmp ->
                         if (!maskBmp.isRecycled) {
-                            drawContext.canvas.nativeCanvas.drawBitmap(maskBmp, 0f, 0f, null)
+                            val maskPaint = AndroidPaint().apply {
+                                colorFilter = android.graphics.PorterDuffColorFilter(
+                                    AndroidColor.argb(64, 255, 0, 0), // Translucent Red ~25%
+                                    android.graphics.PorterDuff.Mode.SRC_IN
+                                )
+                            }
+                            drawContext.canvas.nativeCanvas.drawBitmap(maskBmp, 0f, 0f, maskPaint)
                         }
                     }
 
@@ -390,6 +519,20 @@ fun EditorScreen(
                         if (layer.isVisible) {
                             when (layer) {
                                 is Layer.TextLayer -> {
+                                    val alphaPaint = AndroidPaint().apply {
+                                        alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
+                                    }
+                                    val count = drawContext.canvas.nativeCanvas.saveLayer(null, alphaPaint)
+
+                                    val bounds: RectF = textRenderer.getTextBounds(layer.text, layer.style, layer.x, layer.y)
+                                    val textCenterX = bounds.centerX()
+                                    val textCenterY = bounds.centerY()
+
+                                    drawContext.canvas.nativeCanvas.save()
+                                    if (layer.rotation != 0f) {
+                                        drawContext.canvas.nativeCanvas.rotate(layer.rotation, textCenterX, textCenterY)
+                                    }
+
                                     textRenderer.drawStyledText(
                                         canvas = drawContext.canvas.nativeCanvas,
                                         text = layer.text,
@@ -398,36 +541,79 @@ fun EditorScreen(
                                         y = layer.y
                                     )
 
-                                    // Render bounding box & bottom-right resize handle if selected
+                                    // Render bounding box & controls (Resize, Rotate, Delete) if selected
                                     if (layer.id == selectedLayerId) {
-                                        val bounds: RectF = textRenderer.getTextBounds(layer.text, layer.style, layer.x, layer.y)
+                                        val currentScale = viewModel.canvasState.scale
+                                        val strokeW = 3f / currentScale
+                                        val handleRadius = 14f / currentScale
+
                                         val boxPaint = AndroidPaint().apply {
                                             style = AndroidPaint.Style.STROKE
-                                            strokeWidth = 3f / viewModel.canvasState.scale
-                                            color = AndroidColor.BLUE
+                                            strokeWidth = strokeW
+                                            color = AndroidColor.parseColor("#3F51B5")
                                             pathEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
                                         }
                                         drawContext.canvas.nativeCanvas.drawRect(bounds, boxPaint)
 
-                                        // Draw Bottom-Right Handle Circle
-                                        val handleRadius = 14f / viewModel.canvasState.scale
                                         val handleFillPaint = AndroidPaint().apply {
                                             style = AndroidPaint.Style.FILL
                                             color = AndroidColor.WHITE
                                         }
                                         val handleStrokePaint = AndroidPaint().apply {
                                             style = AndroidPaint.Style.STROKE
-                                            strokeWidth = 3f / viewModel.canvasState.scale
-                                            color = AndroidColor.BLUE
+                                            strokeWidth = strokeW
+                                            color = AndroidColor.parseColor("#3F51B5")
                                         }
+
+                                        // 1. Bottom-Right Resize Handle
                                         drawContext.canvas.nativeCanvas.drawCircle(bounds.right, bounds.bottom, handleRadius, handleFillPaint)
                                         drawContext.canvas.nativeCanvas.drawCircle(bounds.right, bounds.bottom, handleRadius, handleStrokePaint)
+
+                                        // 2. Top-Left Delete (X) Button
+                                        val deleteFillPaint = AndroidPaint().apply {
+                                            style = AndroidPaint.Style.FILL
+                                            color = AndroidColor.parseColor("#E53935") // Red
+                                        }
+                                        val xPaint = AndroidPaint().apply {
+                                            style = AndroidPaint.Style.STROKE
+                                            strokeWidth = 3f / currentScale
+                                            color = AndroidColor.WHITE
+                                            isAntiAlias = true
+                                        }
+                                        drawContext.canvas.nativeCanvas.drawCircle(bounds.left, bounds.top, handleRadius, deleteFillPaint)
+                                        val crossOffset = handleRadius * 0.45f
+                                        drawContext.canvas.nativeCanvas.drawLine(
+                                            bounds.left - crossOffset, bounds.top - crossOffset,
+                                            bounds.left + crossOffset, bounds.top + crossOffset, xPaint
+                                        )
+                                        drawContext.canvas.nativeCanvas.drawLine(
+                                            bounds.left + crossOffset, bounds.top - crossOffset,
+                                            bounds.left - crossOffset, bounds.top + crossOffset, xPaint
+                                        )
+
+                                        // 3. Top-Center Rotate Handle with connecting vertical line
+                                        val rotateDist = 36f / currentScale
+                                        val rotateY = bounds.top - rotateDist
+                                        val linePaint = AndroidPaint().apply {
+                                            style = AndroidPaint.Style.STROKE
+                                            strokeWidth = 2f / currentScale
+                                            color = AndroidColor.parseColor("#3F51B5")
+                                        }
+                                        drawContext.canvas.nativeCanvas.drawLine(bounds.centerX(), bounds.top, bounds.centerX(), rotateY, linePaint)
+                                        drawContext.canvas.nativeCanvas.drawCircle(bounds.centerX(), rotateY, handleRadius, handleFillPaint)
+                                        drawContext.canvas.nativeCanvas.drawCircle(bounds.centerX(), rotateY, handleRadius, handleStrokePaint)
                                     }
+
+                                    drawContext.canvas.nativeCanvas.restore()
+                                    drawContext.canvas.nativeCanvas.restoreToCount(count)
                                 }
                                 is Layer.ImageLayer -> {
                                     layer.bitmap?.let { imgBmp ->
                                         if (!imgBmp.isRecycled) {
-                                            drawContext.canvas.nativeCanvas.drawBitmap(imgBmp, layer.x, layer.y, null)
+                                            val imgPaint = AndroidPaint().apply {
+                                                alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
+                                            }
+                                            drawContext.canvas.nativeCanvas.drawBitmap(imgBmp, layer.x, layer.y, imgPaint)
                                         }
                                     }
                                 }
@@ -476,23 +662,47 @@ fun EditorScreen(
             )
         }
 
+        if (isLoadingImage) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 6.dp
+                ) {
+                    Row(
+                        modifier = Modifier.padding(24.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        Text(
+                            text = "Memproses Gambar...",
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                    }
+                }
+            }
+        }
+
         // Save As / Export / Rename Dialog
         if (showExportDialog) {
             AlertDialog(
                 onDismissRequest = { showExportDialog = false },
-                title = { Text("Simpan / Save As & Ubah Nama", style = MaterialTheme.typography.titleLarge) },
+                title = { Text("Save As", style = MaterialTheme.typography.titleLarge) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         OutlinedTextField(
-                            value = projectTitleName,
-                            onValueChange = { projectTitleName = it },
-                            label = { Text("Nama Project") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
                             value = outputFileName,
-                            onValueChange = { outputFileName = it },
-                            label = { Text("Nama File Output") },
+                            onValueChange = {
+                                outputFileName = it
+                                projectTitleName = it
+                            },
+                            label = { Text("Nama Output / Nama Proyek") },
                             modifier = Modifier.fillMaxWidth()
                         )
                         Text("Format Gambar:", style = MaterialTheme.typography.bodyMedium)
@@ -518,8 +728,8 @@ fun EditorScreen(
                 confirmButton = {
                     Button(
                         onClick = {
-                            if (projectTitleName.isNotBlank() && projectTitleName != project?.title) {
-                                viewModel.updateProjectTitle(projectTitleName)
+                            if (outputFileName.isNotBlank() && outputFileName != project?.title) {
+                                viewModel.updateProjectTitle(outputFileName)
                             }
                             showExportDialog = false
                             val ext = selectedFormat.lowercase()
@@ -527,7 +737,7 @@ fun EditorScreen(
                             exportLauncher.launch("$saveName.$ext")
                         }
                     ) {
-                        Text("Ekspor")
+                        Text("Simpan & Ekspor")
                     }
                 },
                 dismissButton = {
@@ -584,8 +794,13 @@ fun MaskToolPanel(
     onClear: () -> Unit,
     onInvert: () -> Unit
 ) {
-    Surface(tonalElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(12.dp)) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        tonalElevation = 6.dp,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -652,7 +867,12 @@ fun InpaintToolPanel(
     isProcessing: Boolean,
     onRunInpaint: () -> Unit
 ) {
-    Surface(tonalElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        tonalElevation = 6.dp,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
         Row(
             modifier = Modifier.padding(16.dp).fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -674,13 +894,20 @@ fun InpaintToolPanel(
 fun TextToolPanel(
     selectedLayer: Layer.TextLayer?,
     onAddText: (String) -> Unit,
-    onUpdateStyle: (TextStyleConfig) -> Unit
+    onUpdateStyle: (TextStyleConfig) -> Unit,
+    onCapitalizationTransform: ((String) -> Unit)? = null,
+    onUpdateOpacity: ((Float) -> Unit)? = null
 ) {
     var textInput by remember { mutableStateOf("") }
     val currentStyle = selectedLayer?.style ?: TextStyleConfig()
 
-    Surface(tonalElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        tonalElevation = 6.dp,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -704,11 +931,83 @@ fun TextToolPanel(
             }
 
             if (selectedLayer != null) {
+                Text("Font Family:", style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Default", "Sans", "Serif", "Monospace").forEach { font ->
+                        FilterChip(
+                            selected = currentStyle.fontName.equals(font, ignoreCase = true),
+                            onClick = { onUpdateStyle(currentStyle.copy(fontName = font)) },
+                            label = { Text(font) }
+                        )
+                    }
+                }
+
+                Text("Font Style:", style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Regular", "Bold", "Italic", "BoldItalic").forEach { st ->
+                        val displayLabel = if (st == "BoldItalic") "Bold+Italic" else st
+                        FilterChip(
+                            selected = currentStyle.fontStyle.equals(st, ignoreCase = true),
+                            onClick = { onUpdateStyle(currentStyle.copy(fontStyle = st)) },
+                            label = { Text(displayLabel) }
+                        )
+                    }
+                }
+
+                Text("Kapitalisasi Teks:", style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = false,
+                        onClick = {
+                            val upper = selectedLayer.text.uppercase()
+                            onCapitalizationTransform?.invoke(upper)
+                        },
+                        label = { Text("UPPERCASE") }
+                    )
+                    FilterChip(
+                        selected = false,
+                        onClick = {
+                            val lower = selectedLayer.text.lowercase()
+                            onCapitalizationTransform?.invoke(lower)
+                        },
+                        label = { Text("lowercase") }
+                    )
+                    FilterChip(
+                        selected = false,
+                        onClick = {
+                            val capitalized = selectedLayer.text.split(" ").joinToString(" ") { word ->
+                                word.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString() }
+                            }
+                            onCapitalizationTransform?.invoke(capitalized)
+                        },
+                        label = { Text("Capitalize") }
+                    )
+                }
+
                 Text("Ukuran Font: ${currentStyle.fontSize.toInt()} px")
                 Slider(
                     value = currentStyle.fontSize,
                     onValueChange = { onUpdateStyle(currentStyle.copy(fontSize = it)) },
                     valueRange = 12f..120f
+                )
+
+                // Opacity Slider for Text Layer
+                Text("Transparansi (Opacity): ${(selectedLayer.opacity * 100).toInt()}%")
+                Slider(
+                    value = selectedLayer.opacity,
+                    onValueChange = { onUpdateOpacity?.invoke(it) },
+                    valueRange = 0f..1f
+                )
+
+                // Drop Shadow Controls
+                Text("Bayangan (Drop Shadow): Radius ${currentStyle.shadowRadius.toInt()} px")
+                Slider(
+                    value = currentStyle.shadowRadius,
+                    onValueChange = {
+                        val shadowCol = if (it > 0f) AndroidColor.BLACK else AndroidColor.TRANSPARENT
+                        onUpdateStyle(currentStyle.copy(shadowRadius = it, shadowColor = shadowCol, shadowDx = it * 0.5f, shadowDy = it * 0.5f))
+                    },
+                    valueRange = 0f..30f
                 )
             }
         }
@@ -723,10 +1022,17 @@ fun LayersToolPanel(
     onMoveLayer: (String, Int) -> Unit,
     onToggleVisibility: (String) -> Unit,
     onDeleteLayer: (String) -> Unit,
-    onLoadBaseImage: () -> Unit = {}
+    onLoadBaseImage: () -> Unit = {},
+    onUpdateOpacity: ((Float) -> Unit)? = null
 ) {
-    Surface(tonalElevation = 4.dp, modifier = Modifier.fillMaxWidth().height(220.dp)) {
-        Column(modifier = Modifier.padding(8.dp)) {
+    val selectedLayer = layers.find { it.id == selectedId }
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        tonalElevation = 6.dp,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        modifier = Modifier.fillMaxWidth().height(220.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
             OutlinedButton(
                 onClick = onLoadBaseImage,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp)
@@ -735,6 +1041,23 @@ fun LayersToolPanel(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Ganti Gambar Latar (Base Image)")
             }
+
+            if (selectedLayer != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Opacity Layer: ${(selectedLayer.opacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                    Slider(
+                        value = selectedLayer.opacity,
+                        onValueChange = { onUpdateOpacity?.invoke(it) },
+                        valueRange = 0f..1f,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(layers) { layer ->
                     val isSelected = layer.id == selectedId

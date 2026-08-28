@@ -37,6 +37,8 @@ class HomeViewModel @Inject constructor(
         _themeMode.value = mode
     }
 
+    val isLoading = MutableStateFlow(false)
+
     suspend fun createProject(
         title: String,
         width: Int,
@@ -44,9 +46,9 @@ class HomeViewModel @Inject constructor(
         imageUri: android.net.Uri? = null,
         isTransparent: Boolean = false,
         backgroundColor: Int = android.graphics.Color.WHITE
-    ): String {
+    ): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val project = repository.createProject(title, width, height, imageUri, isTransparent, backgroundColor)
-        return project.id
+        project.id
     }
 
     fun deleteProject(id: String) {
