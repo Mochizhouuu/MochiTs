@@ -41,6 +41,29 @@ private enum class TextHandleType {
     RESIZE, ROTATE, DELETE
 }
 
+private fun isPointInsideTextLayer(
+    layer: Layer.TextLayer,
+    touchCanvasPt: Offset,
+    textRenderer: TextRenderer
+): Boolean {
+    val bounds = textRenderer.getTextBounds(layer.text, layer.style, layer.x, layer.y)
+    val paddedBounds = RectF(bounds.left - 16f, bounds.top - 16f, bounds.right + 16f, bounds.bottom + 16f)
+    if (layer.rotation == 0f) {
+        return paddedBounds.contains(touchCanvasPt.x, touchCanvasPt.y)
+    } else {
+        val cx = bounds.centerX()
+        val cy = bounds.centerY()
+        val rad = Math.toRadians(-layer.rotation.toDouble())
+        val cosA = kotlin.math.cos(rad)
+        val sinA = kotlin.math.sin(rad)
+        val dx = (touchCanvasPt.x - cx).toDouble()
+        val dy = (touchCanvasPt.y - cy).toDouble()
+        val unrotatedX = (cx + dx * cosA - dy * sinA).toFloat()
+        val unrotatedY = (cy + dx * sinA + dy * cosA).toFloat()
+        return paddedBounds.contains(unrotatedX, unrotatedY)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditorScreen(
@@ -56,9 +79,21 @@ fun EditorScreen(
     val maskToolMode by viewModel.maskToolMode.collectAsState()
     val brushSize by viewModel.brushSize.collectAsState()
     val isProcessingInpaint by viewModel.isProcessingInpaint.collectAsState()
+    val selectedInpaintModel by viewModel.selectedInpaintModel.collectAsState()
+    val isDownloadingLaMaModel by viewModel.isDownloadingLaMaModel.collectAsState()
+    val lamaDownloadProgress by viewModel.lamaDownloadProgress.collectAsState()
+    val userMessage by viewModel.userMessage.collectAsState()
+    val defaultTextStyle by viewModel.defaultTextStyle.collectAsState()
     val canUndo by viewModel.canUndo.collectAsState()
     val canRedo by viewModel.canRedo.collectAsState()
     val isLoadingImage by viewModel.isLoadingImage.collectAsState()
+
+    LaunchedEffect(userMessage) {
+        userMessage?.let { msg ->
+            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+            viewModel.clearUserMessage()
+        }
+    }
 
     val textRenderer = remember { TextRenderer(context) }
     var triggerRedraw by remember { mutableIntStateOf(0) }
@@ -190,7 +225,7 @@ fun EditorScreen(
                         }
                     }
                     // Eraser / Mask Selection Shortcut Button
-                    IconButton(onClick = { viewModel.setActivePanel(EditorPanel.MASK) }) {
+                    IconButton(onClick = { viewModel.setActivePanel(EditorPanel.ERASE) }) {
                         Icon(Icons.Default.CleaningServices, contentDescription = "Hapus / Seleksi Objek")
                     }
                     // Save As / Rename Menu
@@ -203,12 +238,17 @@ fun EditorScreen(
         bottomBar = {
             Column {
                 when (activePanel) {
-                    EditorPanel.MASK -> MaskToolPanel(
+                    EditorPanel.ERASE, EditorPanel.MASK, EditorPanel.INPAINT -> EraseToolPanel(
                         mode = maskToolMode,
                         brushSize = brushSize,
+                        selectedModel = selectedInpaintModel,
+                        isProcessing = isProcessingInpaint,
+                        isDownloading = isDownloadingLaMaModel,
+                        downloadProgress = lamaDownloadProgress,
                         isCollapsed = isMaskPanelCollapsed,
                         onToggleCollapse = { isMaskPanelCollapsed = !isMaskPanelCollapsed },
                         onModeSelected = { viewModel.setMaskToolMode(it) },
+                        onModelSelected = { viewModel.setInpaintModel(it) },
                         onSizeChange = { viewModel.setBrushSize(it) },
                         onClear = {
                             viewModel.saveUndoSnapshot()
@@ -219,21 +259,23 @@ fun EditorScreen(
                             viewModel.saveUndoSnapshot()
                             viewModel.maskSelectionTools?.invertMask()
                             triggerRedraw++
-                        }
-                    )
-                    EditorPanel.INPAINT -> InpaintToolPanel(
-                        isProcessing = isProcessingInpaint,
-                        onRunInpaint = {
-                            viewModel.runTeleaInpaint()
+                        },
+                        onRunErase = {
+                            viewModel.runEraseInpaint()
                             triggerRedraw++
                         }
                     )
                     EditorPanel.TEXT -> TextToolPanel(
                         selectedLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer,
-                        onAddText = { text -> viewModel.addTextLayer(text) },
+                        defaultStyle = defaultTextStyle,
+                        onAddText = { text -> viewModel.addTextLayer(text, viewportWidth = 1080f, viewportHeight = 1920f) },
                         onUpdateStyle = { style -> viewModel.updateSelectedTextLayerStyle(style) },
-                        onCapitalizationTransform = { newText -> viewModel.updateSelectedTextContent(newText) },
-                        onUpdateOpacity = { opacity -> viewModel.updateSelectedLayerOpacity(opacity) }
+                        onCapitalizationTransform = { newText -> viewModel.updateSelectedTextContent(newText) }
+                    )
+                    EditorPanel.EFFECT -> EffectToolPanel(
+                        selectedLayer = layers.find { it.id == selectedLayerId },
+                        onUpdateOpacity = { opacity -> viewModel.updateSelectedLayerOpacity(opacity) },
+                        onUpdateStyle = { style -> viewModel.updateSelectedTextLayerStyle(style) }
                     )
                     EditorPanel.LAYERS -> LayersToolPanel(
                         layers = layers,
@@ -255,12 +297,14 @@ fun EditorScreen(
             }
         }
     ) { innerPadding ->
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize()
                 .background(Color.DarkGray)
         ) {
+            val viewportW = with(androidx.compose.ui.platform.LocalDensity.current) { maxWidth.toPx() }
+            val viewportH = with(androidx.compose.ui.platform.LocalDensity.current) { maxHeight.toPx() }
             var lastTouchCanvasPt by remember { mutableStateOf(Offset.Zero) }
 
             // Selected text layer & handle bounds calculation
@@ -301,10 +345,12 @@ fun EditorScreen(
                 } else Offset.Zero
             }
 
+            var panAccumulator by remember { mutableFloatStateOf(0f) }
+
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(activePanel, selectedTextLayer, handleCanvasCenter, deleteHandleCanvasCenter, rotateHandleCanvasCenter) {
+                    .pointerInput(activePanel, selectedTextLayer, layers, handleCanvasCenter, deleteHandleCanvasCenter, rotateHandleCanvasCenter) {
                         awaitPointerEventScope {
                             while (true) {
                                 val event = awaitPointerEvent()
@@ -312,7 +358,7 @@ fun EditorScreen(
                                 if (changes.isEmpty()) continue
 
                                 // 1. MASK TOOL ACTIVE: Handle mask drawing strokes
-                                if (activePanel == EditorPanel.MASK) {
+                                if (activePanel == EditorPanel.ERASE || activePanel == EditorPanel.MASK) {
                                     val firstChange = changes.first()
                                     if (firstChange.pressed) {
                                         val isJustDown = !firstChange.previousPressed && firstChange.pressed
@@ -338,19 +384,18 @@ fun EditorScreen(
 
                                 // 2. TEXT HANDLES INTERCEPTION: Check hit-testing on handles
                                 val firstChange = changes.first()
-                                if (selectedTextLayer != null) {
-                                    val touchCanvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
-                                    val handleHitRadius = (32f / viewModel.canvasState.scale)
+                                val touchCanvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
+                                val handleHitRadius = (40f / viewModel.canvasState.scale)
 
-                                    val isJustDown = !firstChange.previousPressed && firstChange.pressed
-                                    if (isJustDown) {
-                                        // Test Resize Handle (Bottom-Right)
+                                val isJustDown = !firstChange.previousPressed && firstChange.pressed
+                                if (isJustDown) {
+                                    panAccumulator = 0f
+                                    var hitHandle = false
+                                    if (selectedTextLayer != null) {
                                         val distResizeSq = (touchCanvasPt.x - handleCanvasCenter.x) * (touchCanvasPt.x - handleCanvasCenter.x) +
                                                 (touchCanvasPt.y - handleCanvasCenter.y) * (touchCanvasPt.y - handleCanvasCenter.y)
-                                        // Test Delete Handle (Top-Left)
                                         val distDeleteSq = (touchCanvasPt.x - deleteHandleCanvasCenter.x) * (touchCanvasPt.x - deleteHandleCanvasCenter.x) +
                                                 (touchCanvasPt.y - deleteHandleCanvasCenter.y) * (touchCanvasPt.y - deleteHandleCanvasCenter.y)
-                                        // Test Rotate Handle (Top-Center)
                                         val distRotateSq = (touchCanvasPt.x - rotateHandleCanvasCenter.x) * (touchCanvasPt.x - rotateHandleCanvasCenter.x) +
                                                 (touchCanvasPt.y - rotateHandleCanvasCenter.y) * (touchCanvasPt.y - rotateHandleCanvasCenter.y)
 
@@ -359,6 +404,7 @@ fun EditorScreen(
                                         if (distDeleteSq <= rSq) {
                                             activeHandleType = TextHandleType.DELETE
                                             viewModel.deleteLayer(selectedTextLayer.id)
+                                            hitHandle = true
                                             firstChange.consume()
                                             triggerRedraw++
                                             continue
@@ -369,6 +415,7 @@ fun EditorScreen(
                                             val textCenterY = selectedTextLayer.y
                                             initialDragDist = kotlin.math.hypot(touchCanvasPt.x - textCenterX, touchCanvasPt.y - textCenterY)
                                             initialFontSize = selectedTextLayer.style.fontSize
+                                            hitHandle = true
                                             firstChange.consume()
                                             continue
                                         } else if (distRotateSq <= rSq) {
@@ -379,18 +426,22 @@ fun EditorScreen(
                                             val textCenterY = bounds.centerY()
                                             initialTouchAngle = Math.toDegrees(kotlin.math.atan2((touchCanvasPt.y - textCenterY).toDouble(), (touchCanvasPt.x - textCenterX).toDouble())).toFloat()
                                             initialTextRotation = selectedTextLayer.rotation
+                                            hitHandle = true
                                             firstChange.consume()
                                             continue
-                                        } else {
-                                            activeHandleType = null
                                         }
                                     }
+                                    if (!hitHandle) {
+                                        activeHandleType = null
+                                    }
+                                }
 
-                                    // Handle active drag on text handles
-                                    if (activeHandleType != null && firstChange.pressed) {
-                                        firstChange.consume()
-                                        when (activeHandleType) {
-                                            TextHandleType.RESIZE -> {
+                                // Handle active drag on text handles
+                                if (activeHandleType != null && firstChange.pressed) {
+                                    firstChange.consume()
+                                    when (activeHandleType) {
+                                        TextHandleType.RESIZE -> {
+                                            if (selectedTextLayer != null) {
                                                 val textCenterX = selectedTextLayer.x
                                                 val textCenterY = selectedTextLayer.y
                                                 val currentDist = kotlin.math.hypot(touchCanvasPt.x - textCenterX, touchCanvasPt.y - textCenterY)
@@ -404,7 +455,9 @@ fun EditorScreen(
                                                     triggerRedraw++
                                                 }
                                             }
-                                            TextHandleType.ROTATE -> {
+                                        }
+                                        TextHandleType.ROTATE -> {
+                                            if (selectedTextLayer != null) {
                                                 val bounds = textRenderer.getTextBounds(selectedTextLayer.text, selectedTextLayer.style, selectedTextLayer.x, selectedTextLayer.y)
                                                 val textCenterX = bounds.centerX()
                                                 val textCenterY = bounds.centerY()
@@ -414,21 +467,21 @@ fun EditorScreen(
                                                 viewModel.updateSelectedTextLayerRotation(newRotation, saveUndo = false)
                                                 triggerRedraw++
                                             }
-                                            else -> {}
                                         }
-                                        continue
+                                        else -> {}
                                     }
+                                    continue
+                                }
 
-                                    if (firstChange.previousPressed && !firstChange.pressed) {
-                                        if (activeHandleType != null) {
-                                            viewModel.finalizeTextTransform()
-                                        }
+                                if (firstChange.previousPressed && !firstChange.pressed) {
+                                    if (activeHandleType != null) {
+                                        viewModel.finalizeTextTransform()
                                         activeHandleType = null
+                                        continue
                                     }
                                 }
 
-                                // 3. TAP TO DESELECT OR GESTURE PAN/ZOOM:
-                                // If touch is not consuming a text handle, handle multi-touch transform or single tap
+                                // 3. CANVAS PAN/ZOOM & TAP-SELECT / TAP-DESELECT
                                 if (activeHandleType == null) {
                                     val pressedList = changes.filter { it.pressed }
                                     if (pressedList.size >= 2) {
@@ -447,24 +500,38 @@ fun EditorScreen(
                                         val zoomFactor = if (prevDist > 0f) currentDist / prevDist else 1f
                                         val panDelta = center - prevCenter
 
+                                        panAccumulator += panDelta.getDistance()
                                         viewModel.canvasState.onGestureTransform(center, panDelta, zoomFactor)
                                         triggerRedraw++
                                         pressedList.forEach { it.consume() }
                                     } else if (pressedList.size == 1) {
                                         val c = pressedList[0]
                                         val panDelta = c.position - c.previousPosition
-                                        val moved = panDelta.getDistance() > 2f
+                                        val moved = panDelta.getDistance() > 1.5f
                                         if (moved) {
+                                            panAccumulator += panDelta.getDistance()
                                             viewModel.canvasState.onGestureTransform(c.position, panDelta, 1f)
                                             triggerRedraw++
                                             c.consume()
                                         }
                                     } else {
-                                        // All fingers released: check single tap release to deselect text
+                                        // Finger released
                                         val releasedChange = changes.find { it.previousPressed && !it.pressed }
-                                        if (releasedChange != null && selectedLayerId != null) {
-                                            viewModel.selectLayer(null)
-                                            triggerRedraw++
+                                        if (releasedChange != null) {
+                                            if (panAccumulator <= 10f) {
+                                                val releaseCanvasPt = viewModel.canvasState.mapper.screenToCanvas(releasedChange.position.x, releasedChange.position.y)
+                                                val hitTextLayer = layers.reversed().filterIsInstance<Layer.TextLayer>().firstOrNull { layer ->
+                                                    layer.isVisible && isPointInsideTextLayer(layer, releaseCanvasPt, textRenderer)
+                                                }
+                                                if (hitTextLayer != null) {
+                                                    viewModel.selectLayer(hitTextLayer.id)
+                                                    triggerRedraw++
+                                                } else {
+                                                    viewModel.selectLayer(null)
+                                                    triggerRedraw++
+                                                }
+                                            }
+                                            panAccumulator = 0f
                                         }
                                     }
                                 }
@@ -499,6 +566,37 @@ fun EditorScreen(
                         if (!bmp.isRecycled) {
                             drawContext.canvas.nativeCanvas.drawBitmap(bmp, 0f, 0f, null)
                         }
+                    }
+
+                    // 1b. Red Outline Overlay for Translucent Canvas (New project without base image)
+                    if (project?.thumbnailPath == null) {
+                        val canvasW = baseBitmap?.width?.toFloat() ?: (project?.width?.toFloat() ?: 1080f)
+                        val canvasH = baseBitmap?.height?.toFloat() ?: (project?.height?.toFloat() ?: 1920f)
+                        val currentScale = viewModel.canvasState.scale.coerceAtLeast(0.1f)
+                        val strokeW = 3f / currentScale
+                        val cornerLen = 24f / currentScale
+
+                        val outlinePaint = AndroidPaint().apply {
+                            style = AndroidPaint.Style.STROKE
+                            strokeWidth = strokeW
+                            color = AndroidColor.RED
+                            isAntiAlias = true
+                        }
+
+                        drawContext.canvas.nativeCanvas.drawRect(0f, 0f, canvasW, canvasH, outlinePaint)
+
+                        // Corner L-shapes
+                        drawContext.canvas.nativeCanvas.drawLine(0f, 0f, cornerLen, 0f, outlinePaint)
+                        drawContext.canvas.nativeCanvas.drawLine(0f, 0f, 0f, cornerLen, outlinePaint)
+
+                        drawContext.canvas.nativeCanvas.drawLine(canvasW, 0f, canvasW - cornerLen, 0f, outlinePaint)
+                        drawContext.canvas.nativeCanvas.drawLine(canvasW, 0f, canvasW, cornerLen, outlinePaint)
+
+                        drawContext.canvas.nativeCanvas.drawLine(0f, canvasH, cornerLen, canvasH, outlinePaint)
+                        drawContext.canvas.nativeCanvas.drawLine(0f, canvasH, 0f, canvasH - cornerLen, outlinePaint)
+
+                        drawContext.canvas.nativeCanvas.drawLine(canvasW, canvasH, canvasW - cornerLen, canvasH, outlinePaint)
+                        drawContext.canvas.nativeCanvas.drawLine(canvasW, canvasH, canvasW, canvasH - cornerLen, outlinePaint)
                     }
 
                     // 2. Red Translucent Mask Selection Overlay (alpha = 0.25f)
@@ -757,22 +855,22 @@ fun EditorBottomBar(
 ) {
     NavigationBar {
         NavigationBarItem(
-            selected = activePanel == EditorPanel.MASK,
-            onClick = { onPanelSelect(EditorPanel.MASK) },
-            icon = { Icon(Icons.Default.Brush, contentDescription = "Mask") },
-            label = { Text("Mask") }
-        )
-        NavigationBarItem(
-            selected = activePanel == EditorPanel.INPAINT,
-            onClick = { onPanelSelect(EditorPanel.INPAINT) },
-            icon = { Icon(Icons.Default.AutoFixHigh, contentDescription = "Inpaint") },
-            label = { Text("Inpaint") }
+            selected = activePanel == EditorPanel.ERASE || activePanel == EditorPanel.MASK || activePanel == EditorPanel.INPAINT,
+            onClick = { onPanelSelect(EditorPanel.ERASE) },
+            icon = { Icon(Icons.Default.CleaningServices, contentDescription = "Erase") },
+            label = { Text("Erase") }
         )
         NavigationBarItem(
             selected = activePanel == EditorPanel.TEXT,
             onClick = { onPanelSelect(EditorPanel.TEXT) },
             icon = { Icon(Icons.Default.TextFields, contentDescription = "Text") },
             label = { Text("Text") }
+        )
+        NavigationBarItem(
+            selected = activePanel == EditorPanel.EFFECT,
+            onClick = { onPanelSelect(EditorPanel.EFFECT) },
+            icon = { Icon(Icons.Default.AutoAwesome, contentDescription = "Effect") },
+            label = { Text("Effect") }
         )
         NavigationBarItem(
             selected = activePanel == EditorPanel.LAYERS,
@@ -784,15 +882,21 @@ fun EditorBottomBar(
 }
 
 @Composable
-fun MaskToolPanel(
+fun EraseToolPanel(
     mode: MaskToolMode,
     brushSize: Float,
+    selectedModel: EditorViewModel.InpaintModel,
+    isProcessing: Boolean,
+    isDownloading: Boolean,
+    downloadProgress: Float,
     isCollapsed: Boolean,
     onToggleCollapse: () -> Unit,
     onModeSelected: (MaskToolMode) -> Unit,
+    onModelSelected: (EditorViewModel.InpaintModel) -> Unit,
     onSizeChange: (Float) -> Unit,
     onClear: () -> Unit,
-    onInvert: () -> Unit
+    onInvert: () -> Unit,
+    onRunErase: () -> Unit
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
@@ -807,7 +911,7 @@ fun MaskToolPanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Tool Mask (${mode.name})",
+                    text = "Tool Erase (Penghapus Objek)",
                     style = MaterialTheme.typography.titleMedium
                 )
                 IconButton(onClick = onToggleCollapse) {
@@ -819,10 +923,12 @@ fun MaskToolPanel(
             }
 
             if (!isCollapsed) {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text("Alat Seleksi Area:", style = MaterialTheme.typography.bodySmall)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     FilterChip(
                         selected = mode == MaskToolMode.BRUSH,
@@ -845,13 +951,71 @@ fun MaskToolPanel(
                         label = { Text("Rect") }
                     )
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onClear) { Text("Clear") }
-                    OutlinedButton(onClick = onInvert) { Text("Invert") }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text("Model Inpaint:", style = MaterialTheme.typography.bodySmall)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilterChip(
+                        selected = selectedModel == EditorViewModel.InpaintModel.TELEA,
+                        onClick = { onModelSelected(EditorViewModel.InpaintModel.TELEA) },
+                        label = { Text("Telea (OpenCV)") }
+                    )
+                    FilterChip(
+                        selected = selectedModel == EditorViewModel.InpaintModel.LAMA,
+                        onClick = { onModelSelected(EditorViewModel.InpaintModel.LAMA) },
+                        label = { Text("LaMa (TFLite AI)") }
+                    )
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("Ukuran Kuas: ${brushSize.toInt()} px")
+
+                if (isDownloading) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Column {
+                        Text(
+                            text = "Mengunduh Model LaMa... ${(downloadProgress * 100).toInt()}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        LinearProgressIndicator(
+                            progress = { downloadProgress },
+                            modifier = Modifier.fillMaxWidth().height(6.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = onClear) { Text("Clear Mask") }
+                        OutlinedButton(onClick = onInvert) { Text("Invert") }
+                    }
+
+                    Button(
+                        onClick = onRunErase,
+                        enabled = !isProcessing && !isDownloading
+                    ) {
+                        if (isProcessing) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Memproses...")
+                        } else {
+                            Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Hapus / Inpaint")
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+                Text("Ukuran Kuas: ${brushSize.toInt()} px", style = MaterialTheme.typography.bodySmall)
                 Slider(
                     value = brushSize,
                     onValueChange = onSizeChange,
@@ -863,43 +1027,15 @@ fun MaskToolPanel(
 }
 
 @Composable
-fun InpaintToolPanel(
-    isProcessing: Boolean,
-    onRunInpaint: () -> Unit
-) {
-    Surface(
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-        tonalElevation = 6.dp,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp).fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Hapus Objek/Teks Terseleksi")
-            Button(onClick = onRunInpaint, enabled = !isProcessing) {
-                if (isProcessing) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
-                } else {
-                    Text("Jalankan Inpaint")
-                }
-            }
-        }
-    }
-}
-
-@Composable
 fun TextToolPanel(
     selectedLayer: Layer.TextLayer?,
+    defaultStyle: TextStyleConfig,
     onAddText: (String) -> Unit,
     onUpdateStyle: (TextStyleConfig) -> Unit,
-    onCapitalizationTransform: ((String) -> Unit)? = null,
-    onUpdateOpacity: ((Float) -> Unit)? = null
+    onCapitalizationTransform: ((String) -> Unit)? = null
 ) {
     var textInput by remember { mutableStateOf("") }
-    val currentStyle = selectedLayer?.style ?: TextStyleConfig()
+    val currentStyle = selectedLayer?.style ?: defaultStyle
 
     Surface(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
@@ -930,30 +1066,30 @@ fun TextToolPanel(
                 }
             }
 
+            Text("Font Family:", style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("Default", "Sans", "Serif", "Monospace").forEach { font ->
+                    FilterChip(
+                        selected = currentStyle.fontName.equals(font, ignoreCase = true),
+                        onClick = { onUpdateStyle(currentStyle.copy(fontName = font)) },
+                        label = { Text(font) }
+                    )
+                }
+            }
+
+            Text("Font Style:", style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("Regular", "Bold", "Italic", "BoldItalic").forEach { st ->
+                    val displayLabel = if (st == "BoldItalic") "Bold+Italic" else st
+                    FilterChip(
+                        selected = currentStyle.fontStyle.equals(st, ignoreCase = true),
+                        onClick = { onUpdateStyle(currentStyle.copy(fontStyle = st)) },
+                        label = { Text(displayLabel) }
+                    )
+                }
+            }
+
             if (selectedLayer != null) {
-                Text("Font Family:", style = MaterialTheme.typography.bodyMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Default", "Sans", "Serif", "Monospace").forEach { font ->
-                        FilterChip(
-                            selected = currentStyle.fontName.equals(font, ignoreCase = true),
-                            onClick = { onUpdateStyle(currentStyle.copy(fontName = font)) },
-                            label = { Text(font) }
-                        )
-                    }
-                }
-
-                Text("Font Style:", style = MaterialTheme.typography.bodyMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Regular", "Bold", "Italic", "BoldItalic").forEach { st ->
-                        val displayLabel = if (st == "BoldItalic") "Bold+Italic" else st
-                        FilterChip(
-                            selected = currentStyle.fontStyle.equals(st, ignoreCase = true),
-                            onClick = { onUpdateStyle(currentStyle.copy(fontStyle = st)) },
-                            label = { Text(displayLabel) }
-                        )
-                    }
-                }
-
                 Text("Kapitalisasi Teks:", style = MaterialTheme.typography.bodyMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
@@ -983,32 +1119,55 @@ fun TextToolPanel(
                         label = { Text("Capitalize") }
                     )
                 }
+            }
 
-                Text("Ukuran Font: ${currentStyle.fontSize.toInt()} px")
-                Slider(
-                    value = currentStyle.fontSize,
-                    onValueChange = { onUpdateStyle(currentStyle.copy(fontSize = it)) },
-                    valueRange = 12f..120f
-                )
+            Text("Ukuran Font: ${currentStyle.fontSize.toInt()} px")
+            Slider(
+                value = currentStyle.fontSize,
+                onValueChange = { onUpdateStyle(currentStyle.copy(fontSize = it)) },
+                valueRange = 12f..120f
+            )
+        }
+    }
+}
 
-                // Opacity Slider for Text Layer
-                Text("Transparansi (Opacity): ${(selectedLayer.opacity * 100).toInt()}%")
+@Composable
+fun EffectToolPanel(
+    selectedLayer: Layer?,
+    onUpdateOpacity: (Float) -> Unit,
+    onUpdateStyle: (TextStyleConfig) -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        tonalElevation = 6.dp,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Efek Layer", style = MaterialTheme.typography.titleMedium)
+
+            if (selectedLayer == null) {
+                Text("Pilih layer terlebih dahulu untuk mengatur transparansi dan bayangan.", style = MaterialTheme.typography.bodyMedium)
+            } else {
+                Text("Transparansi (Opacity): ${(selectedLayer.opacity * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
                 Slider(
                     value = selectedLayer.opacity,
-                    onValueChange = { onUpdateOpacity?.invoke(it) },
+                    onValueChange = { onUpdateOpacity(it) },
                     valueRange = 0f..1f
                 )
 
-                // Drop Shadow Controls
-                Text("Bayangan (Drop Shadow): Radius ${currentStyle.shadowRadius.toInt()} px")
-                Slider(
-                    value = currentStyle.shadowRadius,
-                    onValueChange = {
-                        val shadowCol = if (it > 0f) AndroidColor.BLACK else AndroidColor.TRANSPARENT
-                        onUpdateStyle(currentStyle.copy(shadowRadius = it, shadowColor = shadowCol, shadowDx = it * 0.5f, shadowDy = it * 0.5f))
-                    },
-                    valueRange = 0f..30f
-                )
+                if (selectedLayer is Layer.TextLayer) {
+                    val currentStyle = selectedLayer.style
+                    Text("Bayangan (Drop Shadow): Radius ${currentStyle.shadowRadius.toInt()} px", style = MaterialTheme.typography.bodyMedium)
+                    Slider(
+                        value = currentStyle.shadowRadius,
+                        onValueChange = {
+                            val shadowCol = if (it > 0f) AndroidColor.BLACK else AndroidColor.TRANSPARENT
+                            onUpdateStyle(currentStyle.copy(shadowRadius = it, shadowColor = shadowCol, shadowDx = it * 0.5f, shadowDy = it * 0.5f))
+                        },
+                        valueRange = 0f..30f
+                    )
+                }
             }
         }
     }
@@ -1084,15 +1243,19 @@ fun LayersToolPanel(
                                 }
                                 Text(text = layer.name)
                             }
-                            Row {
-                                IconButton(onClick = { onMoveLayer(layer.id, -1) }) {
-                                    Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up")
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(onClick = { onMoveLayer(layer.id, -1) }) {
+                                    Icon(Icons.Default.ArrowUpward, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text("Naik", style = MaterialTheme.typography.labelSmall)
                                 }
-                                IconButton(onClick = { onMoveLayer(layer.id, 1) }) {
-                                    Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down")
+                                TextButton(onClick = { onMoveLayer(layer.id, 1) }) {
+                                    Icon(Icons.Default.ArrowDownward, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text("Turun", style = MaterialTheme.typography.labelSmall)
                                 }
                                 IconButton(onClick = { onDeleteLayer(layer.id) }) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Delete Layer")
+                                    Icon(Icons.Default.Delete, contentDescription = "Hapus Layer", tint = MaterialTheme.colorScheme.error)
                                 }
                             }
                         }

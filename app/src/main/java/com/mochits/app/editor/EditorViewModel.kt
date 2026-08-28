@@ -9,6 +9,8 @@ import com.mochits.app.canvas.CanvasEditorState
 import com.mochits.core.imaging.InpaintEngine
 import com.mochits.core.imaging.MaskSelectionTools
 import com.mochits.core.imaging.Result
+import com.mochits.app.imaging.LaMaInpaintEngine
+import com.mochits.app.imaging.LaMaModelManager
 import com.mochits.app.model.EditorPanel
 import com.mochits.app.model.Layer
 import com.mochits.app.model.MaskToolMode
@@ -44,8 +46,19 @@ class EditorViewModel @Inject constructor(
     val selectedLayerId = MutableStateFlow<String?>(null)
     val activePanel = MutableStateFlow(EditorPanel.NONE)
 
+    enum class InpaintModel { TELEA, LAMA }
+
+    val selectedInpaintModel = MutableStateFlow(InpaintModel.TELEA)
+    val isDownloadingLaMaModel = MutableStateFlow(false)
+    val lamaDownloadProgress = MutableStateFlow(0f)
+    val userMessage = MutableStateFlow<String?>(null)
+
+    val lamaModelManager = LaMaModelManager(context)
+    val lamaInpaintEngine = LaMaInpaintEngine(context)
+
     val maskToolMode = MutableStateFlow(MaskToolMode.BRUSH)
     val brushSize = MutableStateFlow(40f)
+    val defaultTextStyle = MutableStateFlow(TextStyleConfig())
 
     var maskSelectionTools: MaskSelectionTools? = null
         private set
@@ -310,55 +323,143 @@ class EditorViewModel @Inject constructor(
         autoSave()
     }
 
-    fun runTeleaInpaint() {
+    fun setInpaintModel(model: InpaintModel) {
+        selectedInpaintModel.value = model
+    }
+
+    fun clearUserMessage() {
+        userMessage.value = null
+    }
+
+    fun downloadLaMaModel(onComplete: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            isDownloadingLaMaModel.value = true
+            val success = lamaModelManager.downloadModel { progress ->
+                lamaDownloadProgress.value = progress
+            }
+            isDownloadingLaMaModel.value = false
+            if (!success) {
+                userMessage.value = "Gagal mengunduh model LaMa. Menggunakan model Telea."
+            }
+            onComplete(success)
+        }
+    }
+
+    fun runEraseInpaint() {
         val currentBase = baseBitmap.value ?: return
         val tools = maskSelectionTools ?: return
 
-        saveUndoSnapshot()
         viewModelScope.launch {
             isProcessingInpaint.value = true
-            when (val result = inpaintEngine.inpaintTelea(currentBase, tools.maskBitmap)) {
-                is Result.Success -> {
-                    baseBitmap.value = result.data
-                    tools.clearMask()
-                    autoSave()
+
+            if (selectedInpaintModel.value == InpaintModel.LAMA) {
+                if (!lamaModelManager.isModelDownloaded()) {
+                    userMessage.value = "Mengunduh model LaMa..."
+                    isDownloadingLaMaModel.value = true
+                    val downloaded = lamaModelManager.downloadModel { progress ->
+                        lamaDownloadProgress.value = progress
+                    }
+                    isDownloadingLaMaModel.value = false
+                    if (!downloaded) {
+                        userMessage.value = "Gagal mengunduh model LaMa, menggunakan Telea."
+                        runTeleaFallback(currentBase, tools)
+                        isProcessingInpaint.value = false
+                        return@launch
+                    }
                 }
-                is Result.Error -> {}
-                else -> {}
+
+                saveUndoSnapshot()
+                when (val lamaResult = lamaInpaintEngine.inpaintLaMa(currentBase, tools.maskBitmap)) {
+                    is Result.Success -> {
+                        baseBitmap.value = lamaResult.data
+                        tools.clearMask()
+                        autoSave()
+                    }
+                    is Result.Error -> {
+                        userMessage.value = "Inference LaMa gagal. Fallback ke Telea."
+                        runTeleaFallback(currentBase, tools)
+                    }
+                    else -> {}
+                }
+            } else {
+                saveUndoSnapshot()
+                runTeleaFallback(currentBase, tools)
             }
+
             isProcessingInpaint.value = false
         }
     }
 
-    fun addTextLayer(text: String, style: TextStyleConfig = TextStyleConfig()) {
+    private suspend fun runTeleaFallback(currentBase: Bitmap, tools: MaskSelectionTools) {
+        when (val result = inpaintEngine.inpaintTelea(currentBase, tools.maskBitmap)) {
+            is Result.Success -> {
+                baseBitmap.value = result.data
+                tools.clearMask()
+                autoSave()
+            }
+            is Result.Error -> {
+                userMessage.value = "Gagal memproses inpaint Telea: ${result.exception.message}"
+            }
+            else -> {}
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        lamaInpaintEngine.close()
+    }
+
+    fun addTextLayer(
+        text: String,
+        style: TextStyleConfig = defaultTextStyle.value,
+        viewportWidth: Float = 0f,
+        viewportHeight: Float = 0f
+    ) {
         saveUndoSnapshot()
+        val canvasW = baseBitmap.value?.width ?: project.value?.width ?: 1080
+        val canvasH = baseBitmap.value?.height ?: project.value?.height ?: 1920
+
+        val proportionalFontSize = (canvasH * 0.035f).coerceIn(24f, 200f)
+        val effectiveStyle = if (style.fontSize == 36f) style.copy(fontSize = proportionalFontSize) else style
+
+        val posX = canvasW / 4f
+        val posY = canvasH / 4f
+
         val newLayer = Layer.TextLayer(
             id = UUID.randomUUID().toString(),
             name = "Text ${layers.value.size + 1}",
-            x = (project.value?.width ?: 1080) / 4f,
-            y = (project.value?.height ?: 1920) / 4f,
+            x = posX,
+            y = posY,
             text = text,
-            style = style
+            style = effectiveStyle
         )
         layers.value = layers.value + newLayer
         selectedLayerId.value = newLayer.id
+
+        if (viewportWidth > 0f && viewportHeight > 0f) {
+            canvasState.focusOnCanvasPoint(posX, posY, viewportWidth, viewportHeight)
+        }
+
         autoSave()
     }
 
     fun updateSelectedTextLayerStyle(style: TextStyleConfig, saveUndo: Boolean = true) {
-        if (saveUndo) {
-            saveUndoSnapshot()
-        }
-        val selectedId = selectedLayerId.value ?: return
-        layers.value = layers.value.map { layer ->
-            if (layer.id == selectedId && layer is Layer.TextLayer) {
-                layer.copy(style = style)
-            } else {
-                layer
+        defaultTextStyle.value = style
+        val selectedId = selectedLayerId.value
+        if (selectedId != null) {
+            if (saveUndo) {
+                saveUndoSnapshot()
             }
-        }
-        if (saveUndo) {
-            autoSave()
+            layers.value = layers.value.map { layer ->
+                if (layer.id == selectedId && layer is Layer.TextLayer) {
+                    layer.copy(style = style)
+                } else {
+                    layer
+                }
+            }
+            if (saveUndo) {
+                autoSave()
+            }
         }
     }
 
