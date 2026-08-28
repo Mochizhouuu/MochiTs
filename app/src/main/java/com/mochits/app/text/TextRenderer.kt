@@ -72,13 +72,13 @@ class TextRenderer(private val context: Context) {
     }
 
     private fun getTypeface(fontName: String, fontStyle: String = "Regular"): Typeface {
-        val baseTypeface = when (fontName.lowercase()) {
+        val baseTypeface = when (fontName.lowercase().trim()) {
             "serif" -> Typeface.SERIF
-            "sans" -> Typeface.SANS_SERIF
-            "monospace" -> Typeface.MONOSPACE
+            "sans", "sans-serif" -> Typeface.SANS_SERIF
+            "monospace", "mono" -> Typeface.MONOSPACE
             else -> Typeface.DEFAULT
         }
-        val styleInt = when (fontStyle.lowercase()) {
+        val styleInt = when (fontStyle.lowercase().trim()) {
             "bold" -> Typeface.BOLD
             "italic" -> Typeface.ITALIC
             "bolditalic", "bold+italic" -> Typeface.BOLD_ITALIC

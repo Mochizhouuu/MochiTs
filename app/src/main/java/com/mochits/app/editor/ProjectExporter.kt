@@ -31,6 +31,20 @@ class ProjectExporter(private val context: Context) {
             if (layer.isVisible) {
                 when (layer) {
                     is Layer.TextLayer -> {
+                        val alphaPaint = android.graphics.Paint().apply {
+                            alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
+                        }
+                        val count = canvas.saveLayer(null, alphaPaint)
+
+                        val bounds = textRenderer.getTextBounds(layer.text, layer.style, layer.x, layer.y)
+                        val textCenterX = bounds.centerX()
+                        val textCenterY = bounds.centerY()
+
+                        canvas.save()
+                        if (layer.rotation != 0f) {
+                            canvas.rotate(layer.rotation, textCenterX, textCenterY)
+                        }
+
                         textRenderer.drawStyledText(
                             canvas = canvas,
                             text = layer.text,
@@ -38,10 +52,18 @@ class ProjectExporter(private val context: Context) {
                             x = layer.x,
                             y = layer.y
                         )
+
+                        canvas.restore()
+                        canvas.restoreToCount(count)
                     }
                     is Layer.ImageLayer -> {
                         layer.bitmap?.let { imgBmp ->
-                            canvas.drawBitmap(imgBmp, layer.x, layer.y, null)
+                            if (!imgBmp.isRecycled) {
+                                val imgPaint = android.graphics.Paint().apply {
+                                    alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
+                                }
+                                canvas.drawBitmap(imgBmp, layer.x, layer.y, imgPaint)
+                            }
                         }
                     }
                 }

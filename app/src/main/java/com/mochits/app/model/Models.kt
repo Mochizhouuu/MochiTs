@@ -10,7 +10,9 @@ enum class EditorPanel {
     NONE,
     MASK,
     INPAINT,
+    ERASE,
     TEXT,
+    EFFECT,
     LAYERS,
     SETTINGS
 }
