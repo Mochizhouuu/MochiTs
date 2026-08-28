@@ -422,8 +422,12 @@ class EditorViewModel @Inject constructor(
         val proportionalFontSize = (canvasH * 0.035f).coerceIn(24f, 200f)
         val effectiveStyle = if (style.fontSize == 36f) style.copy(fontSize = proportionalFontSize) else style
 
-        val posX = canvasW / 4f
-        val posY = canvasH / 4f
+        val (posX, posY) = if (viewportWidth > 0f && viewportHeight > 0f) {
+            val centerCanvas = canvasState.mapper.screenToCanvas(viewportWidth / 2f, viewportHeight / 2f)
+            Pair(centerCanvas.x, centerCanvas.y)
+        } else {
+            Pair(canvasW / 2f, canvasH / 2f)
+        }
 
         val newLayer = Layer.TextLayer(
             id = UUID.randomUUID().toString(),
@@ -435,10 +439,6 @@ class EditorViewModel @Inject constructor(
         )
         layers.value = layers.value + newLayer
         selectedLayerId.value = newLayer.id
-
-        if (viewportWidth > 0f && viewportHeight > 0f) {
-            canvasState.focusOnCanvasPoint(posX, posY, viewportWidth, viewportHeight)
-        }
 
         autoSave()
     }

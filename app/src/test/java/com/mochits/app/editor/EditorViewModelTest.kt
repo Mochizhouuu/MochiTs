@@ -107,4 +107,33 @@ class EditorViewModelTest {
         assertEquals(800, viewModel.baseBitmap.value?.width)
         assertEquals(1200, viewModel.baseBitmap.value?.height)
     }
+
+    @Test
+    fun testAddTextLayer_canvasTransformUnchanged_andPositionedAtVisibleCenter() {
+        val initialScale = 2.0f
+        val initialOffsetX = -100f
+        val initialOffsetY = -200f
+        viewModel.canvasState.updateTransform(initialScale, initialOffsetX, initialOffsetY)
+
+        val viewportW = 1080f
+        val viewportH = 1920f
+
+        viewModel.addTextLayer(
+            text = "Centered Text",
+            viewportWidth = viewportW,
+            viewportHeight = viewportH
+        )
+
+        // 1. Verify canvas transform is completely unchanged (0% movement)
+        assertEquals(initialScale, viewModel.canvasState.scale, 0.001f)
+        assertEquals(initialOffsetX, viewModel.canvasState.offsetX, 0.001f)
+        assertEquals(initialOffsetY, viewModel.canvasState.offsetY, 0.001f)
+
+        // 2. Verify text layer is positioned at the screen center mapped to canvas space
+        val expectedCanvasCenter = viewModel.canvasState.mapper.screenToCanvas(viewportW / 2f, viewportH / 2f)
+        val addedLayer = viewModel.layers.value.last() as Layer.TextLayer
+
+        assertEquals(expectedCanvasCenter.x, addedLayer.x, 0.01f)
+        assertEquals(expectedCanvasCenter.y, addedLayer.y, 0.01f)
+    }
 }
