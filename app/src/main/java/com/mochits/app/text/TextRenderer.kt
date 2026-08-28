@@ -22,7 +22,7 @@ class TextRenderer(private val context: Context) {
             isAntiAlias = true
             textSize = style.fontSize
             color = style.textColor
-            typeface = getTypeface(style.fontName)
+            typeface = getTypeface(style.fontName, style.fontStyle)
         }
 
         val fontMetrics = paint.fontMetrics
@@ -63,7 +63,7 @@ class TextRenderer(private val context: Context) {
         val paint = Paint().apply {
             isAntiAlias = true
             textSize = style.fontSize
-            typeface = getTypeface(style.fontName)
+            typeface = getTypeface(style.fontName, style.fontStyle)
         }
         val textWidth = paint.measureText(if (text.isEmpty()) " " else text).coerceAtLeast(20f)
         val fontMetrics = paint.fontMetrics
@@ -71,12 +71,19 @@ class TextRenderer(private val context: Context) {
         return android.graphics.RectF(x, y, x + textWidth, y + textHeight)
     }
 
-    private fun getTypeface(fontName: String): Typeface {
-        return when (fontName.lowercase()) {
+    private fun getTypeface(fontName: String, fontStyle: String = "Regular"): Typeface {
+        val baseTypeface = when (fontName.lowercase()) {
             "serif" -> Typeface.SERIF
             "sans" -> Typeface.SANS_SERIF
             "monospace" -> Typeface.MONOSPACE
-            else -> Typeface.DEFAULT_BOLD
+            else -> Typeface.DEFAULT
         }
+        val styleInt = when (fontStyle.lowercase()) {
+            "bold" -> Typeface.BOLD
+            "italic" -> Typeface.ITALIC
+            "bolditalic", "bold+italic" -> Typeface.BOLD_ITALIC
+            else -> Typeface.NORMAL
+        }
+        return Typeface.create(baseTypeface, styleInt)
     }
 }

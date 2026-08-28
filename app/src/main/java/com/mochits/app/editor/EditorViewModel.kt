@@ -52,6 +52,7 @@ class EditorViewModel @Inject constructor(
 
     val isProcessingInpaint = MutableStateFlow(false)
     val isExporting = MutableStateFlow(false)
+    val isLoadingImage = MutableStateFlow(false)
 
     data class HistorySnapshot(
         val layers: List<Layer>,
@@ -244,10 +245,12 @@ class EditorViewModel @Inject constructor(
     }
 
     fun setBaseImage(bitmap: Bitmap) {
-        baseBitmap.value = bitmap
-        setupCanvasSize(bitmap.width, bitmap.height)
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            isLoadingImage.value = true
             try {
+                baseBitmap.value = bitmap
+                setupCanvasSize(bitmap.width, bitmap.height)
+
                 val projectDir = File(context.filesDir, "projects/$projectId").apply { mkdirs() }
                 val imageFile = File(projectDir, "base_image.png")
                 java.io.FileOutputStream(imageFile).use { out ->
@@ -266,6 +269,8 @@ class EditorViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+            } finally {
+                isLoadingImage.value = false
             }
         }
     }
@@ -352,6 +357,58 @@ class EditorViewModel @Inject constructor(
                 layer
             }
         }
+        if (saveUndo) {
+            autoSave()
+        }
+    }
+
+    fun updateSelectedLayerOpacity(opacity: Float) {
+        val selectedId = selectedLayerId.value ?: return
+        saveUndoSnapshot()
+        layers.value = layers.value.map { layer ->
+            if (layer.id == selectedId) {
+                when (layer) {
+                    is Layer.TextLayer -> layer.copy(opacity = opacity)
+                    is Layer.ImageLayer -> layer.copy(opacity = opacity)
+                }
+            } else {
+                layer
+            }
+        }
+        autoSave()
+    }
+
+    fun updateSelectedTextContent(newText: String) {
+        val selectedId = selectedLayerId.value ?: return
+        saveUndoSnapshot()
+        layers.value = layers.value.map { layer ->
+            if (layer.id == selectedId && layer is Layer.TextLayer) {
+                layer.copy(text = newText)
+            } else {
+                layer
+            }
+        }
+        autoSave()
+    }
+
+    fun updateSelectedTextLayerRotation(rotation: Float, saveUndo: Boolean = true) {
+        if (saveUndo) {
+            saveUndoSnapshot()
+        }
+        val selectedId = selectedLayerId.value ?: return
+        layers.value = layers.value.map { layer ->
+            if (layer.id == selectedId && layer is Layer.TextLayer) {
+                layer.copy(rotation = rotation)
+            } else {
+                layer
+            }
+        }
+        if (saveUndo) {
+            autoSave()
+        }
+    }
+
+    fun finalizeTextTransform() {
         autoSave()
     }
 
