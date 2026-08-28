@@ -118,8 +118,9 @@ class EditorViewModelTest {
         val viewportW = 1080f
         val viewportH = 1920f
 
+        val text = "Centered Text"
         viewModel.addTextLayer(
-            text = "Centered Text",
+            text = text,
             viewportWidth = viewportW,
             viewportHeight = viewportH
         )
@@ -129,11 +130,20 @@ class EditorViewModelTest {
         assertEquals(initialOffsetX, viewModel.canvasState.offsetX, 0.001f)
         assertEquals(initialOffsetY, viewModel.canvasState.offsetY, 0.001f)
 
-        // 2. Verify text layer is positioned at the screen center mapped to canvas space
+        // 2. Verify text layer is positioned with top-left offset compensating for half text width/height
         val expectedCanvasCenter = viewModel.canvasState.mapper.screenToCanvas(viewportW / 2f, viewportH / 2f)
         val addedLayer = viewModel.layers.value.last() as Layer.TextLayer
 
-        assertEquals(expectedCanvasCenter.x, addedLayer.x, 0.01f)
-        assertEquals(expectedCanvasCenter.y, addedLayer.y, 0.01f)
+        val bounds = viewModel.textRenderer.getTextBounds(text, addedLayer.style, 0f, 0f)
+        val expectedFinalX = expectedCanvasCenter.x - (bounds.width() / 2f)
+        val expectedFinalY = expectedCanvasCenter.y - (bounds.height() / 2f)
+
+        assertEquals(expectedFinalX, addedLayer.x, 0.01f)
+        assertEquals(expectedFinalY, addedLayer.y, 0.01f)
+
+        // 3. Verify visual center of bounding box matches canvas center
+        val actualBounds = viewModel.textRenderer.getTextBounds(addedLayer.text, addedLayer.style, addedLayer.x, addedLayer.y)
+        assertEquals(expectedCanvasCenter.x, actualBounds.centerX(), 0.01f)
+        assertEquals(expectedCanvasCenter.y, actualBounds.centerY(), 0.01f)
     }
 }

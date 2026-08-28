@@ -63,9 +63,7 @@ class MaskSelectionTools(
                 currentLassoPoints.add(point)
                 lastPoint = point
             }
-            MaskToolMode.RECTANGLE -> {
-                lastPoint = point
-            }
+            else -> {}
         }
     }
 
@@ -85,9 +83,7 @@ class MaskSelectionTools(
                 lassoPathY.add(point.y)
                 currentLassoPoints.add(point)
             }
-            MaskToolMode.RECTANGLE -> {
-                // Interactive preview rendered on UI layer if needed; endStroke fills mask
-            }
+            else -> {}
         }
     }
 
@@ -104,25 +100,36 @@ class MaskSelectionTools(
                 lassoPathY.clear()
                 currentLassoPoints.clear()
             }
-            MaskToolMode.RECTANGLE -> {
-                lastPoint?.let { start ->
-                    NativeBridge.nativeDrawRect(maskBitmap, start.x, start.y, point.x, point.y, true)
-                }
-            }
             else -> {}
         }
         lastPoint = null
     }
 
+    fun magicWandSelect(srcBitmap: Bitmap?, point: Offset, tolerance: Float) {
+        if (srcBitmap == null || srcBitmap.isRecycled) return
+        val startX = point.x.toInt()
+        val startY = point.y.toInt()
+        NativeBridge.magicWandSelectSafe(srcBitmap, maskBitmap, startX, startY, tolerance)
+    }
+
     fun clearMask() {
-        NativeBridge.nativeClearMask(maskBitmap)
+        NativeBridge.clearMaskSafe(maskBitmap)
     }
 
     fun invertMask() {
-        NativeBridge.nativeInvertMask(maskBitmap)
+        try {
+            NativeBridge.nativeInvertMask(maskBitmap)
+        } catch (e: UnsatisfiedLinkError) {
+            for (y in 0 until maskBitmap.height) {
+                for (x in 0 until maskBitmap.width) {
+                    val current = maskBitmap.getPixel(x, y) and 0xFF
+                    maskBitmap.setPixel(x, y, (255 - current) shl 24)
+                }
+            }
+        }
     }
 
     fun hasMask(): Boolean {
-        return NativeBridge.nativeHasMask(maskBitmap)
+        return NativeBridge.hasMaskSafe(maskBitmap)
     }
 }

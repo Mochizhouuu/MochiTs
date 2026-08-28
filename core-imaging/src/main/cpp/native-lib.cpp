@@ -6,6 +6,7 @@
 #include <cmath>
 #include <algorithm>
 #include <cstring>
+#include <queue>
 
 #ifdef HAVE_OPENCV
 #include <opencv2/opencv.hpp>
@@ -195,38 +196,87 @@ Java_com_mochits_core_imaging_NativeBridge_nativeDrawPolygon(
 }
 
 JNIEXPORT void JNICALL
-Java_com_mochits_core_imaging_NativeBridge_nativeDrawRect(
+Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         JNIEnv* env,
         jobject /* this */,
-        jobject bitmap,
-        jfloat left,
-        jfloat top,
-        jfloat right,
-        jfloat bottom,
-        jboolean draw) {
-    AndroidBitmapInfo info;
-    void* pixels = nullptr;
-    if (AndroidBitmap_getInfo(env, bitmap, &info) < 0 || info.format != ANDROID_BITMAP_FORMAT_A_8) return;
-    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0 || !pixels) return;
+        jobject srcBitmap,
+        jobject maskBitmap,
+        jint startX,
+        jint startY,
+        jfloat tolerance) {
+    AndroidBitmapInfo srcInfo, maskInfo;
+    void* srcPixels = nullptr;
+    void* maskPixels = nullptr;
 
-    int width = info.width;
-    int height = info.height;
-    int minX = std::max(0, (int)std::floor(std::min(left, right)));
-    int maxX = std::min(width - 1, (int)std::ceil(std::max(left, right)));
-    int minY = std::max(0, (int)std::floor(std::min(top, bottom)));
-    int maxY = std::min(height - 1, (int)std::ceil(std::max(top, bottom)));
+    if (AndroidBitmap_getInfo(env, srcBitmap, &srcInfo) < 0 || srcInfo.format != ANDROID_BITMAP_FORMAT_RGBA_8888) return;
+    if (AndroidBitmap_getInfo(env, maskBitmap, &maskInfo) < 0 || maskInfo.format != ANDROID_BITMAP_FORMAT_A_8) return;
 
-    uint8_t val = draw ? 255 : 0;
-    uint8_t* ptr = static_cast<uint8_t*>(pixels);
+    int width = srcInfo.width;
+    int height = srcInfo.height;
+    if (maskInfo.width != width || maskInfo.height != height) return;
+    if (startX < 0 || startX >= width || startY < 0 || startY >= height) return;
 
-    for (int y = minY; y <= maxY; ++y) {
-        int rowIdx = y * width;
-        for (int x = minX; x <= maxX; ++x) {
-            ptr[rowIdx + x] = val;
+    if (AndroidBitmap_lockPixels(env, srcBitmap, &srcPixels) < 0 || !srcPixels) return;
+    if (AndroidBitmap_lockPixels(env, maskBitmap, &maskPixels) < 0 || !maskPixels) {
+        AndroidBitmap_unlockPixels(env, srcBitmap);
+        return;
+    }
+
+    uint32_t* srcPtr = static_cast<uint32_t*>(srcPixels);
+    uint8_t* maskPtr = static_cast<uint8_t*>(maskPixels);
+
+    uint32_t targetColor = srcPtr[startY * width + startX];
+    uint8_t targetR = (targetColor) & 0xFF;
+    uint8_t targetG = (targetColor >> 8) & 0xFF;
+    uint8_t targetB = (targetColor >> 16) & 0xFF;
+
+    float tolSq = tolerance * tolerance;
+
+    // Visited map / array to avoid re-queuing
+    std::vector<uint8_t> visited(width * height, 0);
+
+    std::queue<std::pair<int, int>> q;
+    q.push({startX, startY});
+    visited[startY * width + startX] = 1;
+
+    const int dx[4] = {0, 0, -1, 1};
+    const int dy[4] = {-1, 1, 0, 0};
+
+    while (!q.empty()) {
+        auto [cx, cy] = q.front();
+        q.pop();
+
+        int currIdx = cy * width + cx;
+        maskPtr[currIdx] = 255; // Union with existing mask
+
+        for (int i = 0; i < 4; ++i) {
+            int nx = cx + dx[i];
+            int ny = cy + dy[i];
+
+            if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                int nIdx = ny * width + nx;
+                if (!visited[nIdx]) {
+                    visited[nIdx] = 1;
+                    uint32_t c = srcPtr[nIdx];
+                    int r = (c) & 0xFF;
+                    int g = (c >> 8) & 0xFF;
+                    int b = (c >> 16) & 0xFF;
+
+                    float dr = static_cast<float>(r - targetR);
+                    float dg = static_cast<float>(g - targetG);
+                    float db = static_cast<float>(b - targetB);
+                    float distSq = dr * dr + dg * dg + db * db;
+
+                    if (distSq <= tolSq) {
+                        q.push({nx, ny});
+                    }
+                }
+            }
         }
     }
 
-    AndroidBitmap_unlockPixels(env, bitmap);
+    AndroidBitmap_unlockPixels(env, maskBitmap);
+    AndroidBitmap_unlockPixels(env, srcBitmap);
 }
 
 JNIEXPORT void JNICALL
