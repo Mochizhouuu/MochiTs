@@ -492,6 +492,23 @@ class EditorViewModel @Inject constructor(
         autoSave()
     }
 
+    fun updateSelectedTextLayerPosition(newX: Float, newY: Float, saveUndo: Boolean = true) {
+        if (saveUndo) {
+            saveUndoSnapshot()
+        }
+        val selectedId = selectedLayerId.value ?: return
+        layers.value = layers.value.map { layer ->
+            if (layer.id == selectedId && layer is Layer.TextLayer) {
+                layer.copy(x = newX, y = newY)
+            } else {
+                layer
+            }
+        }
+        if (saveUndo) {
+            autoSave()
+        }
+    }
+
     fun updateSelectedTextLayerRotation(rotation: Float, saveUndo: Boolean = true) {
         if (saveUndo) {
             saveUndoSnapshot()

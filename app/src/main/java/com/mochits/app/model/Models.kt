@@ -22,8 +22,10 @@ data class TextStyleConfig(
     val fontStyle: String = "Regular", // "Regular", "Bold", "Italic", "BoldItalic"
     val fontSize: Float = 36f,
     val textColor: Int = Color.BLACK,
+    val textOpacity: Float = 1.0f,
     val strokeColor: Int = Color.TRANSPARENT,
     val strokeWidth: Float = 0f,
+    val strokeOpacity: Float = 1.0f,
     val shadowColor: Int = Color.TRANSPARENT,
     val shadowRadius: Float = 0f,
     val shadowDx: Float = 0f,
