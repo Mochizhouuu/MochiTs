@@ -132,6 +132,55 @@ class MaskSelectionToolsTest {
     }
 
     @Test
+    fun testMagicWandSelect_expandPixelsDilate() {
+        // Create a 30x30 bitmap with a single 2x2 solid pixel block in the middle (14..15, 14..15)
+        val tools = MaskSelectionTools(30, 30)
+        val srcBitmap = Bitmap.createBitmap(30, 30, Bitmap.Config.ARGB_8888)
+        srcBitmap.eraseColor(Color.WHITE)
+        srcBitmap.setPixel(14, 14, Color.BLACK)
+        srcBitmap.setPixel(15, 14, Color.BLACK)
+        srcBitmap.setPixel(14, 15, Color.BLACK)
+        srcBitmap.setPixel(15, 15, Color.BLACK)
+
+        // Select with expandPixels = 0
+        tools.magicWandSelect(srcBitmap, Offset(14f, 14f), tolerance = 10f, expandPixels = 0)
+
+        var unexpandedCount = 0
+        for (y in 0 until 30) {
+            for (x in 0 until 30) {
+                if ((tools.maskBitmap.getPixel(x, y) and 0xFF) > 0) unexpandedCount++
+            }
+        }
+        assertEquals(4, unexpandedCount)
+
+        // Apply expandPixels = 5 without re-tapping
+        tools.applyExpand(expandPixels = 5)
+
+        var expandedCount = 0
+        for (y in 0 until 30) {
+            for (x in 0 until 30) {
+                if ((tools.maskBitmap.getPixel(x, y) and 0xFF) > 0) expandedCount++
+            }
+        }
+
+        assertTrue("Expanded mask pixel count ($expandedCount) must be significantly larger than unexpanded ($unexpandedCount)", expandedCount > unexpandedCount * 5)
+
+        // Check pixel at radius ~4 from center (14, 14) is now selected
+        val pixelNearEdge = tools.maskBitmap.getPixel(10, 14) and 0xFF
+        assertEquals(255, pixelNearEdge)
+
+        // Reset expandPixels back to 0 without re-tapping
+        tools.applyExpand(expandPixels = 0)
+        var resetCount = 0
+        for (y in 0 until 30) {
+            for (x in 0 until 30) {
+                if ((tools.maskBitmap.getPixel(x, y) and 0xFF) > 0) resetCount++
+            }
+        }
+        assertEquals(4, resetCount)
+    }
+
+    @Test
     fun testMagicWandSelect_edgeCases() {
         val tools = MaskSelectionTools(10, 10)
         val srcBitmap = Bitmap.createBitmap(10, 10, Bitmap.Config.ARGB_8888)

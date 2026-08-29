@@ -82,6 +82,7 @@ fun EditorScreen(
     val maskToolMode by viewModel.maskToolMode.collectAsState()
     val brushSize by viewModel.brushSize.collectAsState()
     val magicWandTolerance by viewModel.magicWandTolerance.collectAsState()
+    val magicWandExpand by viewModel.magicWandExpand.collectAsState()
     val isProcessingInpaint by viewModel.isProcessingInpaint.collectAsState()
     val selectedInpaintModel by viewModel.selectedInpaintModel.collectAsState()
     val isDownloadingLaMaModel by viewModel.isDownloadingLaMaModel.collectAsState()
@@ -264,6 +265,7 @@ fun EditorScreen(
                         mode = maskToolMode,
                         brushSize = brushSize,
                         magicWandTolerance = magicWandTolerance,
+                        magicWandExpand = magicWandExpand,
                         selectedModel = selectedInpaintModel,
                         isProcessing = isProcessingInpaint,
                         isDownloading = isDownloadingLaMaModel,
@@ -274,6 +276,10 @@ fun EditorScreen(
                         onModelSelected = { viewModel.setInpaintModel(it) },
                         onSizeChange = { viewModel.setBrushSize(it) },
                         onToleranceChange = { viewModel.setMagicWandTolerance(it) },
+                        onExpandChange = {
+                            viewModel.setMagicWandExpand(it)
+                            triggerRedraw++
+                        },
                         onClear = {
                             viewModel.saveUndoSnapshot()
                             viewModel.maskSelectionTools?.clearMask()
@@ -433,7 +439,8 @@ fun EditorScreen(
                                                 viewModel.maskSelectionTools?.magicWandSelect(
                                                     srcBitmap = baseBitmap,
                                                     point = canvasPt,
-                                                    tolerance = magicWandTolerance
+                                                    tolerance = magicWandTolerance,
+                                                    expandPixels = magicWandExpand.toInt()
                                                 )
                                                 triggerRedraw++
                                             }
@@ -1068,6 +1075,7 @@ fun EraseToolPanel(
     mode: MaskToolMode,
     brushSize: Float,
     magicWandTolerance: Float,
+    magicWandExpand: Float = 0f,
     selectedModel: EditorViewModel.InpaintModel,
     isProcessing: Boolean,
     isDownloading: Boolean,
@@ -1078,6 +1086,7 @@ fun EraseToolPanel(
     onModelSelected: (EditorViewModel.InpaintModel) -> Unit,
     onSizeChange: (Float) -> Unit,
     onToleranceChange: (Float) -> Unit,
+    onExpandChange: ((Float) -> Unit)? = null,
     onClear: () -> Unit,
     onInvert: () -> Unit,
     onRunErase: () -> Unit
@@ -1205,6 +1214,14 @@ fun EraseToolPanel(
                         value = magicWandTolerance,
                         onValueChange = onToleranceChange,
                         valueRange = 0f..100f
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("Perluas Margin (Expand): ${magicWandExpand.toInt()} px", style = MaterialTheme.typography.bodySmall)
+                    Slider(
+                        value = magicWandExpand,
+                        onValueChange = { onExpandChange?.invoke(it) },
+                        valueRange = 0f..30f
                     )
                 } else {
                     Text("Ukuran Kuas: ${brushSize.toInt()} px", style = MaterialTheme.typography.bodySmall)

@@ -18,6 +18,7 @@ object NativeBridge {
     external fun nativeDrawLine(bitmap: Bitmap, x0: Float, y0: Float, x1: Float, y1: Float, radius: Float, draw: Boolean)
     external fun nativeDrawPolygon(bitmap: Bitmap, pointsX: FloatArray, pointsY: FloatArray, draw: Boolean)
     external fun nativeMagicWandSelect(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float)
+    external fun nativeDilateMask(srcMaskBitmap: Bitmap, dstMaskBitmap: Bitmap, radius: Int)
     external fun nativeClearMask(bitmap: Bitmap)
     external fun nativeInvertMask(bitmap: Bitmap)
     external fun nativeHasMask(bitmap: Bitmap): Boolean
@@ -92,11 +93,63 @@ object NativeBridge {
         return false
     }
 
+    private fun fallbackDilateMask(srcMaskBitmap: Bitmap, dstMaskBitmap: Bitmap, radius: Int) {
+        val w = srcMaskBitmap.width
+        val h = srcMaskBitmap.height
+        if (dstMaskBitmap.width != w || dstMaskBitmap.height != h) return
+
+        if (radius <= 0) {
+            for (y in 0 until h) {
+                for (x in 0 until w) {
+                    dstMaskBitmap.setPixel(x, y, srcMaskBitmap.getPixel(x, y))
+                }
+            }
+            return
+        }
+
+        // Copy source to dest first
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                dstMaskBitmap.setPixel(x, y, srcMaskBitmap.getPixel(x, y))
+            }
+        }
+
+        val r2 = radius * radius
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                if ((srcMaskBitmap.getPixel(x, y) and 0xFF) > 0) {
+                    val minY = (y - radius).coerceAtLeast(0)
+                    val maxY = (y + radius).coerceAtMost(h - 1)
+                    val minX = (x - radius).coerceAtLeast(0)
+                    val maxX = (x + radius).coerceAtMost(w - 1)
+                    for (ny in minY..maxY) {
+                        val dy = ny - y
+                        val dy2 = dy * dy
+                        for (nx in minX..maxX) {
+                            val dx = nx - x
+                            if (dx * dx + dy2 <= r2) {
+                                dstMaskBitmap.setPixel(nx, ny, android.graphics.Color.WHITE)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fun magicWandSelectSafe(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float) {
         try {
             nativeMagicWandSelect(srcBitmap, maskBitmap, startX, startY, tolerance)
         } catch (e: UnsatisfiedLinkError) {
             fallbackMagicWandSelect(srcBitmap, maskBitmap, startX, startY, tolerance)
+        }
+    }
+
+    fun dilateMaskSafe(srcMaskBitmap: Bitmap, dstMaskBitmap: Bitmap, radius: Int) {
+        try {
+            nativeDilateMask(srcMaskBitmap, dstMaskBitmap, radius)
+        } catch (e: UnsatisfiedLinkError) {
+            fallbackDilateMask(srcMaskBitmap, dstMaskBitmap, radius)
         }
     }
 
