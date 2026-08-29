@@ -30,7 +30,8 @@ class HomeViewModelTest {
     fun projects_flow_handles_repository_error_gracefully() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val repository = ProjectRepository(context, ErrorProjectDao())
-        val viewModel = HomeViewModel(repository)
+        val exportSettingsRepository = com.mochits.app.settings.ExportSettingsRepository(context)
+        val viewModel = HomeViewModel(repository, exportSettingsRepository)
 
         val currentProjects = viewModel.projects.value
         assertEquals(emptyList<ProjectEntity>(), currentProjects)

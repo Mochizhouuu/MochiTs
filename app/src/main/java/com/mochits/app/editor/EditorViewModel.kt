@@ -2,6 +2,8 @@ package com.mochits.app.editor
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.net.Uri
+import com.mochits.app.settings.ExportSettingsRepository
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -30,6 +32,7 @@ import javax.inject.Inject
 class EditorViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val repository: ProjectRepository,
+    val exportSettingsRepository: ExportSettingsRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -595,6 +598,16 @@ class EditorViewModel @Inject constructor(
         }
         autoSave()
     }
+
+
+    fun getDefaultExportFolderUri(): Uri? = exportSettingsRepository.getExportFolderUri()
+
+    fun getDefaultExportFolderName(): String? =
+        exportSettingsRepository.getFolderName(exportSettingsRepository.getExportFolderUri())
+
+    fun isExportFolderValid(uri: Uri?): Boolean = exportSettingsRepository.isFolderValid(uri)
+
+    fun saveExportFolderUri(uri: Uri): Boolean = exportSettingsRepository.saveExportFolderUri(uri)
 
     fun exportProject(
         outputFile: File,

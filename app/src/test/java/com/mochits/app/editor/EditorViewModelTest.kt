@@ -45,7 +45,8 @@ class EditorViewModelTest {
         )
 
         val savedStateHandle = androidx.lifecycle.SavedStateHandle(mapOf("projectId" to project.id))
-        viewModel = EditorViewModel(context, repository, savedStateHandle)
+        val exportSettingsRepository = com.mochits.app.settings.ExportSettingsRepository(context)
+        viewModel = EditorViewModel(context, repository, exportSettingsRepository, savedStateHandle)
     }
 
     @After
