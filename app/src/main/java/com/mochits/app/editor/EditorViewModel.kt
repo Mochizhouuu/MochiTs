@@ -73,7 +73,8 @@ class EditorViewModel @Inject constructor(
     data class HistorySnapshot(
         val layers: List<Layer>,
         val baseBitmap: Bitmap?,
-        val maskBytes: ByteArray?
+        val maskBytes: ByteArray?,
+        val rawMaskBytes: ByteArray? = null
     )
 
     private val undoStack = ArrayDeque<HistorySnapshot>()
@@ -103,36 +104,27 @@ class EditorViewModel @Inject constructor(
     }
 
     fun getMaskByteArray(): ByteArray? {
-        val tools = maskSelectionTools ?: return null
-        val bmp = tools.maskBitmap
-        if (bmp.isRecycled) return null
-        return try {
-            val buffer = java.nio.ByteBuffer.allocate(bmp.byteCount)
-            bmp.copyPixelsToBuffer(buffer)
-            buffer.array()
-        } catch (t: Throwable) {
-            t.printStackTrace()
-            null
-        }
+        return maskSelectionTools?.getMaskByteArray()
+    }
+
+    fun getRawMaskByteArray(): ByteArray? {
+        return maskSelectionTools?.getRawMaskByteArray()
     }
 
     fun restoreMaskByteArray(bytes: ByteArray) {
-        val tools = maskSelectionTools ?: return
-        val bmp = tools.maskBitmap
-        if (bmp.isRecycled) return
-        try {
-            val buffer = java.nio.ByteBuffer.wrap(bytes)
-            bmp.copyPixelsFromBuffer(buffer)
-        } catch (t: Throwable) {
-            t.printStackTrace()
-        }
+        maskSelectionTools?.restoreMaskByteArray(bytes)
+    }
+
+    fun restoreRawMaskByteArray(bytes: ByteArray) {
+        maskSelectionTools?.restoreRawMaskByteArray(bytes)
     }
 
     fun saveUndoSnapshot() {
         val snapshot = HistorySnapshot(
             layers = layers.value,
             baseBitmap = baseBitmap.value,
-            maskBytes = getMaskByteArray()
+            maskBytes = getMaskByteArray(),
+            rawMaskBytes = getRawMaskByteArray()
         )
         undoStack.addLast(snapshot)
         val maxHistory = calculateMaxHistorySteps()
@@ -156,7 +148,8 @@ class EditorViewModel @Inject constructor(
         val currentSnapshot = HistorySnapshot(
             layers = layers.value,
             baseBitmap = baseBitmap.value,
-            maskBytes = getMaskByteArray()
+            maskBytes = getMaskByteArray(),
+            rawMaskBytes = getRawMaskByteArray()
         )
         redoStack.addLast(currentSnapshot)
         val previousState = undoStack.removeLast()
@@ -170,7 +163,8 @@ class EditorViewModel @Inject constructor(
         val currentSnapshot = HistorySnapshot(
             layers = layers.value,
             baseBitmap = baseBitmap.value,
-            maskBytes = getMaskByteArray()
+            maskBytes = getMaskByteArray(),
+            rawMaskBytes = getRawMaskByteArray()
         )
         undoStack.addLast(currentSnapshot)
         val nextState = redoStack.removeLast()
@@ -184,6 +178,9 @@ class EditorViewModel @Inject constructor(
         baseBitmap.value = snapshot.baseBitmap
         snapshot.maskBytes?.let { bytes ->
             restoreMaskByteArray(bytes)
+        }
+        snapshot.rawMaskBytes?.let { bytes ->
+            restoreRawMaskByteArray(bytes)
         }
     }
 

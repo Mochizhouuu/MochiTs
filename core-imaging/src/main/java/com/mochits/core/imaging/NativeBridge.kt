@@ -87,7 +87,8 @@ object NativeBridge {
     private fun fallbackHasMask(bitmap: Bitmap): Boolean {
         for (y in 0 until bitmap.height) {
             for (x in 0 until bitmap.width) {
-                if ((bitmap.getPixel(x, y) and 0xFF) > 0) return true
+                val pix = bitmap.getPixel(x, y)
+                if ((pix ushr 24) > 0 || (pix and 0xFF) > 0) return true
             }
         }
         return false
@@ -117,7 +118,8 @@ object NativeBridge {
         val r2 = radius * radius
         for (y in 0 until h) {
             for (x in 0 until w) {
-                if ((srcMaskBitmap.getPixel(x, y) and 0xFF) > 0) {
+                val pix = srcMaskBitmap.getPixel(x, y)
+                if ((pix ushr 24) > 0 || (pix and 0xFF) > 0) {
                     val minY = (y - radius).coerceAtLeast(0)
                     val maxY = (y + radius).coerceAtMost(h - 1)
                     val minX = (x - radius).coerceAtLeast(0)

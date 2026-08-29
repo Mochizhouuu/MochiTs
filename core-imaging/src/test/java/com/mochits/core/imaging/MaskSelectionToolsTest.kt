@@ -181,6 +181,60 @@ class MaskSelectionToolsTest {
     }
 
     @Test
+    fun testMagicWandSelect_multipleTapsWithExpandAndResetExpand() {
+        val tools = MaskSelectionTools(100, 100)
+        val srcBitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
+        srcBitmap.eraseColor(Color.WHITE)
+
+        // Draw Object A (black 10x10 square at 10..19, 10..19)
+        for (y in 10 until 20) {
+            for (x in 10 until 20) {
+                srcBitmap.setPixel(x, y, Color.BLACK)
+            }
+        }
+
+        // Draw Object B (black 10x10 square at 70..79, 70..79)
+        for (y in 70 until 80) {
+            for (x in 70 until 80) {
+                srcBitmap.setPixel(x, y, Color.BLACK)
+            }
+        }
+
+        // 1. Select Object A with expand = 0
+        tools.magicWandSelect(srcBitmap, Offset(15f, 15f), tolerance = 10f, expandPixels = 0)
+
+        assertEquals(255, tools.rawMaskBitmap.getPixel(15, 15) and 0xFF)
+        assertEquals(255, tools.maskBitmap.getPixel(15, 15) and 0xFF)
+        assertEquals(0, tools.maskBitmap.getPixel(75, 75) and 0xFF)
+        assertEquals(0, tools.maskBitmap.getPixel(50, 50) and 0xFF)
+
+        // 2. Expand Object A by 5px
+        tools.applyExpand(expandPixels = 5)
+        assertEquals(255, tools.maskBitmap.getPixel(5, 15) and 0xFF)
+        assertEquals(0, tools.rawMaskBitmap.getPixel(5, 15) and 0xFF)
+
+        // 3. Select Object B (different object) with expand = 5
+        tools.magicWandSelect(srcBitmap, Offset(75f, 75f), tolerance = 10f, expandPixels = 5)
+
+        // Verify Object A (expanded) and Object B (expanded) are both selected
+        assertEquals(255, tools.maskBitmap.getPixel(15, 15) and 0xFF)
+        assertEquals(255, tools.maskBitmap.getPixel(75, 75) and 0xFF)
+        assertEquals(255, tools.maskBitmap.getPixel(65, 75) and 0xFF)
+
+        // CRITICAL CHECK: Background pixel at (50, 50) MUST NOT be selected
+        assertEquals(0, tools.maskBitmap.getPixel(50, 50) and 0xFF)
+        assertEquals(0, tools.rawMaskBitmap.getPixel(50, 50) and 0xFF)
+
+        // 4. Reset expand back to 0
+        tools.applyExpand(expandPixels = 0)
+
+        assertEquals(255, tools.maskBitmap.getPixel(15, 15) and 0xFF)
+        assertEquals(255, tools.maskBitmap.getPixel(75, 75) and 0xFF)
+        assertEquals(0, tools.maskBitmap.getPixel(5, 15) and 0xFF)
+        assertEquals(0, tools.maskBitmap.getPixel(65, 75) and 0xFF)
+    }
+
+    @Test
     fun testMagicWandSelect_edgeCases() {
         val tools = MaskSelectionTools(10, 10)
         val srcBitmap = Bitmap.createBitmap(10, 10, Bitmap.Config.ARGB_8888)

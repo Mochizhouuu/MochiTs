@@ -146,6 +146,54 @@ class MaskSelectionTools(
         }
     }
 
+    fun getRawMaskByteArray(): ByteArray? {
+        val bmp = rawMaskBitmap
+        if (bmp.isRecycled) return null
+        return try {
+            val buffer = java.nio.ByteBuffer.allocate(bmp.byteCount)
+            bmp.copyPixelsToBuffer(buffer)
+            buffer.array()
+        } catch (t: Throwable) {
+            t.printStackTrace()
+            null
+        }
+    }
+
+    fun getMaskByteArray(): ByteArray? {
+        val bmp = maskBitmap
+        if (bmp.isRecycled) return null
+        return try {
+            val buffer = java.nio.ByteBuffer.allocate(bmp.byteCount)
+            bmp.copyPixelsToBuffer(buffer)
+            buffer.array()
+        } catch (t: Throwable) {
+            t.printStackTrace()
+            null
+        }
+    }
+
+    fun restoreRawMaskByteArray(bytes: ByteArray) {
+        val bmp = rawMaskBitmap
+        if (bmp.isRecycled) return
+        try {
+            val buffer = java.nio.ByteBuffer.wrap(bytes)
+            bmp.copyPixelsFromBuffer(buffer)
+        } catch (t: Throwable) {
+            t.printStackTrace()
+        }
+    }
+
+    fun restoreMaskByteArray(bytes: ByteArray) {
+        val bmp = maskBitmap
+        if (bmp.isRecycled) return
+        try {
+            val buffer = java.nio.ByteBuffer.wrap(bytes)
+            bmp.copyPixelsFromBuffer(buffer)
+        } catch (t: Throwable) {
+            t.printStackTrace()
+        }
+    }
+
     fun clearMask() {
         NativeBridge.clearMaskSafe(rawMaskBitmap)
         NativeBridge.clearMaskSafe(maskBitmap)
