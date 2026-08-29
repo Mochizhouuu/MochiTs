@@ -60,6 +60,7 @@ class EditorViewModel @Inject constructor(
     val maskToolMode = MutableStateFlow(MaskToolMode.BRUSH)
     val brushSize = MutableStateFlow(40f)
     val magicWandTolerance = MutableStateFlow(32f)
+    val magicWandExpand = MutableStateFlow(0f)
     val defaultTextStyle = MutableStateFlow(TextStyleConfig())
 
     var maskSelectionTools: MaskSelectionTools? = null
@@ -313,6 +314,12 @@ class EditorViewModel @Inject constructor(
 
     fun setMagicWandTolerance(tolerance: Float) {
         magicWandTolerance.value = tolerance
+    }
+
+    fun setMagicWandExpand(expand: Float) {
+        val clamped = expand.coerceIn(0f, 30f)
+        magicWandExpand.value = clamped
+        maskSelectionTools?.applyExpand(clamped.toInt())
     }
 
     fun updateProjectTitle(newTitle: String) {

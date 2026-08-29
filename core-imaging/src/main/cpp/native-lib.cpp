@@ -196,6 +196,75 @@ Java_com_mochits_core_imaging_NativeBridge_nativeDrawPolygon(
 }
 
 JNIEXPORT void JNICALL
+Java_com_mochits_core_imaging_NativeBridge_nativeDilateMask(
+        JNIEnv* env,
+        jobject /* this */,
+        jobject srcMaskBitmap,
+        jobject dstMaskBitmap,
+        jint radius) {
+    AndroidBitmapInfo srcInfo, dstInfo;
+    void* srcPixels = nullptr;
+    void* dstPixels = nullptr;
+
+    if (AndroidBitmap_getInfo(env, srcMaskBitmap, &srcInfo) < 0 || srcInfo.format != ANDROID_BITMAP_FORMAT_A_8) return;
+    if (AndroidBitmap_getInfo(env, dstMaskBitmap, &dstInfo) < 0 || dstInfo.format != ANDROID_BITMAP_FORMAT_A_8) return;
+
+    if (srcInfo.width != dstInfo.width || srcInfo.height != dstInfo.height) return;
+
+    if (AndroidBitmap_lockPixels(env, srcMaskBitmap, &srcPixels) < 0 || !srcPixels) return;
+    if (AndroidBitmap_lockPixels(env, dstMaskBitmap, &dstPixels) < 0 || !dstPixels) {
+        AndroidBitmap_unlockPixels(env, srcMaskBitmap);
+        return;
+    }
+
+    int w = srcInfo.width;
+    int h = srcInfo.height;
+
+    if (radius <= 0) {
+        std::memcpy(dstPixels, srcPixels, w * h);
+    } else {
+#ifdef HAVE_OPENCV
+        cv::Mat srcMat(h, w, CV_8UC1, srcPixels);
+        cv::Mat dstMat(h, w, CV_8UC1, dstPixels);
+
+        int kernelSize = radius * 2 + 1;
+        cv::Mat element = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(kernelSize, kernelSize));
+        cv::dilate(srcMat, dstMat, element);
+#else
+        uint8_t* srcPtr = static_cast<uint8_t*>(srcPixels);
+        uint8_t* dstPtr = static_cast<uint8_t*>(dstPixels);
+        std::memcpy(dstPtr, srcPtr, w * h);
+
+        int r2 = radius * radius;
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                if (srcPtr[y * w + x] > 0) {
+                    int minY = std::max(0, y - radius);
+                    int maxY = std::min(h - 1, y + radius);
+                    int minX = std::max(0, x - radius);
+                    int maxX = std::min(w - 1, x + radius);
+                    for (int ny = minY; ny <= maxY; ++ny) {
+                        int dy = ny - y;
+                        int dy2 = dy * dy;
+                        int rowIdx = ny * w;
+                        for (int nx = minX; nx <= maxX; ++nx) {
+                            int dx = nx - x;
+                            if (dx * dx + dy2 <= r2) {
+                                dstPtr[rowIdx + nx] = 255;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+#endif
+    }
+
+    AndroidBitmap_unlockPixels(env, dstMaskBitmap);
+    AndroidBitmap_unlockPixels(env, srcMaskBitmap);
+}
+
+JNIEXPORT void JNICALL
 Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         JNIEnv* env,
         jobject /* this */,
