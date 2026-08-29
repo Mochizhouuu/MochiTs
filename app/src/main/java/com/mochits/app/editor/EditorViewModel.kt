@@ -238,7 +238,8 @@ class EditorViewModel @Inject constructor(
         if (maskSelectionTools == null || maskSelectionTools?.width != safeW || maskSelectionTools?.height != safeH) {
             maskSelectionTools = MaskSelectionTools(safeW, safeH)
         }
-        if (baseBitmap.value == null) {
+        val currentBmp = baseBitmap.value
+        if (currentBmp == null || currentBmp.width != safeW || currentBmp.height != safeH) {
             try {
                 val bmp = Bitmap.createBitmap(safeW, safeH, Bitmap.Config.ARGB_8888)
                 bmp.eraseColor(android.graphics.Color.WHITE)
