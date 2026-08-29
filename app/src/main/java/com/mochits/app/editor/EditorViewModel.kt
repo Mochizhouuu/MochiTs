@@ -142,6 +142,14 @@ class EditorViewModel @Inject constructor(
         updateUndoRedoState()
     }
 
+    fun rollbackUndoSnapshot() {
+        if (undoStack.isNotEmpty()) {
+            val snapshot = undoStack.removeLast()
+            restoreSnapshot(snapshot)
+            updateUndoRedoState()
+        }
+    }
+
     fun undo() {
         if (undoStack.isEmpty()) return
         val currentSnapshot = HistorySnapshot(

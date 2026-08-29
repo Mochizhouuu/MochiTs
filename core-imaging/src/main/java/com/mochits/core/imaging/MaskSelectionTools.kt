@@ -109,7 +109,9 @@ class MaskSelectionTools(
         if (srcBitmap == null || srcBitmap.isRecycled) return
         val startX = point.x.toInt()
         val startY = point.y.toInt()
-        NativeBridge.magicWandSelectSafe(srcBitmap, maskBitmap, startX, startY, tolerance)
+        // Map UI tolerance scale (0..100) to full RGB Euclidean distance (0..441.673f)
+        val mappedTolerance = (tolerance.coerceIn(0f, 100f) / 100f) * 441.673f
+        NativeBridge.magicWandSelectSafe(srcBitmap, maskBitmap, startX, startY, mappedTolerance)
     }
 
     fun clearMask() {

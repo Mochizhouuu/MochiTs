@@ -149,6 +149,7 @@ class ProjectRepository @Inject constructor(
             createdAt = now,
             updatedAt = now,
             thumbnailPath = thumbnailPath,
+            isTransparent = isTransparent,
             layersJson = "[]"
         )
         projectDao.insertProject(entity)

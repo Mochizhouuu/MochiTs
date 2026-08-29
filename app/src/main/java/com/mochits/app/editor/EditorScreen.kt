@@ -336,6 +336,7 @@ fun EditorScreen(
                 }
             }
             var lastTouchCanvasPt by remember { mutableStateOf(Offset.Zero) }
+            var isMaskDrawingActive by remember { mutableStateOf(false) }
 
             // Selected text layer & handle bounds calculation
             val selectedTextLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer
@@ -393,25 +394,35 @@ fun EditorScreen(
                                 // 1. MASK TOOL ACTIVE: Handle mask drawing strokes (1 finger) vs Pan/Zoom (2+ fingers)
                                 if (activePanel == EditorPanel.ERASE || activePanel == EditorPanel.MASK) {
                                     val pressedList = changes.filter { it.pressed }
-                                    if (pressedList.size >= 2) {
-                                        // 2+ fingers: Pinch zoom / pan canvas
-                                        val p0 = pressedList[0].position
-                                        val p1 = pressedList[1].position
-                                        val prevP0 = pressedList[0].previousPosition
-                                        val prevP1 = pressedList[1].previousPosition
+                                    val totalPointerCount = event.changes.size
 
-                                        val center = Offset((p0.x + p1.x) / 2f, (p0.y + p1.y) / 2f)
-                                        val prevCenter = Offset((prevP0.x + prevP1.x) / 2f, (prevP0.y + prevP1.y) / 2f)
+                                    if (totalPointerCount >= 2 || pressedList.size >= 2) {
+                                        // Multi-touch detected: If mask stroke was started by 1st finger, roll it back immediately
+                                        if (isMaskDrawingActive) {
+                                            viewModel.rollbackUndoSnapshot()
+                                            isMaskDrawingActive = false
+                                        }
 
-                                        val currentDist = kotlin.math.hypot(p0.x - p1.x, p0.y - p1.y)
-                                        val prevDist = kotlin.math.hypot(prevP0.x - prevP1.x, prevP0.y - prevP1.y)
+                                        if (pressedList.size >= 2) {
+                                            // 2+ fingers: Pinch zoom / pan canvas
+                                            val p0 = pressedList[0].position
+                                            val p1 = pressedList[1].position
+                                            val prevP0 = pressedList[0].previousPosition
+                                            val prevP1 = pressedList[1].previousPosition
 
-                                        val zoomFactor = if (prevDist > 0f) currentDist / prevDist else 1f
-                                        val panDelta = center - prevCenter
+                                            val center = Offset((p0.x + p1.x) / 2f, (p0.y + p1.y) / 2f)
+                                            val prevCenter = Offset((prevP0.x + prevP1.x) / 2f, (prevP0.y + prevP1.y) / 2f)
 
-                                        viewModel.canvasState.onGestureTransform(center, panDelta, zoomFactor)
-                                        triggerRedraw++
-                                        pressedList.forEach { it.consume() }
+                                            val currentDist = kotlin.math.hypot(p0.x - p1.x, p0.y - p1.y)
+                                            val prevDist = kotlin.math.hypot(prevP0.x - prevP1.x, prevP0.y - prevP1.y)
+
+                                            val zoomFactor = if (prevDist > 0f) currentDist / prevDist else 1f
+                                            val panDelta = center - prevCenter
+
+                                            viewModel.canvasState.onGestureTransform(center, panDelta, zoomFactor)
+                                            triggerRedraw++
+                                        }
+                                        event.changes.forEach { it.consume() }
                                     } else if (pressedList.size == 1) {
                                         val firstChange = pressedList[0]
                                         val isJustDown = !firstChange.previousPressed && firstChange.pressed
@@ -432,8 +443,9 @@ fun EditorScreen(
                                                 val canvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
                                                 lastTouchCanvasPt = canvasPt
                                                 viewModel.maskSelectionTools?.startStroke(canvasPt, maskToolMode, brushSize)
+                                                isMaskDrawingActive = true
                                                 triggerRedraw++
-                                            } else {
+                                            } else if (isMaskDrawingActive) {
                                                 val canvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
                                                 lastTouchCanvasPt = canvasPt
                                                 viewModel.maskSelectionTools?.updateStroke(canvasPt, maskToolMode, brushSize)
@@ -445,8 +457,11 @@ fun EditorScreen(
                                         // Finger released
                                         val releasedChange = changes.find { it.previousPressed && !it.pressed }
                                         if (releasedChange != null && maskToolMode != MaskToolMode.MAGIC_WAND) {
-                                            viewModel.maskSelectionTools?.endStroke(lastTouchCanvasPt, maskToolMode, brushSize)
-                                            triggerRedraw++
+                                            if (isMaskDrawingActive) {
+                                                viewModel.maskSelectionTools?.endStroke(lastTouchCanvasPt, maskToolMode, brushSize)
+                                                isMaskDrawingActive = false
+                                                triggerRedraw++
+                                            }
                                         }
                                     }
                                     continue
@@ -659,8 +674,9 @@ fun EditorScreen(
                         }
                     }
 
-                    // 1b. Red Outline Overlay for Translucent Canvas (New project without base image)
-                    if (project?.thumbnailPath == null) {
+                    // 1b. Red Outline Overlay for Translucent Canvas (Transparent canvas or new project)
+                    val showCanvasOutline = project?.isTransparent == true || project?.thumbnailPath == null
+                    if (showCanvasOutline) {
                         val canvasW = baseBitmap?.width?.toFloat() ?: (project?.width?.toFloat() ?: 1080f)
                         val canvasH = baseBitmap?.height?.toFloat() ?: (project?.height?.toFloat() ?: 1920f)
                         val currentScale = viewModel.canvasState.scale.coerceAtLeast(0.1f)
@@ -1184,11 +1200,11 @@ fun EraseToolPanel(
 
                 Spacer(modifier = Modifier.height(6.dp))
                 if (mode == MaskToolMode.MAGIC_WAND) {
-                    Text("Toleransi Warna (Tolerance): ${magicWandTolerance.toInt()}", style = MaterialTheme.typography.bodySmall)
+                    Text("Toleransi Warna (Tolerance): ${magicWandTolerance.toInt()}%", style = MaterialTheme.typography.bodySmall)
                     Slider(
                         value = magicWandTolerance,
                         onValueChange = onToleranceChange,
-                        valueRange = 0f..255f
+                        valueRange = 0f..100f
                     )
                 } else {
                     Text("Ukuran Kuas: ${brushSize.toInt()} px", style = MaterialTheme.typography.bodySmall)

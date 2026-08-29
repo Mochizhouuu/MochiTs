@@ -62,4 +62,22 @@ class ProjectRepositoryTest {
         assertNotNull(retrieved)
         assertEquals(project.id, retrieved?.id)
     }
+
+    @Test
+    fun createProject_transparent_flag_persisted() = runBlocking {
+        val project = repository.createProject(
+            title = "Test Transparent Project",
+            width = 1080,
+            height = 1920,
+            imageUri = null,
+            isTransparent = true
+        )
+
+        assertNotNull(project)
+        assertTrue(project.isTransparent)
+
+        val retrieved = repository.getProject(project.id)
+        assertNotNull(retrieved)
+        assertTrue(retrieved!!.isTransparent)
+    }
 }

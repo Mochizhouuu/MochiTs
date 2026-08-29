@@ -71,20 +71,64 @@ class MaskSelectionToolsTest {
         val srcBitmap = Bitmap.createBitmap(20, 20, Bitmap.Config.ARGB_8888)
 
         // Pixel (0,0) is RGB(100, 100, 100), Pixel (1,0) is RGB(120, 100, 100)
-        // Distance is 20
+        // Euclidean distance is sqrt(20^2) = 20.
+        // Standard full scale (0..441.673): distance 20 is ~4.5% of max distance.
         srcBitmap.setPixel(0, 0, Color.rgb(100, 100, 100))
         srcBitmap.setPixel(1, 0, Color.rgb(120, 100, 100))
 
-        // Low tolerance (10) should NOT select (1,0)
-        tools.magicWandSelect(srcBitmap, Offset(0f, 0f), tolerance = 10f)
+        // Low tolerance (2%) should NOT select (1,0)
+        tools.magicWandSelect(srcBitmap, Offset(0f, 0f), tolerance = 2f)
         var p1Val = tools.maskBitmap.getPixel(1, 0) and 0xFF
         assertEquals(0, p1Val)
 
-        // Clear mask and try higher tolerance (30) which SHOULD select (1,0)
+        // Clear mask and try higher tolerance (10%) which SHOULD select (1,0)
         tools.clearMask()
-        tools.magicWandSelect(srcBitmap, Offset(0f, 0f), tolerance = 30f)
+        tools.magicWandSelect(srcBitmap, Offset(0f, 0f), tolerance = 10f)
         p1Val = tools.maskBitmap.getPixel(1, 0) and 0xFF
         assertEquals(255, p1Val)
+    }
+
+    @Test
+    fun testMagicWandSelect_antiAliasedGradientSelectionArea() {
+        // Create a 50x50 bitmap with radial gradient simulating font anti-aliasing edge
+        val tools = MaskSelectionTools(50, 50)
+        val srcBitmap = Bitmap.createBitmap(50, 50, Bitmap.Config.ARGB_8888)
+        val centerX = 25f
+        val centerY = 25f
+
+        for (y in 0 until 50) {
+            for (x in 0 until 50) {
+                val dist = kotlin.math.hypot(x - centerX, y - centerY)
+                // Color fades from Black (0,0,0) at center to White (255,255,255) at dist = 25
+                val factor = (dist / 25f).coerceIn(0f, 1f)
+                val c = (factor * 255).toInt()
+                srcBitmap.setPixel(x, y, Color.rgb(c, c, c))
+            }
+        }
+
+        // Low tolerance (e.g. 5%) from center (25,25)
+        tools.magicWandSelect(srcBitmap, Offset(25f, 25f), tolerance = 5f)
+        var lowTolCount = 0
+        val maskBmp1 = tools.maskBitmap
+        for (y in 0 until 50) {
+            for (x in 0 until 50) {
+                if ((maskBmp1.getPixel(x, y) and 0xFF) > 0) lowTolCount++
+            }
+        }
+
+        // High tolerance (e.g. 50%) from center (25,25)
+        tools.clearMask()
+        tools.magicWandSelect(srcBitmap, Offset(25f, 25f), tolerance = 50f)
+        var highTolCount = 0
+        val maskBmp2 = tools.maskBitmap
+        for (y in 0 until 50) {
+            for (x in 0 until 50) {
+                if ((maskBmp2.getPixel(x, y) and 0xFF) > 0) highTolCount++
+            }
+        }
+
+        // Higher tolerance must select significantly more pixels than low tolerance
+        assertTrue("High tolerance count ($highTolCount) must be > low tolerance count ($lowTolCount)", highTolCount > lowTolCount * 2)
     }
 
     @Test
