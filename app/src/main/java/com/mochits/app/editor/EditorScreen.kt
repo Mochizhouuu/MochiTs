@@ -343,6 +343,9 @@ fun EditorScreen(
             }
             var lastTouchCanvasPt by remember { mutableStateOf(Offset.Zero) }
             var isMaskDrawingActive by remember { mutableStateOf(false) }
+            var magicWandTouchStartPt by remember { mutableStateOf<Offset?>(null) }
+            var magicWandMovedDistance by remember { mutableFloatStateOf(0f) }
+            var isMagicWandPending by remember { mutableStateOf(false) }
 
             // Selected text layer & handle bounds calculation
             val selectedTextLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer
@@ -403,7 +406,13 @@ fun EditorScreen(
                                     val totalPointerCount = event.changes.size
 
                                     if (totalPointerCount >= 2 || pressedList.size >= 2) {
-                                        // Multi-touch detected: If mask stroke was started by 1st finger, roll it back immediately
+                                        // Multi-touch detected: Cancel any pending Magic Wand tap instantly (0ms overhead)
+                                        if (isMagicWandPending) {
+                                            isMagicWandPending = false
+                                            magicWandTouchStartPt = null
+                                            magicWandMovedDistance = 0f
+                                        }
+                                        // If mask stroke was started by 1st finger (Brush/Eraser/Lasso), roll it back immediately
                                         if (isMaskDrawingActive) {
                                             viewModel.rollbackUndoSnapshot()
                                             isMaskDrawingActive = false
@@ -434,16 +443,19 @@ fun EditorScreen(
                                         val isJustDown = !firstChange.previousPressed && firstChange.pressed
                                         if (maskToolMode == MaskToolMode.MAGIC_WAND) {
                                             if (isJustDown) {
-                                                viewModel.saveUndoSnapshot()
-                                                val canvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
-                                                viewModel.maskSelectionTools?.magicWandSelect(
-                                                    srcBitmap = baseBitmap,
-                                                    point = canvasPt,
-                                                    tolerance = magicWandTolerance,
-                                                    expandPixels = magicWandExpand.toInt()
-                                                )
-                                                isMaskDrawingActive = true
-                                                triggerRedraw++
+                                                magicWandTouchStartPt = firstChange.position
+                                                magicWandMovedDistance = 0f
+                                                isMagicWandPending = true
+                                            } else if (isMagicWandPending) {
+                                                val moveDelta = (firstChange.position - firstChange.previousPosition).getDistance()
+                                                magicWandMovedDistance += moveDelta
+                                                if (magicWandMovedDistance > 15f) {
+                                                    // Drag threshold exceeded: Cancel pending Magic Wand tap and perform canvas pan
+                                                    isMagicWandPending = false
+                                                    val panDelta = firstChange.position - firstChange.previousPosition
+                                                    viewModel.canvasState.onGestureTransform(firstChange.position, panDelta, 1f)
+                                                    triggerRedraw++
+                                                }
                                             }
                                         } else {
                                             if (isJustDown) {
@@ -465,10 +477,23 @@ fun EditorScreen(
                                         // Finger released
                                         val releasedChange = changes.find { it.previousPressed && !it.pressed }
                                         if (releasedChange != null) {
-                                            if (isMaskDrawingActive) {
-                                                if (maskToolMode != MaskToolMode.MAGIC_WAND) {
-                                                    viewModel.maskSelectionTools?.endStroke(lastTouchCanvasPt, maskToolMode, brushSize)
+                                            if (maskToolMode == MaskToolMode.MAGIC_WAND) {
+                                                if (isMagicWandPending && magicWandMovedDistance <= 15f && magicWandTouchStartPt != null) {
+                                                    viewModel.saveUndoSnapshot()
+                                                    val canvasPt = viewModel.canvasState.mapper.screenToCanvas(magicWandTouchStartPt!!.x, magicWandTouchStartPt!!.y)
+                                                    viewModel.maskSelectionTools?.magicWandSelect(
+                                                        srcBitmap = baseBitmap,
+                                                        point = canvasPt,
+                                                        tolerance = magicWandTolerance,
+                                                        expandPixels = magicWandExpand.toInt()
+                                                    )
+                                                    triggerRedraw++
                                                 }
+                                                isMagicWandPending = false
+                                                magicWandTouchStartPt = null
+                                                magicWandMovedDistance = 0f
+                                            } else if (isMaskDrawingActive) {
+                                                viewModel.maskSelectionTools?.endStroke(lastTouchCanvasPt, maskToolMode, brushSize)
                                                 isMaskDrawingActive = false
                                                 triggerRedraw++
                                             }
@@ -1220,10 +1245,25 @@ fun EraseToolPanel(
                     )
 
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text("Perluas Margin (Expand): ${magicWandExpand.toInt()} px", style = MaterialTheme.typography.bodySmall)
+                    var localExpandValue by remember(magicWandExpand) { mutableFloatStateOf(magicWandExpand) }
+
+                    DisposableEffect(Unit) {
+                        onDispose {
+                            if (localExpandValue != magicWandExpand) {
+                                onExpandChange?.invoke(localExpandValue)
+                            }
+                        }
+                    }
+
+                    Text("Perluas Margin (Expand): ${localExpandValue.toInt()} px", style = MaterialTheme.typography.bodySmall)
                     Slider(
-                        value = magicWandExpand,
-                        onValueChange = { onExpandChange?.invoke(it) },
+                        value = localExpandValue,
+                        onValueChange = { localExpandValue = it },
+                        onValueChangeFinished = {
+                            if (localExpandValue != magicWandExpand) {
+                                onExpandChange?.invoke(localExpandValue)
+                            }
+                        },
                         valueRange = 0f..30f
                     )
                 } else {
