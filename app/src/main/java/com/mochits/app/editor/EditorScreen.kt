@@ -442,6 +442,7 @@ fun EditorScreen(
                                                     tolerance = magicWandTolerance,
                                                     expandPixels = magicWandExpand.toInt()
                                                 )
+                                                isMaskDrawingActive = true
                                                 triggerRedraw++
                                             }
                                         } else {
@@ -463,9 +464,11 @@ fun EditorScreen(
                                     } else {
                                         // Finger released
                                         val releasedChange = changes.find { it.previousPressed && !it.pressed }
-                                        if (releasedChange != null && maskToolMode != MaskToolMode.MAGIC_WAND) {
+                                        if (releasedChange != null) {
                                             if (isMaskDrawingActive) {
-                                                viewModel.maskSelectionTools?.endStroke(lastTouchCanvasPt, maskToolMode, brushSize)
+                                                if (maskToolMode != MaskToolMode.MAGIC_WAND) {
+                                                    viewModel.maskSelectionTools?.endStroke(lastTouchCanvasPt, maskToolMode, brushSize)
+                                                }
                                                 isMaskDrawingActive = false
                                                 triggerRedraw++
                                             }
