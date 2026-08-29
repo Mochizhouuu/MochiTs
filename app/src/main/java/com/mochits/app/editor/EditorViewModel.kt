@@ -39,6 +39,7 @@ class EditorViewModel @Inject constructor(
     val inpaintEngine = InpaintEngine()
     val serializer = LayerSerializer()
     val exporter = ProjectExporter(context)
+    val textRenderer = com.mochits.app.text.TextRenderer(context)
 
     val project = MutableStateFlow<ProjectEntity?>(null)
     val baseBitmap = MutableStateFlow<Bitmap?>(null)
@@ -58,6 +59,7 @@ class EditorViewModel @Inject constructor(
 
     val maskToolMode = MutableStateFlow(MaskToolMode.BRUSH)
     val brushSize = MutableStateFlow(40f)
+    val magicWandTolerance = MutableStateFlow(32f)
     val defaultTextStyle = MutableStateFlow(TextStyleConfig())
 
     var maskSelectionTools: MaskSelectionTools? = null
@@ -236,7 +238,8 @@ class EditorViewModel @Inject constructor(
         if (maskSelectionTools == null || maskSelectionTools?.width != safeW || maskSelectionTools?.height != safeH) {
             maskSelectionTools = MaskSelectionTools(safeW, safeH)
         }
-        if (baseBitmap.value == null) {
+        val currentBmp = baseBitmap.value
+        if (currentBmp == null || currentBmp.width != safeW || currentBmp.height != safeH) {
             try {
                 val bmp = Bitmap.createBitmap(safeW, safeH, Bitmap.Config.ARGB_8888)
                 bmp.eraseColor(android.graphics.Color.WHITE)
@@ -298,6 +301,10 @@ class EditorViewModel @Inject constructor(
 
     fun setBrushSize(size: Float) {
         brushSize.value = size
+    }
+
+    fun setMagicWandTolerance(tolerance: Float) {
+        magicWandTolerance.value = tolerance
     }
 
     fun updateProjectTitle(newTitle: String) {
@@ -429,11 +436,18 @@ class EditorViewModel @Inject constructor(
             Pair(canvasW / 2f, canvasH / 2f)
         }
 
+        val bounds = textRenderer.getTextBounds(text, effectiveStyle, 0f, 0f)
+        val textWidth = bounds.width()
+        val textHeight = bounds.height()
+
+        val finalX = posX - (textWidth / 2f)
+        val finalY = posY - (textHeight / 2f)
+
         val newLayer = Layer.TextLayer(
             id = UUID.randomUUID().toString(),
             name = "Text ${layers.value.size + 1}",
-            x = posX,
-            y = posY,
+            x = finalX,
+            y = finalY,
             text = text,
             style = effectiveStyle
         )

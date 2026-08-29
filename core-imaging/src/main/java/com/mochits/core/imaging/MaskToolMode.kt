@@ -4,5 +4,5 @@ enum class MaskToolMode {
     BRUSH,
     ERASER,
     LASSO,
-    RECTANGLE
+    MAGIC_WAND
 }

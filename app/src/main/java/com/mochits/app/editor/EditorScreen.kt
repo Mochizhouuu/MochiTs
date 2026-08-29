@@ -81,6 +81,7 @@ fun EditorScreen(
     val activePanel by viewModel.activePanel.collectAsState()
     val maskToolMode by viewModel.maskToolMode.collectAsState()
     val brushSize by viewModel.brushSize.collectAsState()
+    val magicWandTolerance by viewModel.magicWandTolerance.collectAsState()
     val isProcessingInpaint by viewModel.isProcessingInpaint.collectAsState()
     val selectedInpaintModel by viewModel.selectedInpaintModel.collectAsState()
     val isDownloadingLaMaModel by viewModel.isDownloadingLaMaModel.collectAsState()
@@ -262,6 +263,7 @@ fun EditorScreen(
                     EditorPanel.ERASE, EditorPanel.MASK, EditorPanel.INPAINT -> EraseToolPanel(
                         mode = maskToolMode,
                         brushSize = brushSize,
+                        magicWandTolerance = magicWandTolerance,
                         selectedModel = selectedInpaintModel,
                         isProcessing = isProcessingInpaint,
                         isDownloading = isDownloadingLaMaModel,
@@ -271,6 +273,7 @@ fun EditorScreen(
                         onModeSelected = { viewModel.setMaskToolMode(it) },
                         onModelSelected = { viewModel.setInpaintModel(it) },
                         onSizeChange = { viewModel.setBrushSize(it) },
+                        onToleranceChange = { viewModel.setMagicWandTolerance(it) },
                         onClear = {
                             viewModel.saveUndoSnapshot()
                             viewModel.maskSelectionTools?.clearMask()
@@ -410,26 +413,38 @@ fun EditorScreen(
                                         triggerRedraw++
                                         pressedList.forEach { it.consume() }
                                     } else if (pressedList.size == 1) {
-                                        // 1 finger: Draw mask stroke
                                         val firstChange = pressedList[0]
                                         val isJustDown = !firstChange.previousPressed && firstChange.pressed
-                                        if (isJustDown) {
-                                            viewModel.saveUndoSnapshot()
-                                            val canvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
-                                            lastTouchCanvasPt = canvasPt
-                                            viewModel.maskSelectionTools?.startStroke(canvasPt, maskToolMode, brushSize)
-                                            triggerRedraw++
+                                        if (maskToolMode == MaskToolMode.MAGIC_WAND) {
+                                            if (isJustDown) {
+                                                viewModel.saveUndoSnapshot()
+                                                val canvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
+                                                viewModel.maskSelectionTools?.magicWandSelect(
+                                                    srcBitmap = baseBitmap,
+                                                    point = canvasPt,
+                                                    tolerance = magicWandTolerance
+                                                )
+                                                triggerRedraw++
+                                            }
                                         } else {
-                                            val canvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
-                                            lastTouchCanvasPt = canvasPt
-                                            viewModel.maskSelectionTools?.updateStroke(canvasPt, maskToolMode, brushSize)
-                                            triggerRedraw++
+                                            if (isJustDown) {
+                                                viewModel.saveUndoSnapshot()
+                                                val canvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
+                                                lastTouchCanvasPt = canvasPt
+                                                viewModel.maskSelectionTools?.startStroke(canvasPt, maskToolMode, brushSize)
+                                                triggerRedraw++
+                                            } else {
+                                                val canvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
+                                                lastTouchCanvasPt = canvasPt
+                                                viewModel.maskSelectionTools?.updateStroke(canvasPt, maskToolMode, brushSize)
+                                                triggerRedraw++
+                                            }
                                         }
                                         firstChange.consume()
                                     } else {
                                         // Finger released
                                         val releasedChange = changes.find { it.previousPressed && !it.pressed }
-                                        if (releasedChange != null) {
+                                        if (releasedChange != null && maskToolMode != MaskToolMode.MAGIC_WAND) {
                                             viewModel.maskSelectionTools?.endStroke(lastTouchCanvasPt, maskToolMode, brushSize)
                                             triggerRedraw++
                                         }
@@ -1036,6 +1051,7 @@ fun EditorBottomBar(
 fun EraseToolPanel(
     mode: MaskToolMode,
     brushSize: Float,
+    magicWandTolerance: Float,
     selectedModel: EditorViewModel.InpaintModel,
     isProcessing: Boolean,
     isDownloading: Boolean,
@@ -1045,6 +1061,7 @@ fun EraseToolPanel(
     onModeSelected: (MaskToolMode) -> Unit,
     onModelSelected: (EditorViewModel.InpaintModel) -> Unit,
     onSizeChange: (Float) -> Unit,
+    onToleranceChange: (Float) -> Unit,
     onClear: () -> Unit,
     onInvert: () -> Unit,
     onRunErase: () -> Unit
@@ -1097,9 +1114,9 @@ fun EraseToolPanel(
                         label = { Text("Lasso") }
                     )
                     FilterChip(
-                        selected = mode == MaskToolMode.RECTANGLE,
-                        onClick = { onModeSelected(MaskToolMode.RECTANGLE) },
-                        label = { Text("Rect") }
+                        selected = mode == MaskToolMode.MAGIC_WAND,
+                        onClick = { onModeSelected(MaskToolMode.MAGIC_WAND) },
+                        label = { Text("Magic Wand") }
                     )
                 }
 
@@ -1166,12 +1183,21 @@ fun EraseToolPanel(
                 }
 
                 Spacer(modifier = Modifier.height(6.dp))
-                Text("Ukuran Kuas: ${brushSize.toInt()} px", style = MaterialTheme.typography.bodySmall)
-                Slider(
-                    value = brushSize,
-                    onValueChange = onSizeChange,
-                    valueRange = 5f..200f
-                )
+                if (mode == MaskToolMode.MAGIC_WAND) {
+                    Text("Toleransi Warna (Tolerance): ${magicWandTolerance.toInt()}", style = MaterialTheme.typography.bodySmall)
+                    Slider(
+                        value = magicWandTolerance,
+                        onValueChange = onToleranceChange,
+                        valueRange = 0f..255f
+                    )
+                } else {
+                    Text("Ukuran Kuas: ${brushSize.toInt()} px", style = MaterialTheme.typography.bodySmall)
+                    Slider(
+                        value = brushSize,
+                        onValueChange = onSizeChange,
+                        valueRange = 5f..200f
+                    )
+                }
             }
         }
     }
