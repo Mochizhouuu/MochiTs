@@ -1,9 +1,11 @@
 package com.mochits.app.home
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mochits.app.project.ProjectEntity
 import com.mochits.app.project.ProjectRepository
+import com.mochits.app.settings.ExportSettingsRepository
 import com.mochits.app.ui.theme.AppThemeMode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,11 +19,20 @@ import javax.inject.Inject
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
-    private val repository: ProjectRepository
+    private val repository: ProjectRepository,
+    private val exportSettingsRepository: ExportSettingsRepository
 ) : ViewModel() {
 
     private val _themeMode = MutableStateFlow(AppThemeMode.SYSTEM)
     val themeMode: StateFlow<AppThemeMode> = _themeMode.asStateFlow()
+
+    private val _defaultExportFolderUri = MutableStateFlow<Uri?>(exportSettingsRepository.getExportFolderUri())
+    val defaultExportFolderUri: StateFlow<Uri?> = _defaultExportFolderUri.asStateFlow()
+
+    private val _defaultExportFolderName = MutableStateFlow<String?>(
+        exportSettingsRepository.getFolderName(exportSettingsRepository.getExportFolderUri())
+    )
+    val defaultExportFolderName: StateFlow<String?> = _defaultExportFolderName.asStateFlow()
 
     val projects: StateFlow<List<ProjectEntity>> = repository.getAllProjects()
         .catch {
@@ -35,6 +46,16 @@ class HomeViewModel @Inject constructor(
 
     fun setThemeMode(mode: AppThemeMode) {
         _themeMode.value = mode
+    }
+
+    fun updateExportFolderUri(uri: Uri) {
+        exportSettingsRepository.saveExportFolderUri(uri)
+        _defaultExportFolderUri.value = uri
+        _defaultExportFolderName.value = exportSettingsRepository.getFolderName(uri)
+    }
+
+    fun isFolderValid(uri: Uri?): Boolean {
+        return exportSettingsRepository.isFolderValid(uri)
     }
 
     val isLoading = MutableStateFlow(false)

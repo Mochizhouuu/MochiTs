@@ -67,6 +67,59 @@ private fun isPointInsideTextLayer(
     }
 }
 
+
+private fun performExportToTreeUri(
+    context: android.content.Context,
+    viewModel: EditorViewModel,
+    treeUri: android.net.Uri,
+    saveName: String,
+    selectedFormat: String,
+    exportQuality: Float
+) {
+    val ext = selectedFormat.lowercase()
+    val mimeType = when (selectedFormat.uppercase()) {
+        "JPEG", "JPG" -> "image/jpeg"
+        "WEBP" -> "image/webp"
+        else -> "image/png"
+    }
+    val docTree = DocumentFile.fromTreeUri(context, treeUri)
+    val createdFile = docTree?.createFile(mimeType, "$saveName.$ext")
+    if (createdFile?.uri != null) {
+        val pfd = context.contentResolver.openFileDescriptor(createdFile.uri, "w")
+        if (pfd != null) {
+            val tempFile = File(context.cacheDir, "temp_export.$ext")
+            val compressFormat = when (selectedFormat.uppercase()) {
+                "JPEG", "JPG" -> android.graphics.Bitmap.CompressFormat.JPEG
+                "WEBP" -> if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    android.graphics.Bitmap.CompressFormat.WEBP_LOSSY
+                } else {
+                    @Suppress("DEPRECATION")
+                    android.graphics.Bitmap.CompressFormat.WEBP
+                }
+                else -> android.graphics.Bitmap.CompressFormat.PNG
+            }
+            viewModel.exportProject(tempFile, compressFormat, exportQuality.toInt()) { success ->
+                if (success) {
+                    try {
+                        tempFile.inputStream().use { input ->
+                            java.io.FileOutputStream(pfd.fileDescriptor).use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                        android.widget.Toast.makeText(context, "Berhasil diekspor ke folder output!", android.widget.Toast.LENGTH_SHORT).show()
+                    } catch (_: Exception) {}
+                    pfd.close()
+                } else {
+                    pfd.close()
+                    android.widget.Toast.makeText(context, "Gagal meng-ekspor gambar.", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    } else {
+        android.widget.Toast.makeText(context, "Gagal membuat file di folder tujuan.", android.widget.Toast.LENGTH_SHORT).show()
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditorScreen(
@@ -126,19 +179,27 @@ fun EditorScreen(
         }
     }
 
-    var targetFolderUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var pendingExportSaveName by remember { mutableStateOf<String?>(null) }
+    var pendingExportFormat by remember { mutableStateOf("PNG") }
+    var pendingExportQuality by remember { mutableFloatStateOf(100f) }
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
-        uri?.let {
-            try {
-                context.contentResolver.takePersistableUriPermission(
-                    it,
-                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        uri?.let { pickedUri ->
+            viewModel.saveExportFolderUri(pickedUri)
+            val pendingName = pendingExportSaveName
+            if (pendingName != null) {
+                performExportToTreeUri(
+                    context = context,
+                    viewModel = viewModel,
+                    treeUri = pickedUri,
+                    saveName = pendingName,
+                    selectedFormat = pendingExportFormat,
+                    exportQuality = pendingExportQuality
                 )
-            } catch (_: Throwable) {}
-            targetFolderUri = it
+                pendingExportSaveName = null
+            }
         }
     }
 
@@ -168,33 +229,7 @@ fun EditorScreen(
         }
     }
 
-    val exportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("image/*")
-    ) { uri ->
-        uri?.let {
-            val pfd = context.contentResolver.openFileDescriptor(it, "w") ?: return@rememberLauncherForActivityResult
-            val file = File(context.cacheDir, "temp_export.${selectedFormat.lowercase()}")
-            val compressFormat = when (selectedFormat.uppercase()) {
-                "JPEG", "JPG" -> android.graphics.Bitmap.CompressFormat.JPEG
-                "WEBP" -> if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                    android.graphics.Bitmap.CompressFormat.WEBP_LOSSY
-                } else {
-                    @Suppress("DEPRECATION")
-                    android.graphics.Bitmap.CompressFormat.WEBP
-                }
-                else -> android.graphics.Bitmap.CompressFormat.PNG
-            }
-            viewModel.exportProject(file, compressFormat, exportQuality.toInt()) { success ->
-                if (success) {
-                    val input = file.inputStream()
-                    val output = java.io.FileOutputStream(pfd.fileDescriptor)
-                    input.copyTo(output)
-                    input.close()
-                    output.close()
-                }
-            }
-        }
-    }
+
 
     Scaffold(
         topBar = {
@@ -951,6 +986,10 @@ fun EditorScreen(
 
         // Save As / Export / Rename Dialog
         if (showExportDialog) {
+            val defaultFolderUri = viewModel.getDefaultExportFolderUri()
+            val defaultFolderName = viewModel.getDefaultExportFolderName()
+            val isFolderValid = viewModel.isExportFolderValid(defaultFolderUri)
+
             AlertDialog(
                 onDismissRequest = { showExportDialog = false },
                 title = { Text("Save As", style = MaterialTheme.typography.titleLarge) },
@@ -983,22 +1022,30 @@ fun EditorScreen(
                                 valueRange = 10f..100f
                             )
                         }
-                        Text("Folder Tujuan (SAF Direct Folder):", style = MaterialTheme.typography.bodyMedium)
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
                         ) {
-                            OutlinedButton(onClick = { folderPickerLauncher.launch(null) }) {
-                                Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(if (targetFolderUri != null) "Ganti Folder" else "Pilih Folder Tujuan")
-                            }
-                            if (targetFolderUri != null) {
-                                Text(
-                                    text = targetFolderUri?.path?.takeLast(25) ?: "Folder Dipilih",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text("Folder Tujuan Export (Default Pengaturan):", style = MaterialTheme.typography.labelSmall)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                if (defaultFolderUri != null && isFolderValid) {
+                                    Text(
+                                        text = defaultFolderName ?: defaultFolderUri.toString(),
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                } else {
+                                    Text(
+                                        text = "Belum ada folder default. Saat menekan Simpan, Anda akan diminta memilih folder.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
                             }
                         }
                     }
@@ -1010,45 +1057,22 @@ fun EditorScreen(
                                 viewModel.updateProjectTitle(outputFileName)
                             }
                             showExportDialog = false
-                            val ext = selectedFormat.lowercase()
                             val saveName = if (outputFileName.isNotBlank()) outputFileName else "export"
-                            val currentTreeUri = targetFolderUri
-                            if (currentTreeUri != null) {
-                                val mimeType = when (selectedFormat.uppercase()) {
-                                    "JPEG", "JPG" -> "image/jpeg"
-                                    "WEBP" -> "image/webp"
-                                    else -> "image/png"
-                                }
-                                val docTree = DocumentFile.fromTreeUri(context, currentTreeUri)
-                                val createdFile = docTree?.createFile(mimeType, "$saveName.$ext")
-                                createdFile?.uri?.let { destUri ->
-                                    val pfd = context.contentResolver.openFileDescriptor(destUri, "w")
-                                    if (pfd != null) {
-                                        val tempFile = File(context.cacheDir, "temp_export.$ext")
-                                        val compressFormat = when (selectedFormat.uppercase()) {
-                                            "JPEG", "JPG" -> android.graphics.Bitmap.CompressFormat.JPEG
-                                            "WEBP" -> if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                                                android.graphics.Bitmap.CompressFormat.WEBP_LOSSY
-                                            } else {
-                                                @Suppress("DEPRECATION")
-                                                android.graphics.Bitmap.CompressFormat.WEBP
-                                            }
-                                            else -> android.graphics.Bitmap.CompressFormat.PNG
-                                        }
-                                        viewModel.exportProject(tempFile, compressFormat, exportQuality.toInt()) { success ->
-                                            if (success) {
-                                                val input = tempFile.inputStream()
-                                                val output = java.io.FileOutputStream(pfd.fileDescriptor)
-                                                input.copyTo(output)
-                                                input.close()
-                                                output.close()
-                                                pfd.close()
-                                            }
-                                        }
-                                    }
-                                }
+                            val defaultFolder = viewModel.getDefaultExportFolderUri()
+                            if (defaultFolder != null && viewModel.isExportFolderValid(defaultFolder)) {
+                                performExportToTreeUri(
+                                    context = context,
+                                    viewModel = viewModel,
+                                    treeUri = defaultFolder,
+                                    saveName = saveName,
+                                    selectedFormat = selectedFormat,
+                                    exportQuality = exportQuality
+                                )
                             } else {
-                                exportLauncher.launch("$saveName.$ext")
+                                pendingExportSaveName = saveName
+                                pendingExportFormat = selectedFormat
+                                pendingExportQuality = exportQuality
+                                folderPickerLauncher.launch(null)
                             }
                         }
                     ) {

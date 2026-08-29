@@ -10,6 +10,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOff
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FontDownload
 import androidx.compose.material.icons.filled.Style
 import androidx.compose.material3.*
@@ -32,7 +35,7 @@ fun SettingsScreen(
 ) {
     val currentTheme by viewModel.themeMode.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Tema", "Model", "Style", "Font")
+    val tabs = listOf("Tema", "Model", "Style", "Font", "Output")
 
     Scaffold(
         topBar = {
@@ -68,23 +71,26 @@ fun SettingsScreen(
                     Tab(
                         selected = selectedTab == index,
                         onClick = { selectedTab = index },
-                        text = { Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium) }
+                        text = { Text(title, fontSize = 13.sp) }
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Column(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp)
+                    .padding(16.dp)
             ) {
                 when (selectedTab) {
                     0 -> {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(
-                                text = "Pilih mode tampilan favorit Lavender MochiTs:",
+                                text = "Tema Aplikasi",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Pilih tema warna aplikasi sesuai kenyamanan Anda:",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -229,6 +235,92 @@ fun SettingsScreen(
                                 Icon(Icons.Default.FontDownload, contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text("Tambah Font TTF/OTF Baru")
+                            }
+                        }
+                    }
+                    4 -> {
+                        val context = LocalContext.current
+                        val currentFolderUri by viewModel.defaultExportFolderUri.collectAsState()
+                        val currentFolderName by viewModel.defaultExportFolderName.collectAsState()
+                        val isFolderValid = remember(currentFolderUri) {
+                            viewModel.isFolderValid(currentFolderUri)
+                        }
+
+                        val folderPicker = rememberLauncherForActivityResult(
+                            contract = ActivityResultContracts.OpenDocumentTree()
+                        ) { uri ->
+                            uri?.let {
+                                viewModel.updateExportFolderUri(it)
+                                Toast.makeText(context, "Folder output default berhasil disimpan.", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(
+                                text = "Folder Output Default (Export)",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Tentukan folder default di penyimpanan perangkat Anda untuk menyimpan hasil ekspor gambar proyek.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Text(
+                                        text = "Folder Aktif saat ini:",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    if (currentFolderUri != null) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isFolderValid) Icons.Default.Folder else Icons.Default.FolderOff,
+                                                contentDescription = null,
+                                                tint = if (isFolderValid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                            )
+                                            Column {
+                                                Text(
+                                                    text = currentFolderName ?: currentFolderUri.toString(),
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    text = if (isFolderValid) "Status: Siap Digunakan & Izin Aktif" else "Status: Folder Tidak Valid / Izin Hilang",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = if (isFolderValid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        Text(
+                                            text = "Belum ada folder default yang dipilih.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                }
+                            }
+
+                            Button(
+                                onClick = { folderPicker.launch(null) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.FolderOpen, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(if (currentFolderUri != null) "Ganti Folder Output" else "Pilih Folder Output")
                             }
                         }
                     }
