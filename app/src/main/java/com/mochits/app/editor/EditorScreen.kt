@@ -16,6 +16,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Redo
@@ -1510,153 +1513,286 @@ fun SimpleColorPickerRow(
     }
 }
 
+private enum class EffectType {
+    OPACITY,
+    TEXT_COLOR,
+    STROKE,
+    DROP_SHADOW
+}
+
 @Composable
 fun EffectToolPanel(
     selectedLayer: Layer?,
     onUpdateOpacity: (Float) -> Unit,
     onUpdateStyle: (TextStyleConfig) -> Unit
 ) {
+    var expandedEffect by remember(selectedLayer?.id) { mutableStateOf<EffectType?>(null) }
+
     Surface(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize()
     ) {
         Column(
-            modifier = Modifier
-                .padding(14.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text("Efek Layer", style = MaterialTheme.typography.titleMedium)
 
             if (selectedLayer == null) {
-                Text("Pilih layer terlebih dahulu untuk mengatur transparansi dan efek.", style = MaterialTheme.typography.bodyMedium)
-            } else {
-                Text("Transparansi Layer (Opacity): ${(selectedLayer.opacity * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
-                Slider(
-                    value = selectedLayer.opacity,
-                    onValueChange = { onUpdateOpacity(it) },
-                    valueRange = 0f..1f
+                Text(
+                    text = "Pilih layer terlebih dahulu untuk mengatur transparansi dan efek.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-
-                if (selectedLayer is Layer.TextLayer) {
-                    val currentStyle = selectedLayer.style
-
-                    Text("Warna Fill Teks:", style = MaterialTheme.typography.titleSmall)
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        FilterChip(
-                            selected = !currentStyle.isGradientEnabled,
-                            onClick = { onUpdateStyle(currentStyle.copy(isGradientEnabled = false)) },
-                            label = { Text("Solid Color") }
-                        )
-                        FilterChip(
-                            selected = currentStyle.isGradientEnabled,
-                            onClick = { onUpdateStyle(currentStyle.copy(isGradientEnabled = true)) },
-                            label = { Text("Gradient") }
-                        )
-                    }
-
-                    if (!currentStyle.isGradientEnabled) {
-                        Text("Warna Teks (Solid):", style = MaterialTheme.typography.bodySmall)
-                        SimpleColorPickerRow(
-                            selectedColor = currentStyle.textColor,
-                            onColorSelected = { col -> onUpdateStyle(currentStyle.copy(textColor = col)) }
-                        )
+            } else {
+                val availableEffects = remember(selectedLayer) {
+                    if (selectedLayer is Layer.TextLayer) {
+                        listOf(EffectType.OPACITY, EffectType.TEXT_COLOR, EffectType.STROKE, EffectType.DROP_SHADOW)
                     } else {
-                        Text("Warna Gradient Start:", style = MaterialTheme.typography.bodySmall)
-                        SimpleColorPickerRow(
-                            selectedColor = currentStyle.gradientStartColor,
-                            onColorSelected = { col -> onUpdateStyle(currentStyle.copy(gradientStartColor = col)) }
-                        )
+                        listOf(EffectType.OPACITY)
+                    }
+                }
 
-                        Text("Warna Gradient End:", style = MaterialTheme.typography.bodySmall)
-                        SimpleColorPickerRow(
-                            selectedColor = currentStyle.gradientEndColor,
-                            onColorSelected = { col -> onUpdateStyle(currentStyle.copy(gradientEndColor = col)) }
-                        )
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp)
+                ) {
+                    items(availableEffects) { effect ->
+                        val isSelected = expandedEffect == effect
+                        val isActive = when (effect) {
+                            EffectType.OPACITY -> selectedLayer.opacity < 1.0f
+                            EffectType.TEXT_COLOR -> if (selectedLayer is Layer.TextLayer) {
+                                selectedLayer.style.isGradientEnabled ||
+                                selectedLayer.style.textColor != AndroidColor.BLACK ||
+                                selectedLayer.style.textOpacity < 1.0f
+                            } else false
+                            EffectType.STROKE -> if (selectedLayer is Layer.TextLayer) {
+                                selectedLayer.style.strokeWidth > 0f &&
+                                selectedLayer.style.strokeColor != AndroidColor.TRANSPARENT
+                            } else false
+                            EffectType.DROP_SHADOW -> if (selectedLayer is Layer.TextLayer) {
+                                selectedLayer.style.shadowColor != AndroidColor.TRANSPARENT &&
+                                (selectedLayer.style.shadowRadius > 0f ||
+                                 selectedLayer.style.shadowDx != 0f ||
+                                 selectedLayer.style.shadowDy != 0f)
+                            } else false
+                        }
 
-                        Text("Arah Gradient:", style = MaterialTheme.typography.bodySmall)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(
-                                selected = currentStyle.gradientDirection.equals("HORIZONTAL", ignoreCase = true),
-                                onClick = { onUpdateStyle(currentStyle.copy(gradientDirection = "HORIZONTAL")) },
-                                label = { Text("Horizontal") }
-                            )
-                            FilterChip(
-                                selected = currentStyle.gradientDirection.equals("VERTICAL", ignoreCase = true),
-                                onClick = { onUpdateStyle(currentStyle.copy(gradientDirection = "VERTICAL")) },
-                                label = { Text("Vertikal") }
-                            )
+                        val (icon, title) = when (effect) {
+                            EffectType.OPACITY -> Icons.Default.Opacity to "Opacity"
+                            EffectType.TEXT_COLOR -> Icons.Default.Palette to "Warna Teks"
+                            EffectType.STROKE -> Icons.Default.FormatPaint to "Stroke"
+                            EffectType.DROP_SHADOW -> Icons.Default.WbSunny to "Drop Shadow"
+                        }
+
+                        Card(
+                            onClick = {
+                                expandedEffect = if (isSelected) null else effect
+                            },
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isSelected) {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                } else if (isActive) {
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant
+                                }
+                            ),
+                            border = if (isSelected) {
+                                BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                            } else if (isActive) {
+                                BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                            } else null,
+                            modifier = Modifier.width(105.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 10.dp, horizontal = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                BadgedBox(
+                                    badge = {
+                                        if (isActive) {
+                                            Badge(
+                                                containerColor = MaterialTheme.colorScheme.primary,
+                                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(8.dp)
+                                            )
+                                        }
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = title,
+                                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                                Text(
+                                    text = title,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1
+                                )
+                            }
                         }
                     }
+                }
 
-                    Text("Opacity Teks (Fill): ${(currentStyle.textOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
-                    Slider(
-                        value = currentStyle.textOpacity,
-                        onValueChange = { onUpdateStyle(currentStyle.copy(textOpacity = it)) },
-                        valueRange = 0f..1f
-                    )
+                if (expandedEffect != null) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 200.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        when (expandedEffect) {
+                            EffectType.OPACITY -> {
+                                Text("Transparansi Layer (Opacity): ${(selectedLayer.opacity * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
+                                Slider(
+                                    value = selectedLayer.opacity,
+                                    onValueChange = { onUpdateOpacity(it) },
+                                    valueRange = 0f..1f
+                                )
+                            }
+                            EffectType.TEXT_COLOR -> {
+                                if (selectedLayer is Layer.TextLayer) {
+                                    val currentStyle = selectedLayer.style
 
-                    Text("Warna Stroke/Outline Teks:", style = MaterialTheme.typography.bodySmall)
-                    SimpleColorPickerRow(
-                        selectedColor = currentStyle.strokeColor,
-                        onColorSelected = { col -> onUpdateStyle(currentStyle.copy(strokeColor = col)) }
-                    )
+                                    Text("Warna Fill Teks:", style = MaterialTheme.typography.titleSmall)
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        FilterChip(
+                                            selected = !currentStyle.isGradientEnabled,
+                                            onClick = { onUpdateStyle(currentStyle.copy(isGradientEnabled = false)) },
+                                            label = { Text("Solid Color") }
+                                        )
+                                        FilterChip(
+                                            selected = currentStyle.isGradientEnabled,
+                                            onClick = { onUpdateStyle(currentStyle.copy(isGradientEnabled = true)) },
+                                            label = { Text("Gradient") }
+                                        )
+                                    }
 
-                    Text("Ketebalan Stroke: ${currentStyle.strokeWidth.toInt()} px", style = MaterialTheme.typography.bodySmall)
-                    Slider(
-                        value = currentStyle.strokeWidth,
-                        onValueChange = {
-                            val strokeCol = if (it > 0f && currentStyle.strokeColor == AndroidColor.TRANSPARENT) AndroidColor.BLACK else currentStyle.strokeColor
-                            onUpdateStyle(currentStyle.copy(strokeWidth = it, strokeColor = strokeCol))
-                        },
-                        valueRange = 0f..20f
-                    )
+                                    if (!currentStyle.isGradientEnabled) {
+                                        Text("Warna Teks (Solid):", style = MaterialTheme.typography.bodySmall)
+                                        SimpleColorPickerRow(
+                                            selectedColor = currentStyle.textColor,
+                                            onColorSelected = { col -> onUpdateStyle(currentStyle.copy(textColor = col)) }
+                                        )
+                                    } else {
+                                        Text("Warna Gradient Start:", style = MaterialTheme.typography.bodySmall)
+                                        SimpleColorPickerRow(
+                                            selectedColor = currentStyle.gradientStartColor,
+                                            onColorSelected = { col -> onUpdateStyle(currentStyle.copy(gradientStartColor = col)) }
+                                        )
 
-                    Text("Opacity Stroke: ${(currentStyle.strokeOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
-                    Slider(
-                        value = currentStyle.strokeOpacity,
-                        onValueChange = { onUpdateStyle(currentStyle.copy(strokeOpacity = it)) },
-                        valueRange = 0f..1f
-                    )
+                                        Text("Warna Gradient End:", style = MaterialTheme.typography.bodySmall)
+                                        SimpleColorPickerRow(
+                                            selectedColor = currentStyle.gradientEndColor,
+                                            onColorSelected = { col -> onUpdateStyle(currentStyle.copy(gradientEndColor = col)) }
+                                        )
 
-                    Text("Drop Shadow Details:", style = MaterialTheme.typography.titleSmall)
+                                        Text("Arah Gradient:", style = MaterialTheme.typography.bodySmall)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            FilterChip(
+                                                selected = currentStyle.gradientDirection.equals("HORIZONTAL", ignoreCase = true),
+                                                onClick = { onUpdateStyle(currentStyle.copy(gradientDirection = "HORIZONTAL")) },
+                                                label = { Text("Horizontal") }
+                                            )
+                                            FilterChip(
+                                                selected = currentStyle.gradientDirection.equals("VERTICAL", ignoreCase = true),
+                                                onClick = { onUpdateStyle(currentStyle.copy(gradientDirection = "VERTICAL")) },
+                                                label = { Text("Vertikal") }
+                                            )
+                                        }
+                                    }
 
-                    Text("Warna Bayangan:", style = MaterialTheme.typography.bodySmall)
-                    SimpleColorPickerRow(
-                        selectedColor = currentStyle.shadowColor,
-                        onColorSelected = { col ->
-                            onUpdateStyle(currentStyle.copy(shadowColor = col))
+                                    Text("Opacity Teks (Fill): ${(currentStyle.textOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                                    Slider(
+                                        value = currentStyle.textOpacity,
+                                        onValueChange = { onUpdateStyle(currentStyle.copy(textOpacity = it)) },
+                                        valueRange = 0f..1f
+                                    )
+                                }
+                            }
+                            EffectType.STROKE -> {
+                                if (selectedLayer is Layer.TextLayer) {
+                                    val currentStyle = selectedLayer.style
+
+                                    Text("Warna Stroke/Outline Teks:", style = MaterialTheme.typography.bodySmall)
+                                    SimpleColorPickerRow(
+                                        selectedColor = currentStyle.strokeColor,
+                                        onColorSelected = { col -> onUpdateStyle(currentStyle.copy(strokeColor = col)) }
+                                    )
+
+                                    Text("Ketebalan Stroke: ${currentStyle.strokeWidth.toInt()} px", style = MaterialTheme.typography.bodySmall)
+                                    Slider(
+                                        value = currentStyle.strokeWidth,
+                                        onValueChange = {
+                                            val strokeCol = if (it > 0f && currentStyle.strokeColor == AndroidColor.TRANSPARENT) AndroidColor.BLACK else currentStyle.strokeColor
+                                            onUpdateStyle(currentStyle.copy(strokeWidth = it, strokeColor = strokeCol))
+                                        },
+                                        valueRange = 0f..20f
+                                    )
+
+                                    Text("Opacity Stroke: ${(currentStyle.strokeOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                                    Slider(
+                                        value = currentStyle.strokeOpacity,
+                                        onValueChange = { onUpdateStyle(currentStyle.copy(strokeOpacity = it)) },
+                                        valueRange = 0f..1f
+                                    )
+                                }
+                            }
+                            EffectType.DROP_SHADOW -> {
+                                if (selectedLayer is Layer.TextLayer) {
+                                    val currentStyle = selectedLayer.style
+
+                                    Text("Warna Bayangan:", style = MaterialTheme.typography.bodySmall)
+                                    SimpleColorPickerRow(
+                                        selectedColor = currentStyle.shadowColor,
+                                        onColorSelected = { col ->
+                                            onUpdateStyle(currentStyle.copy(shadowColor = col))
+                                        }
+                                    )
+
+                                    Text("Blur Radius: ${currentStyle.shadowRadius.toInt()} px", style = MaterialTheme.typography.bodySmall)
+                                    Slider(
+                                        value = currentStyle.shadowRadius,
+                                        onValueChange = {
+                                            val shadowCol = if (it > 0f && currentStyle.shadowColor == AndroidColor.TRANSPARENT) AndroidColor.BLACK else currentStyle.shadowColor
+                                            onUpdateStyle(currentStyle.copy(shadowRadius = it, shadowColor = shadowCol))
+                                        },
+                                        valueRange = 0f..30f
+                                    )
+
+                                    Text("Offset X: ${currentStyle.shadowDx.toInt()} px", style = MaterialTheme.typography.bodySmall)
+                                    Slider(
+                                        value = currentStyle.shadowDx,
+                                        onValueChange = { onUpdateStyle(currentStyle.copy(shadowDx = it)) },
+                                        valueRange = -30f..30f
+                                    )
+
+                                    Text("Offset Y: ${currentStyle.shadowDy.toInt()} px", style = MaterialTheme.typography.bodySmall)
+                                    Slider(
+                                        value = currentStyle.shadowDy,
+                                        onValueChange = { onUpdateStyle(currentStyle.copy(shadowDy = it)) },
+                                        valueRange = -30f..30f
+                                    )
+                                }
+                            }
+                            null -> {}
                         }
-                    )
-
-                    Text("Blur Radius: ${currentStyle.shadowRadius.toInt()} px", style = MaterialTheme.typography.bodySmall)
-                    Slider(
-                        value = currentStyle.shadowRadius,
-                        onValueChange = {
-                            val shadowCol = if (it > 0f && currentStyle.shadowColor == AndroidColor.TRANSPARENT) AndroidColor.BLACK else currentStyle.shadowColor
-                            onUpdateStyle(currentStyle.copy(shadowRadius = it, shadowColor = shadowCol))
-                        },
-                        valueRange = 0f..30f
-                    )
-
-                    Text("Offset X: ${currentStyle.shadowDx.toInt()} px", style = MaterialTheme.typography.bodySmall)
-                    Slider(
-                        value = currentStyle.shadowDx,
-                        onValueChange = { onUpdateStyle(currentStyle.copy(shadowDx = it)) },
-                        valueRange = -30f..30f
-                    )
-
-                    Text("Offset Y: ${currentStyle.shadowDy.toInt()} px", style = MaterialTheme.typography.bodySmall)
-                    Slider(
-                        value = currentStyle.shadowDy,
-                        onValueChange = { onUpdateStyle(currentStyle.copy(shadowDy = it)) },
-                        valueRange = -30f..30f
-                    )
+                    }
                 }
             }
         }
