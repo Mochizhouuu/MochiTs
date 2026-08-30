@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.items
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
@@ -417,7 +419,10 @@ fun EditorScreen(
             var initialTextY by remember { mutableFloatStateOf(0f) }
             var initialTouchCanvasPt by remember { mutableStateOf(Offset.Zero) }
 
-            // Handle positions in canvas coordinates
+            var lastTapTimestamp by remember { mutableLongStateOf(0L) }
+            var lastTapLayerId by remember { mutableStateOf<String?>(null) }
+
+            // Handle positions in unrotated text bounds space
             val deleteHandleCanvasCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text) {
                 if (selectedTextLayer != null) {
                     val bounds = textRenderer.getTextBounds(selectedTextLayer.text, selectedTextLayer.style, selectedTextLayer.x, selectedTextLayer.y)
@@ -557,18 +562,39 @@ fun EditorScreen(
                                     panAccumulator = 0f
                                     var hitHandle = false
                                     if (selectedTextLayer != null) {
-                                        val distResizeSq = (touchCanvasPt.x - handleCanvasCenter.x) * (touchCanvasPt.x - handleCanvasCenter.x) +
-                                                (touchCanvasPt.y - handleCanvasCenter.y) * (touchCanvasPt.y - handleCanvasCenter.y)
-                                        val distDeleteSq = (touchCanvasPt.x - deleteHandleCanvasCenter.x) * (touchCanvasPt.x - deleteHandleCanvasCenter.x) +
-                                                (touchCanvasPt.y - deleteHandleCanvasCenter.y) * (touchCanvasPt.y - deleteHandleCanvasCenter.y)
-                                        val distRotateSq = (touchCanvasPt.x - rotateHandleCanvasCenter.x) * (touchCanvasPt.x - rotateHandleCanvasCenter.x) +
-                                                (touchCanvasPt.y - rotateHandleCanvasCenter.y) * (touchCanvasPt.y - rotateHandleCanvasCenter.y)
+                                        val bounds = textRenderer.getTextBounds(selectedTextLayer.text, selectedTextLayer.style, selectedTextLayer.x, selectedTextLayer.y)
+                                        val textCenterX = bounds.centerX()
+                                        val textCenterY = bounds.centerY()
+
+                                        // Transform touch point to unrotated coordinate space around text center
+                                        val unrotatedPt = if (selectedTextLayer.rotation != 0f) {
+                                            val rad = Math.toRadians(-selectedTextLayer.rotation.toDouble())
+                                            val cosA = kotlin.math.cos(rad)
+                                            val sinA = kotlin.math.sin(rad)
+                                            val dx = (touchCanvasPt.x - textCenterX).toDouble()
+                                            val dy = (touchCanvasPt.y - textCenterY).toDouble()
+                                            Offset(
+                                                (textCenterX + dx * cosA - dy * sinA).toFloat(),
+                                                (textCenterY + dx * sinA + dy * cosA).toFloat()
+                                            )
+                                        } else {
+                                            touchCanvasPt
+                                        }
+
+                                        val distResizeSq = (unrotatedPt.x - handleCanvasCenter.x) * (unrotatedPt.x - handleCanvasCenter.x) +
+                                                (unrotatedPt.y - handleCanvasCenter.y) * (unrotatedPt.y - handleCanvasCenter.y)
+                                        val distDeleteSq = (unrotatedPt.x - deleteHandleCanvasCenter.x) * (unrotatedPt.x - deleteHandleCanvasCenter.x) +
+                                                (unrotatedPt.y - deleteHandleCanvasCenter.y) * (unrotatedPt.y - deleteHandleCanvasCenter.y)
+                                        val distRotateSq = (unrotatedPt.x - rotateHandleCanvasCenter.x) * (unrotatedPt.x - rotateHandleCanvasCenter.x) +
+                                                (unrotatedPt.y - rotateHandleCanvasCenter.y) * (unrotatedPt.y - rotateHandleCanvasCenter.y)
 
                                         val rSq = handleHitRadius * handleHitRadius
 
                                         if (distDeleteSq <= rSq) {
                                             activeHandleType = TextHandleType.DELETE
                                             viewModel.deleteLayer(selectedTextLayer.id)
+                                            viewModel.selectLayer(null)
+                                            activeHandleType = null
                                             hitHandle = true
                                             firstChange.consume()
                                             triggerRedraw++
@@ -576,8 +602,6 @@ fun EditorScreen(
                                         } else if (distResizeSq <= rSq) {
                                             activeHandleType = TextHandleType.RESIZE
                                             viewModel.saveUndoSnapshot()
-                                            val textCenterX = selectedTextLayer.x
-                                            val textCenterY = selectedTextLayer.y
                                             initialDragDist = kotlin.math.hypot(touchCanvasPt.x - textCenterX, touchCanvasPt.y - textCenterY)
                                             initialFontSize = selectedTextLayer.style.fontSize
                                             hitHandle = true
@@ -586,9 +610,6 @@ fun EditorScreen(
                                         } else if (distRotateSq <= rSq) {
                                             activeHandleType = TextHandleType.ROTATE
                                             viewModel.saveUndoSnapshot()
-                                            val bounds = textRenderer.getTextBounds(selectedTextLayer.text, selectedTextLayer.style, selectedTextLayer.x, selectedTextLayer.y)
-                                            val textCenterX = bounds.centerX()
-                                            val textCenterY = bounds.centerY()
                                             initialTouchAngle = Math.toDegrees(kotlin.math.atan2((touchCanvasPt.y - textCenterY).toDouble(), (touchCanvasPt.x - textCenterX).toDouble())).toFloat()
                                             initialTextRotation = selectedTextLayer.rotation
                                             hitHandle = true
@@ -710,11 +731,22 @@ fun EditorScreen(
                                                     layer.isVisible && isPointInsideTextLayer(layer, releaseCanvasPt, textRenderer)
                                                 }
                                                 if (hitTextLayer != null) {
+                                                    val now = System.currentTimeMillis()
+                                                    val isDoubleTap = (lastTapLayerId == hitTextLayer.id) && (now - lastTapTimestamp < 400L)
                                                     viewModel.selectLayer(hitTextLayer.id)
-                                                    viewModel.setActivePanel(EditorPanel.TEXT)
+                                                    if (isDoubleTap) {
+                                                        viewModel.setActivePanel(EditorPanel.TEXT)
+                                                        lastTapTimestamp = 0L
+                                                        lastTapLayerId = null
+                                                    } else {
+                                                        lastTapTimestamp = now
+                                                        lastTapLayerId = hitTextLayer.id
+                                                    }
                                                     triggerRedraw++
                                                 } else {
                                                     viewModel.selectLayer(null)
+                                                    lastTapTimestamp = 0L
+                                                    lastTapLayerId = null
                                                     triggerRedraw++
                                                 }
                                             }
@@ -1326,6 +1358,7 @@ fun TextToolPanel(
     onSliderDragEnd: () -> Unit = {}
 ) {
     var textInput by remember { mutableStateOf(selectedLayer?.text ?: "") }
+    var isFontOptionsExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(selectedLayer?.id, selectedLayer?.text) {
         textInput = selectedLayer?.text ?: ""
@@ -1353,6 +1386,7 @@ fun TextToolPanel(
                     value = textInput,
                     onValueChange = { textInput = it },
                     label = { Text(if (selectedLayer != null) "Edit Teks" else "Teks Baru") },
+                    maxLines = 3,
                     modifier = Modifier.weight(1f)
                 )
                 Button(
@@ -1371,32 +1405,62 @@ fun TextToolPanel(
                 }
             }
 
-            Text("Font Family:", style = MaterialTheme.typography.bodyMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("Default", "Sans", "Serif", "Monospace").forEach { font ->
-                    FilterChip(
-                        selected = currentStyle.fontName.equals(font, ignoreCase = true),
-                        onClick = { onUpdateStyle(currentStyle.copy(fontName = font), true) },
-                        label = { Text(font) }
-                    )
-                }
+            // Collapsible section for Font Family & Style
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isFontOptionsExpanded = !isFontOptionsExpanded }
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Font (${currentStyle.fontName}, ${if (currentStyle.fontStyle == "BoldItalic") "Bold+Italic" else currentStyle.fontStyle})",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Icon(
+                    imageVector = if (isFontOptionsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (isFontOptionsExpanded) "Tutup Opsi Font" else "Buka Opsi Font"
+                )
             }
 
-            Text("Font Style:", style = MaterialTheme.typography.bodyMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("Regular", "Bold", "Italic", "BoldItalic").forEach { st ->
-                    val displayLabel = if (st == "BoldItalic") "Bold+Italic" else st
-                    FilterChip(
-                        selected = currentStyle.fontStyle.equals(st, ignoreCase = true),
-                        onClick = { onUpdateStyle(currentStyle.copy(fontStyle = st), true) },
-                        label = { Text(displayLabel) }
-                    )
+            if (isFontOptionsExpanded) {
+                Text("Font Family:", style = MaterialTheme.typography.bodyMedium)
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("Default", "Sans", "Serif", "Monospace").forEach { font ->
+                        FilterChip(
+                            selected = currentStyle.fontName.equals(font, ignoreCase = true),
+                            onClick = { onUpdateStyle(currentStyle.copy(fontName = font), true) },
+                            label = { Text(font) }
+                        )
+                    }
+                }
+
+                Text("Font Style:", style = MaterialTheme.typography.bodyMedium)
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("Regular", "Bold", "Italic", "BoldItalic").forEach { st ->
+                        val displayLabel = if (st == "BoldItalic") "Bold+Italic" else st
+                        FilterChip(
+                            selected = currentStyle.fontStyle.equals(st, ignoreCase = true),
+                            onClick = { onUpdateStyle(currentStyle.copy(fontStyle = st), true) },
+                            label = { Text(displayLabel) }
+                        )
+                    }
                 }
             }
 
             if (selectedLayer != null) {
                 Text("Kapitalisasi Teks:", style = MaterialTheme.typography.bodyMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     FilterChip(
                         selected = false,
                         onClick = {

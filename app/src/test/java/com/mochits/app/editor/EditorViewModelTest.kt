@@ -238,4 +238,45 @@ class EditorViewModelTest {
         assertEquals(originalLayer.x, updatedLayer.x, 0.01f)
         assertEquals(originalLayer.y, updatedLayer.y, 0.01f)
     }
+
+    @Test
+    fun testDeleteLayer_removesLayerAndClearsSelection() {
+        viewModel.addTextLayer("Layer To Delete")
+        val textLayerId = viewModel.selectedLayerId.value
+        assertNotNull(textLayerId)
+        assertEquals(1, viewModel.layers.value.size)
+
+        viewModel.deleteLayer(textLayerId!!)
+
+        assertEquals(0, viewModel.layers.value.size)
+        assertTrue(viewModel.canUndo.value)
+
+        viewModel.undo()
+        assertEquals(1, viewModel.layers.value.size)
+    }
+
+    @Test
+    fun testUpdateSelectedTextLayerPositionAndRotation_updatesValuesAndCanUndo() {
+        viewModel.addTextLayer("Transformable Layer")
+        val transformLayerId = viewModel.selectedLayerId.value
+        assertNotNull(transformLayerId)
+
+        viewModel.updateSelectedTextLayerPosition(150f, 250f, saveUndo = true)
+        viewModel.updateSelectedTextLayerRotation(45f, saveUndo = true)
+
+        val layer = viewModel.layers.value.find { it.id == transformLayerId } as Layer.TextLayer
+        assertEquals(150f, layer.x, 0.01f)
+        assertEquals(250f, layer.y, 0.01f)
+        assertEquals(45f, layer.rotation, 0.01f)
+
+        // Undo rotation
+        viewModel.undo()
+        val layerAfterUndoRot = viewModel.layers.value.find { it.id == transformLayerId } as Layer.TextLayer
+        assertEquals(0f, layerAfterUndoRot.rotation, 0.01f)
+
+        // Undo position
+        viewModel.undo()
+        val layerAfterUndoPos = viewModel.layers.value.find { it.id == transformLayerId } as Layer.TextLayer
+        assertFalse(layerAfterUndoPos.x == 150f)
+    }
 }
