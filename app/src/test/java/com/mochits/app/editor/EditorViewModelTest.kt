@@ -221,4 +221,21 @@ class EditorViewModelTest {
         assertEquals(255, (rawA2 ushr 24) or (rawA2 and 0xFF))
         assertEquals(255, (rawB2 ushr 24) or (rawB2 and 0xFF))
     }
+    @Test
+    fun testUpdateSelectedTextContent_updatesActiveLayerTextAndPreservesStyle() {
+        viewModel.addTextLayer("Original Text")
+        val layerId = viewModel.selectedLayerId.value
+        assertNotNull(layerId)
+
+        val originalLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        assertEquals("Original Text", originalLayer.text)
+
+        viewModel.updateSelectedTextContent("Updated Text Content")
+
+        val updatedLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        assertEquals("Updated Text Content", updatedLayer.text)
+        assertEquals(originalLayer.style, updatedLayer.style)
+        assertEquals(originalLayer.x, updatedLayer.x, 0.01f)
+        assertEquals(originalLayer.y, updatedLayer.y, 0.01f)
+    }
 }
