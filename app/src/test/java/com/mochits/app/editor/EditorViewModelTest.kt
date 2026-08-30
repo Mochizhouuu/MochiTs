@@ -279,4 +279,81 @@ class EditorViewModelTest {
         val layerAfterUndoPos = viewModel.layers.value.find { it.id == transformLayerId } as Layer.TextLayer
         assertFalse(layerAfterUndoPos.x == 150f)
     }
+
+    @Test
+    fun testResizeRotatedTextLayer_acrossMultipleAngles() {
+        viewModel.addTextLayer("Resize Test")
+        val layerId = viewModel.selectedLayerId.value
+        assertNotNull(layerId)
+
+        val angles = listOf(0f, 45f, 90f, 180f, 270f)
+        val initialFontSize = 36f
+
+        for (angle in angles) {
+            viewModel.updateSelectedTextLayerRotation(angle, saveUndo = false)
+            val currentLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+            assertEquals(angle, currentLayer.rotation, 0.01f)
+
+            // Calculate center of text bounds
+            val bounds = viewModel.textRenderer.getTextBounds(currentLayer.text, currentLayer.style, currentLayer.x, currentLayer.y)
+            val textCenterX = bounds.centerX()
+            val textCenterY = bounds.centerY()
+
+            // Simulate touch DOWN at bottom-right resize handle position in canvas space
+            val touchDownPt = androidx.compose.ui.geometry.Offset(bounds.right, bounds.bottom)
+            val initialDragDist = kotlin.math.hypot(touchDownPt.x - textCenterX, touchDownPt.y - textCenterY)
+            assertTrue(initialDragDist > 0f)
+
+            // Simulate DRAG away from center by 1.5x distance
+            val dragScale = 1.5f
+            val dragPt = androidx.compose.ui.geometry.Offset(
+                textCenterX + (touchDownPt.x - textCenterX) * dragScale,
+                textCenterY + (touchDownPt.y - textCenterY) * dragScale
+            )
+
+            val currentDist = kotlin.math.hypot(dragPt.x - textCenterX, dragPt.y - textCenterY)
+            val scaleFactor = currentDist / initialDragDist
+            val expectedFontSize = (initialFontSize * scaleFactor).coerceIn(10f, 300f)
+
+            viewModel.updateSelectedTextLayerStyle(
+                currentLayer.style.copy(fontSize = expectedFontSize),
+                saveUndo = false
+            )
+
+            val updatedLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+            assertEquals(54f, updatedLayer.style.fontSize, 0.1f)
+
+            // Reset font size back to initial for next angle iteration
+            viewModel.updateSelectedTextLayerStyle(
+                updatedLayer.style.copy(fontSize = initialFontSize),
+                saveUndo = false
+            )
+        }
+    }
+
+    @Test
+    fun testRotateAndDeleteTextLayer_noRegression() {
+        viewModel.addTextLayer("Rotate and Delete Test")
+        val layerId = viewModel.selectedLayerId.value
+        assertNotNull(layerId)
+
+        // 1. Perform rotation to 90 degrees
+        viewModel.updateSelectedTextLayerRotation(90f, saveUndo = true)
+        val rotatedLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        assertEquals(90f, rotatedLayer.rotation, 0.01f)
+
+        // 2. Perform delete
+        viewModel.deleteLayer(layerId!!)
+        assertEquals(0, viewModel.layers.value.size)
+
+        // 3. Undo delete and rotation
+        viewModel.undo() // restore layer
+        assertEquals(1, viewModel.layers.value.size)
+        val restoredLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        assertEquals(90f, restoredLayer.rotation, 0.01f)
+
+        viewModel.undo() // restore rotation to 0
+        val unrotatedLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        assertEquals(0f, unrotatedLayer.rotation, 0.01f)
+    }
 }
