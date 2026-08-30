@@ -337,13 +337,17 @@ fun EditorScreen(
                         selectedLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer,
                         defaultStyle = defaultTextStyle,
                         onAddText = { text -> viewModel.addTextLayer(text, viewportWidth = currentViewportW, viewportHeight = currentViewportH) },
-                        onUpdateStyle = { style -> viewModel.updateSelectedTextLayerStyle(style) },
-                        onCapitalizationTransform = { newText -> viewModel.updateSelectedTextContent(newText) }
+                        onUpdateStyle = { style, saveUndo -> viewModel.updateSelectedTextLayerStyle(style, saveUndo = saveUndo) },
+                        onCapitalizationTransform = { newText -> viewModel.updateSelectedTextContent(newText) },
+                        onSliderDragStart = { viewModel.onSliderDragStart() },
+                        onSliderDragEnd = { viewModel.onSliderDragEnd() }
                     )
                     EditorPanel.EFFECT -> EffectToolPanel(
                         selectedLayer = layers.find { it.id == selectedLayerId },
-                        onUpdateOpacity = { opacity -> viewModel.updateSelectedLayerOpacity(opacity) },
-                        onUpdateStyle = { style -> viewModel.updateSelectedTextLayerStyle(style) }
+                        onUpdateOpacity = { opacity, saveUndo -> viewModel.updateSelectedLayerOpacity(opacity, saveUndo = saveUndo) },
+                        onUpdateStyle = { style, saveUndo -> viewModel.updateSelectedTextLayerStyle(style, saveUndo = saveUndo) },
+                        onSliderDragStart = { viewModel.onSliderDragStart() },
+                        onSliderDragEnd = { viewModel.onSliderDragEnd() }
                     )
                     EditorPanel.LAYERS -> LayersToolPanel(
                         layers = layers,
@@ -353,7 +357,9 @@ fun EditorScreen(
                         onToggleVisibility = { viewModel.toggleLayerVisibility(it) },
                         onDeleteLayer = { viewModel.deleteLayer(it) },
                         onLoadBaseImage = { baseImagePickerLauncher.launch("image/*") },
-                        onUpdateOpacity = { opacity -> viewModel.updateSelectedLayerOpacity(opacity) }
+                        onUpdateOpacity = { opacity, saveUndo -> viewModel.updateSelectedLayerOpacity(opacity, saveUndo = saveUndo) },
+                        onSliderDragStart = { viewModel.onSliderDragStart() },
+                        onSliderDragEnd = { viewModel.onSliderDragEnd() }
                     )
                     else -> {}
                 }
@@ -1311,8 +1317,10 @@ fun TextToolPanel(
     selectedLayer: Layer.TextLayer?,
     defaultStyle: TextStyleConfig,
     onAddText: (String) -> Unit,
-    onUpdateStyle: (TextStyleConfig) -> Unit,
-    onCapitalizationTransform: ((String) -> Unit)? = null
+    onUpdateStyle: (TextStyleConfig, Boolean) -> Unit,
+    onCapitalizationTransform: ((String) -> Unit)? = null,
+    onSliderDragStart: () -> Unit = {},
+    onSliderDragEnd: () -> Unit = {}
 ) {
     var textInput by remember { mutableStateOf("") }
     val currentStyle = selectedLayer?.style ?: defaultStyle
@@ -1356,7 +1364,7 @@ fun TextToolPanel(
                 listOf("Default", "Sans", "Serif", "Monospace").forEach { font ->
                     FilterChip(
                         selected = currentStyle.fontName.equals(font, ignoreCase = true),
-                        onClick = { onUpdateStyle(currentStyle.copy(fontName = font)) },
+                        onClick = { onUpdateStyle(currentStyle.copy(fontName = font), true) },
                         label = { Text(font) }
                     )
                 }
@@ -1368,7 +1376,7 @@ fun TextToolPanel(
                     val displayLabel = if (st == "BoldItalic") "Bold+Italic" else st
                     FilterChip(
                         selected = currentStyle.fontStyle.equals(st, ignoreCase = true),
-                        onClick = { onUpdateStyle(currentStyle.copy(fontStyle = st)) },
+                        onClick = { onUpdateStyle(currentStyle.copy(fontStyle = st), true) },
                         label = { Text(displayLabel) }
                     )
                 }
@@ -1409,7 +1417,13 @@ fun TextToolPanel(
             Text("Ukuran Font: ${currentStyle.fontSize.toInt()} px", style = MaterialTheme.typography.bodyMedium)
             Slider(
                 value = currentStyle.fontSize,
-                onValueChange = { onUpdateStyle(currentStyle.copy(fontSize = it)) },
+                onValueChange = {
+                    onSliderDragStart()
+                    onUpdateStyle(currentStyle.copy(fontSize = it), false)
+                },
+                onValueChangeFinished = {
+                    onSliderDragEnd()
+                },
                 valueRange = 12f..120f
             )
         }
@@ -1523,10 +1537,18 @@ private enum class EffectType {
 @Composable
 fun EffectToolPanel(
     selectedLayer: Layer?,
-    onUpdateOpacity: (Float) -> Unit,
-    onUpdateStyle: (TextStyleConfig) -> Unit
+    onUpdateOpacity: (Float, Boolean) -> Unit,
+    onUpdateStyle: (TextStyleConfig, Boolean) -> Unit,
+    onSliderDragStart: () -> Unit = {},
+    onSliderDragEnd: () -> Unit = {}
 ) {
     var expandedEffect by remember(selectedLayer?.id) { mutableStateOf<EffectType?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            onSliderDragEnd()
+        }
+    }
 
     Surface(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
@@ -1658,7 +1680,13 @@ fun EffectToolPanel(
                                 Text("Transparansi Layer (Opacity): ${(selectedLayer.opacity * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
                                 Slider(
                                     value = selectedLayer.opacity,
-                                    onValueChange = { onUpdateOpacity(it) },
+                                    onValueChange = {
+                                        onSliderDragStart()
+                                        onUpdateOpacity(it, false)
+                                    },
+                                    onValueChangeFinished = {
+                                        onSliderDragEnd()
+                                    },
                                     valueRange = 0f..1f
                                 )
                             }
@@ -1673,12 +1701,12 @@ fun EffectToolPanel(
                                     ) {
                                         FilterChip(
                                             selected = !currentStyle.isGradientEnabled,
-                                            onClick = { onUpdateStyle(currentStyle.copy(isGradientEnabled = false)) },
+                                            onClick = { onUpdateStyle(currentStyle.copy(isGradientEnabled = false), true) },
                                             label = { Text("Solid Color") }
                                         )
                                         FilterChip(
                                             selected = currentStyle.isGradientEnabled,
-                                            onClick = { onUpdateStyle(currentStyle.copy(isGradientEnabled = true)) },
+                                            onClick = { onUpdateStyle(currentStyle.copy(isGradientEnabled = true), true) },
                                             label = { Text("Gradient") }
                                         )
                                     }
@@ -1687,31 +1715,31 @@ fun EffectToolPanel(
                                         Text("Warna Teks (Solid):", style = MaterialTheme.typography.bodySmall)
                                         SimpleColorPickerRow(
                                             selectedColor = currentStyle.textColor,
-                                            onColorSelected = { col -> onUpdateStyle(currentStyle.copy(textColor = col)) }
+                                            onColorSelected = { col -> onUpdateStyle(currentStyle.copy(textColor = col), true) }
                                         )
                                     } else {
                                         Text("Warna Gradient Start:", style = MaterialTheme.typography.bodySmall)
                                         SimpleColorPickerRow(
                                             selectedColor = currentStyle.gradientStartColor,
-                                            onColorSelected = { col -> onUpdateStyle(currentStyle.copy(gradientStartColor = col)) }
+                                            onColorSelected = { col -> onUpdateStyle(currentStyle.copy(gradientStartColor = col), true) }
                                         )
 
                                         Text("Warna Gradient End:", style = MaterialTheme.typography.bodySmall)
                                         SimpleColorPickerRow(
                                             selectedColor = currentStyle.gradientEndColor,
-                                            onColorSelected = { col -> onUpdateStyle(currentStyle.copy(gradientEndColor = col)) }
+                                            onColorSelected = { col -> onUpdateStyle(currentStyle.copy(gradientEndColor = col), true) }
                                         )
 
                                         Text("Arah Gradient:", style = MaterialTheme.typography.bodySmall)
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             FilterChip(
                                                 selected = currentStyle.gradientDirection.equals("HORIZONTAL", ignoreCase = true),
-                                                onClick = { onUpdateStyle(currentStyle.copy(gradientDirection = "HORIZONTAL")) },
+                                                onClick = { onUpdateStyle(currentStyle.copy(gradientDirection = "HORIZONTAL"), true) },
                                                 label = { Text("Horizontal") }
                                             )
                                             FilterChip(
                                                 selected = currentStyle.gradientDirection.equals("VERTICAL", ignoreCase = true),
-                                                onClick = { onUpdateStyle(currentStyle.copy(gradientDirection = "VERTICAL")) },
+                                                onClick = { onUpdateStyle(currentStyle.copy(gradientDirection = "VERTICAL"), true) },
                                                 label = { Text("Vertikal") }
                                             )
                                         }
@@ -1720,7 +1748,13 @@ fun EffectToolPanel(
                                     Text("Opacity Teks (Fill): ${(currentStyle.textOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
                                     Slider(
                                         value = currentStyle.textOpacity,
-                                        onValueChange = { onUpdateStyle(currentStyle.copy(textOpacity = it)) },
+                                        onValueChange = {
+                                            onSliderDragStart()
+                                            onUpdateStyle(currentStyle.copy(textOpacity = it), false)
+                                        },
+                                        onValueChangeFinished = {
+                                            onSliderDragEnd()
+                                        },
                                         valueRange = 0f..1f
                                     )
                                 }
@@ -1732,15 +1766,19 @@ fun EffectToolPanel(
                                     Text("Warna Stroke/Outline Teks:", style = MaterialTheme.typography.bodySmall)
                                     SimpleColorPickerRow(
                                         selectedColor = currentStyle.strokeColor,
-                                        onColorSelected = { col -> onUpdateStyle(currentStyle.copy(strokeColor = col)) }
+                                        onColorSelected = { col -> onUpdateStyle(currentStyle.copy(strokeColor = col), true) }
                                     )
 
                                     Text("Ketebalan Stroke: ${currentStyle.strokeWidth.toInt()} px", style = MaterialTheme.typography.bodySmall)
                                     Slider(
                                         value = currentStyle.strokeWidth,
                                         onValueChange = {
+                                            onSliderDragStart()
                                             val strokeCol = if (it > 0f && currentStyle.strokeColor == AndroidColor.TRANSPARENT) AndroidColor.BLACK else currentStyle.strokeColor
-                                            onUpdateStyle(currentStyle.copy(strokeWidth = it, strokeColor = strokeCol))
+                                            onUpdateStyle(currentStyle.copy(strokeWidth = it, strokeColor = strokeCol), false)
+                                        },
+                                        onValueChangeFinished = {
+                                            onSliderDragEnd()
                                         },
                                         valueRange = 0f..20f
                                     )
@@ -1748,7 +1786,13 @@ fun EffectToolPanel(
                                     Text("Opacity Stroke: ${(currentStyle.strokeOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
                                     Slider(
                                         value = currentStyle.strokeOpacity,
-                                        onValueChange = { onUpdateStyle(currentStyle.copy(strokeOpacity = it)) },
+                                        onValueChange = {
+                                            onSliderDragStart()
+                                            onUpdateStyle(currentStyle.copy(strokeOpacity = it), false)
+                                        },
+                                        onValueChangeFinished = {
+                                            onSliderDragEnd()
+                                        },
                                         valueRange = 0f..1f
                                     )
                                 }
@@ -1761,7 +1805,7 @@ fun EffectToolPanel(
                                     SimpleColorPickerRow(
                                         selectedColor = currentStyle.shadowColor,
                                         onColorSelected = { col ->
-                                            onUpdateStyle(currentStyle.copy(shadowColor = col))
+                                            onUpdateStyle(currentStyle.copy(shadowColor = col), true)
                                         }
                                     )
 
@@ -1769,8 +1813,12 @@ fun EffectToolPanel(
                                     Slider(
                                         value = currentStyle.shadowRadius,
                                         onValueChange = {
+                                            onSliderDragStart()
                                             val shadowCol = if (it > 0f && currentStyle.shadowColor == AndroidColor.TRANSPARENT) AndroidColor.BLACK else currentStyle.shadowColor
-                                            onUpdateStyle(currentStyle.copy(shadowRadius = it, shadowColor = shadowCol))
+                                            onUpdateStyle(currentStyle.copy(shadowRadius = it, shadowColor = shadowCol), false)
+                                        },
+                                        onValueChangeFinished = {
+                                            onSliderDragEnd()
                                         },
                                         valueRange = 0f..30f
                                     )
@@ -1778,14 +1826,26 @@ fun EffectToolPanel(
                                     Text("Offset X: ${currentStyle.shadowDx.toInt()} px", style = MaterialTheme.typography.bodySmall)
                                     Slider(
                                         value = currentStyle.shadowDx,
-                                        onValueChange = { onUpdateStyle(currentStyle.copy(shadowDx = it)) },
+                                        onValueChange = {
+                                            onSliderDragStart()
+                                            onUpdateStyle(currentStyle.copy(shadowDx = it), false)
+                                        },
+                                        onValueChangeFinished = {
+                                            onSliderDragEnd()
+                                        },
                                         valueRange = -30f..30f
                                     )
 
                                     Text("Offset Y: ${currentStyle.shadowDy.toInt()} px", style = MaterialTheme.typography.bodySmall)
                                     Slider(
                                         value = currentStyle.shadowDy,
-                                        onValueChange = { onUpdateStyle(currentStyle.copy(shadowDy = it)) },
+                                        onValueChange = {
+                                            onSliderDragStart()
+                                            onUpdateStyle(currentStyle.copy(shadowDy = it), false)
+                                        },
+                                        onValueChangeFinished = {
+                                            onSliderDragEnd()
+                                        },
                                         valueRange = -30f..30f
                                     )
                                 }
@@ -1808,7 +1868,9 @@ fun LayersToolPanel(
     onToggleVisibility: (String) -> Unit,
     onDeleteLayer: (String) -> Unit,
     onLoadBaseImage: () -> Unit = {},
-    onUpdateOpacity: ((Float) -> Unit)? = null
+    onUpdateOpacity: ((Float, Boolean) -> Unit)? = null,
+    onSliderDragStart: () -> Unit = {},
+    onSliderDragEnd: () -> Unit = {}
 ) {
     val selectedLayer = layers.find { it.id == selectedId }
     Surface(
@@ -1836,7 +1898,13 @@ fun LayersToolPanel(
                     Text("Opacity Layer: ${(selectedLayer.opacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
                     Slider(
                         value = selectedLayer.opacity,
-                        onValueChange = { onUpdateOpacity?.invoke(it) },
+                        onValueChange = {
+                            onSliderDragStart()
+                            onUpdateOpacity?.invoke(it, false)
+                        },
+                        onValueChangeFinished = {
+                            onSliderDragEnd()
+                        },
                         valueRange = 0f..1f,
                         modifier = Modifier.weight(1f)
                     )
