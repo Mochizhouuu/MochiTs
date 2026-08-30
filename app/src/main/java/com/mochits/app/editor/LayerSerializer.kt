@@ -76,6 +76,10 @@ class LayerSerializer {
 
         return dtos.map { dto ->
             if (dto.type == "TEXT") {
+                val rawStyle = dto.style ?: TextStyleConfig()
+                val migratedStyle = if (rawStyle.gradientStops.isEmpty()) {
+                    rawStyle.copy(gradientStops = rawStyle.getEffectiveGradientStops())
+                } else rawStyle
                 Layer.TextLayer(
                     id = dto.id,
                     name = dto.name,
@@ -88,7 +92,7 @@ class LayerSerializer {
                     isVisible = dto.isVisible,
                     isLocked = dto.isLocked,
                     text = dto.text ?: "",
-                    style = dto.style ?: TextStyleConfig()
+                    style = migratedStyle
                 )
             } else {
                 Layer.ImageLayer(

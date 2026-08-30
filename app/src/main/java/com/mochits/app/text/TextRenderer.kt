@@ -40,10 +40,19 @@ class TextRenderer(private val context: Context) {
             } else {
                 floatArrayOf(x, y, x + textWidth, y)
             }
+            val stops = style.getEffectiveGradientStops()
+            val colors = IntArray(stops.size)
+            val positions = FloatArray(stops.size)
+
+            stops.forEachIndexed { i, stop ->
+                colors[i] = stop.color
+                positions[i] = stop.position.coerceIn(0f, 1f)
+            }
+
             paint.shader = android.graphics.LinearGradient(
                 x0, y0, x1, y1,
-                style.gradientStartColor,
-                style.gradientEndColor,
+                colors,
+                positions,
                 android.graphics.Shader.TileMode.CLAMP
             )
         }

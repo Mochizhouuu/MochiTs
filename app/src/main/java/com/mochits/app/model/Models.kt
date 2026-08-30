@@ -17,6 +17,11 @@ enum class EditorPanel {
     SETTINGS
 }
 
+data class ColorStop(
+    val color: Int = Color.BLACK,
+    val position: Float = 0f
+)
+
 data class TextStyleConfig(
     val fontName: String = "Default",
     val fontStyle: String = "Regular", // "Regular", "Bold", "Italic", "BoldItalic"
@@ -38,8 +43,20 @@ data class TextStyleConfig(
     val isGradientEnabled: Boolean = false,
     val gradientStartColor: Int = Color.BLACK,
     val gradientEndColor: Int = Color.WHITE,
+    val gradientStops: List<ColorStop> = emptyList(),
     val gradientDirection: String = "HORIZONTAL" // "HORIZONTAL", "VERTICAL"
-)
+) {
+    fun getEffectiveGradientStops(): List<ColorStop> {
+        val stops = gradientStops
+        if (!stops.isNullOrEmpty()) {
+            return stops.sortedBy { it.position }
+        }
+        return listOf(
+            ColorStop(color = gradientStartColor, position = 0f),
+            ColorStop(color = gradientEndColor, position = 1f)
+        )
+    }
+}
 
 sealed class Layer(
     open val id: String,

@@ -3,6 +3,7 @@ package com.mochits.app.text
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import com.mochits.app.model.ColorStop
 import com.mochits.app.model.TextStyleConfig
 import org.junit.Assert.assertNotNull
 import org.junit.Test
@@ -71,6 +72,31 @@ class TextRendererTest {
         )
 
         textRenderer.drawStyledText(canvas, "Vertical Gradient", style, 10f, 10f)
+        assertNotNull(bitmap)
+    }
+
+    @Test
+    fun testDrawStyledTextWithMultiColorStopsAndAlpha() {
+        val context = RuntimeEnvironment.getApplication()
+        val textRenderer = TextRenderer(context)
+        val bitmap = Bitmap.createBitmap(300, 150, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+
+        val stops = listOf(
+            ColorStop(color = Color.argb(255, 255, 0, 0), position = 0.0f),
+            ColorStop(color = Color.argb(128, 0, 255, 0), position = 0.5f),
+            ColorStop(color = Color.argb(0, 0, 0, 255), position = 1.0f)
+        )
+
+        val style = TextStyleConfig(
+            fontName = "Sans",
+            fontSize = 40f,
+            isGradientEnabled = true,
+            gradientStops = stops,
+            gradientDirection = "HORIZONTAL"
+        )
+
+        textRenderer.drawStyledText(canvas, "Multi Stop Gradient", style, 10f, 10f)
         assertNotNull(bitmap)
     }
 }

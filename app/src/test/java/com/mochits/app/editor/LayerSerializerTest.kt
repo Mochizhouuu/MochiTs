@@ -1,6 +1,7 @@
 package com.mochits.app.editor
 
 import android.graphics.Color
+import com.mochits.app.model.ColorStop
 import com.mochits.app.model.Layer
 import com.mochits.app.model.TextStyleConfig
 import org.junit.Assert.*
@@ -43,6 +44,9 @@ class LayerSerializerTest {
         assertEquals(Color.RED, layer.style.gradientStartColor)
         assertEquals(Color.BLUE, layer.style.gradientEndColor)
         assertEquals("VERTICAL", layer.style.gradientDirection)
+        assertEquals(2, layer.style.gradientStops.size)
+        assertEquals(0f, layer.style.gradientStops[0].position, 0.001f)
+        assertEquals(1f, layer.style.gradientStops[1].position, 0.001f)
     }
 
     @Test
@@ -65,7 +69,9 @@ class LayerSerializerTest {
                 "style": {
                   "fontName": "Default",
                   "fontSize": 36.0,
-                  "textColor": -16777216
+                  "textColor": -16777216,
+                  "gradientStartColor": -65536,
+                  "gradientEndColor": -16776961
                 }
               }
             ]
@@ -76,8 +82,40 @@ class LayerSerializerTest {
         val layer = deserialized[0] as Layer.TextLayer
         assertEquals("Old Project", layer.text)
         assertFalse(layer.style.isGradientEnabled)
-        assertEquals(Color.BLACK, layer.style.gradientStartColor)
-        assertEquals(Color.WHITE, layer.style.gradientEndColor)
-        assertEquals("HORIZONTAL", layer.style.gradientDirection)
+        assertEquals(2, layer.style.gradientStops.size)
+        assertEquals(Color.RED, layer.style.gradientStops[0].color)
+        assertEquals(0f, layer.style.gradientStops[0].position, 0.001f)
+        assertEquals(Color.BLUE, layer.style.gradientStops[1].color)
+        assertEquals(1f, layer.style.gradientStops[1].position, 0.001f)
+    }
+
+    @Test
+    fun testSerializeAndDeserializeMultiColorStops() {
+        val stops = listOf(
+            ColorStop(color = Color.RED, position = 0.0f),
+            ColorStop(color = Color.GREEN, position = 0.4f),
+            ColorStop(color = Color.BLUE, position = 1.0f)
+        )
+        val style = TextStyleConfig(
+            fontName = "Sans",
+            fontSize = 36f,
+            isGradientEnabled = true,
+            gradientStops = stops
+        )
+        val textLayer = Layer.TextLayer(
+            id = "multi_stop_layer",
+            name = "Multi Stop",
+            text = "3 Colors",
+            style = style
+        )
+
+        val json = serializer.serialize(listOf(textLayer))
+        val deserialized = serializer.deserialize(json)
+
+        assertEquals(1, deserialized.size)
+        val layer = deserialized[0] as Layer.TextLayer
+        assertEquals(3, layer.style.gradientStops.size)
+        assertEquals(Color.GREEN, layer.style.gradientStops[1].color)
+        assertEquals(0.4f, layer.style.gradientStops[1].position, 0.001f)
     }
 }

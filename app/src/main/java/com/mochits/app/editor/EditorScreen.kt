@@ -1718,18 +1718,118 @@ fun EffectToolPanel(
                                             onColorSelected = { col -> onUpdateStyle(currentStyle.copy(textColor = col), true) }
                                         )
                                     } else {
-                                        Text("Warna Gradient Start:", style = MaterialTheme.typography.bodySmall)
-                                        SimpleColorPickerRow(
-                                            selectedColor = currentStyle.gradientStartColor,
-                                            onColorSelected = { col -> onUpdateStyle(currentStyle.copy(gradientStartColor = col), true) }
-                                        )
+                                        val stops = currentStyle.getEffectiveGradientStops()
 
-                                        Text("Warna Gradient End:", style = MaterialTheme.typography.bodySmall)
-                                        SimpleColorPickerRow(
-                                            selectedColor = currentStyle.gradientEndColor,
-                                            onColorSelected = { col -> onUpdateStyle(currentStyle.copy(gradientEndColor = col), true) }
-                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text("Color Stops (${stops.size}):", style = MaterialTheme.typography.bodySmall)
+                                            IconButton(
+                                                onClick = {
+                                                    val lastPos = stops.lastOrNull()?.position ?: 1.0f
+                                                    val newPos = (lastPos + 0.1f).coerceAtMost(1.0f)
+                                                    val newColor = stops.lastOrNull()?.color ?: AndroidColor.WHITE
+                                                    val updatedStops = stops + com.mochits.app.model.ColorStop(color = newColor, position = newPos)
+                                                    onUpdateStyle(currentStyle.copy(gradientStops = updatedStops), true)
+                                                },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(Icons.Default.Add, contentDescription = "Tambah Warna", tint = MaterialTheme.colorScheme.primary)
+                                            }
+                                        }
 
+                                        stops.forEachIndexed { index, stop ->
+                                            Card(
+                                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                            ) {
+                                                Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Text("Stop ${index + 1}", style = MaterialTheme.typography.labelSmall)
+                                                        IconButton(
+                                                            onClick = {
+                                                                if (stops.size > 2) {
+                                                                    val updatedStops = stops.toMutableList().apply { removeAt(index) }
+                                                                    onUpdateStyle(currentStyle.copy(gradientStops = updatedStops), true)
+                                                                }
+                                                            },
+                                                            enabled = stops.size > 2,
+                                                            modifier = Modifier.size(24.dp)
+                                                        ) {
+                                                            Icon(
+                                                                Icons.Default.Close,
+                                                                contentDescription = "Hapus Stop",
+                                                                tint = if (stops.size > 2) MaterialTheme.colorScheme.error else Color.Gray,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                        }
+                                                    }
+
+                                                    SimpleColorPickerRow(
+                                                        selectedColor = stop.color,
+                                                        onColorSelected = { newColor ->
+                                                            val currentAlpha = AndroidColor.alpha(stop.color)
+                                                            val r = AndroidColor.red(newColor)
+                                                            val g = AndroidColor.green(newColor)
+                                                            val b = AndroidColor.blue(newColor)
+                                                            val combinedColor = AndroidColor.argb(currentAlpha, r, g, b)
+                                                            val updatedStops = stops.toMutableList().apply {
+                                                                this[index] = stop.copy(color = combinedColor)
+                                                            }
+                                                            onUpdateStyle(currentStyle.copy(gradientStops = updatedStops), true)
+                                                        }
+                                                    )
+
+                                                    val posPercent = (stop.position * 100).toInt()
+                                                    Text("Posisi: $posPercent%", style = MaterialTheme.typography.bodySmall)
+                                                    Slider(
+                                                        value = stop.position,
+                                                        onValueChange = { newPos ->
+                                                            onSliderDragStart()
+                                                            val updatedStops = stops.toMutableList().apply {
+                                                                this[index] = stop.copy(position = newPos)
+                                                            }
+                                                            onUpdateStyle(currentStyle.copy(gradientStops = updatedStops), false)
+                                                        },
+                                                        onValueChangeFinished = {
+                                                            onSliderDragEnd()
+                                                        },
+                                                        valueRange = 0f..1f
+                                                    )
+
+                                                    val currentAlphaFloat = AndroidColor.alpha(stop.color) / 255f
+                                                    val alphaPercent = (currentAlphaFloat * 100).toInt()
+                                                    Text("Alpha (Transparansi): $alphaPercent%", style = MaterialTheme.typography.bodySmall)
+                                                    Slider(
+                                                        value = currentAlphaFloat,
+                                                        onValueChange = { newAlpha ->
+                                                            onSliderDragStart()
+                                                            val alphaInt = (newAlpha * 255).toInt().coerceIn(0, 255)
+                                                            val r = AndroidColor.red(stop.color)
+                                                            val g = AndroidColor.green(stop.color)
+                                                            val b = AndroidColor.blue(stop.color)
+                                                            val combinedColor = AndroidColor.argb(alphaInt, r, g, b)
+                                                            val updatedStops = stops.toMutableList().apply {
+                                                                this[index] = stop.copy(color = combinedColor)
+                                                            }
+                                                            onUpdateStyle(currentStyle.copy(gradientStops = updatedStops), false)
+                                                        },
+                                                        onValueChangeFinished = {
+                                                            onSliderDragEnd()
+                                                        },
+                                                        valueRange = 0f..1f
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(4.dp))
                                         Text("Arah Gradient:", style = MaterialTheme.typography.bodySmall)
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             FilterChip(
