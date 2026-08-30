@@ -29,10 +29,17 @@ class HomeViewModel @Inject constructor(
     private val _defaultExportFolderUri = MutableStateFlow<Uri?>(exportSettingsRepository.getExportFolderUri())
     val defaultExportFolderUri: StateFlow<Uri?> = _defaultExportFolderUri.asStateFlow()
 
-    private val _defaultExportFolderName = MutableStateFlow<String?>(
-        exportSettingsRepository.getFolderName(exportSettingsRepository.getExportFolderUri())
-    )
+    private val _defaultExportFolderName = MutableStateFlow<String?>(null)
     val defaultExportFolderName: StateFlow<String?> = _defaultExportFolderName.asStateFlow()
+
+    init {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val uri = _defaultExportFolderUri.value
+            if (uri != null) {
+                _defaultExportFolderName.value = exportSettingsRepository.getFolderName(uri)
+            }
+        }
+    }
 
     val projects: StateFlow<List<ProjectEntity>> = repository.getAllProjects()
         .catch {
@@ -51,7 +58,9 @@ class HomeViewModel @Inject constructor(
     fun updateExportFolderUri(uri: Uri) {
         exportSettingsRepository.saveExportFolderUri(uri)
         _defaultExportFolderUri.value = uri
-        _defaultExportFolderName.value = exportSettingsRepository.getFolderName(uri)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            _defaultExportFolderName.value = exportSettingsRepository.getFolderName(uri)
+        }
     }
 
     fun isFolderValid(uri: Uri?): Boolean {

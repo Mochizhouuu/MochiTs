@@ -492,9 +492,27 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    fun updateSelectedLayerOpacity(opacity: Float) {
+    private var isSliderDragging = false
+
+    fun onSliderDragStart() {
+        if (!isSliderDragging) {
+            saveUndoSnapshot()
+            isSliderDragging = true
+        }
+    }
+
+    fun onSliderDragEnd() {
+        if (isSliderDragging) {
+            isSliderDragging = false
+            autoSave()
+        }
+    }
+
+    fun updateSelectedLayerOpacity(opacity: Float, saveUndo: Boolean = true) {
         val selectedId = selectedLayerId.value ?: return
-        saveUndoSnapshot()
+        if (saveUndo) {
+            saveUndoSnapshot()
+        }
         layers.value = layers.value.map { layer ->
             if (layer.id == selectedId) {
                 when (layer) {
@@ -505,7 +523,9 @@ class EditorViewModel @Inject constructor(
                 layer
             }
         }
-        autoSave()
+        if (saveUndo) {
+            autoSave()
+        }
     }
 
     fun updateSelectedTextContent(newText: String) {

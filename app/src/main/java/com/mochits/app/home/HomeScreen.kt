@@ -413,12 +413,18 @@ fun RecentProjectCard(
         sdf.format(Date(project.updatedAt))
     }
 
-    val bitmap = remember(project.thumbnailPath) {
-        project.thumbnailPath?.let { path ->
-            val file = File(path)
-            if (file.exists()) {
-                BitmapFactory.decodeFile(file.absolutePath)
-            } else null
+    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = project.thumbnailPath) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            project.thumbnailPath?.let { path ->
+                val file = File(path)
+                if (file.exists()) {
+                    try {
+                        BitmapFactory.decodeFile(file.absolutePath)
+                    } catch (_: Throwable) {
+                        null
+                    }
+                } else null
+            }
         }
     }
 
@@ -433,9 +439,10 @@ fun RecentProjectCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            if (bitmap != null) {
+            val loadedBitmap = bitmap
+            if (loadedBitmap != null) {
                 Image(
-                    bitmap = bitmap.asImageBitmap(),
+                    bitmap = loadedBitmap.asImageBitmap(),
                     contentDescription = project.title,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
