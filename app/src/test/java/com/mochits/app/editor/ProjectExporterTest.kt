@@ -2,7 +2,9 @@ package com.mochits.app.editor
 
 import android.graphics.Bitmap
 import android.graphics.Color
+import com.mochits.app.model.ColorStop
 import com.mochits.app.model.Layer
+import com.mochits.app.model.TextStyleConfig
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -57,7 +59,7 @@ class ProjectExporterTest {
         val baseBmp = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888)
         baseBmp.eraseColor(Color.WHITE)
 
-        val gradientStyle = com.mochits.app.model.TextStyleConfig(
+        val gradientStyle = TextStyleConfig(
             fontName = "Sans",
             fontSize = 48f,
             isGradientEnabled = true,
@@ -71,6 +73,41 @@ class ProjectExporterTest {
             x = 50f,
             y = 50f,
             text = "Export Test",
+            style = gradientStyle
+        )
+
+        val exportedBmp = exporter.exportToBitmap(baseBmp, listOf(textLayer))
+        assertNotNull(exportedBmp)
+        assertEquals(400, exportedBmp.width)
+        assertEquals(400, exportedBmp.height)
+    }
+
+    @Test
+    fun testExportToBitmap_withMultiColorStopAlphaGradient() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val exporter = ProjectExporter(context)
+
+        val baseBmp = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888)
+        baseBmp.eraseColor(Color.WHITE)
+
+        val stops = listOf(
+            ColorStop(color = Color.argb(255, 255, 0, 0), position = 0.0f),
+            ColorStop(color = Color.argb(128, 0, 255, 0), position = 0.5f),
+            ColorStop(color = Color.argb(0, 0, 0, 255), position = 1.0f)
+        )
+        val gradientStyle = TextStyleConfig(
+            fontName = "Sans",
+            fontSize = 48f,
+            isGradientEnabled = true,
+            gradientStops = stops,
+            gradientDirection = "VERTICAL"
+        )
+        val textLayer = Layer.TextLayer(
+            id = "layer_multi",
+            name = "Multi Stop Layer",
+            x = 50f,
+            y = 50f,
+            text = "Export Multi Stop",
             style = gradientStyle
         )
 
