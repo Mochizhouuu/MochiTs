@@ -337,6 +337,7 @@ fun EditorScreen(
                         selectedLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer,
                         defaultStyle = defaultTextStyle,
                         onAddText = { text -> viewModel.addTextLayer(text, viewportWidth = currentViewportW, viewportHeight = currentViewportH) },
+                        onUpdateTextContent = { text -> viewModel.updateSelectedTextContent(text) },
                         onUpdateStyle = { style, saveUndo -> viewModel.updateSelectedTextLayerStyle(style, saveUndo = saveUndo) },
                         onCapitalizationTransform = { newText -> viewModel.updateSelectedTextContent(newText) },
                         onSliderDragStart = { viewModel.onSliderDragStart() },
@@ -710,6 +711,7 @@ fun EditorScreen(
                                                 }
                                                 if (hitTextLayer != null) {
                                                     viewModel.selectLayer(hitTextLayer.id)
+                                                    viewModel.setActivePanel(EditorPanel.TEXT)
                                                     triggerRedraw++
                                                 } else {
                                                     viewModel.selectLayer(null)
@@ -1317,12 +1319,18 @@ fun TextToolPanel(
     selectedLayer: Layer.TextLayer?,
     defaultStyle: TextStyleConfig,
     onAddText: (String) -> Unit,
+    onUpdateTextContent: ((String) -> Unit)? = null,
     onUpdateStyle: (TextStyleConfig, Boolean) -> Unit,
     onCapitalizationTransform: ((String) -> Unit)? = null,
     onSliderDragStart: () -> Unit = {},
     onSliderDragEnd: () -> Unit = {}
 ) {
-    var textInput by remember { mutableStateOf("") }
+    var textInput by remember { mutableStateOf(selectedLayer?.text ?: "") }
+
+    LaunchedEffect(selectedLayer?.id, selectedLayer?.text) {
+        textInput = selectedLayer?.text ?: ""
+    }
+
     val currentStyle = selectedLayer?.style ?: defaultStyle
 
     Surface(
@@ -1344,18 +1352,22 @@ fun TextToolPanel(
                 OutlinedTextField(
                     value = textInput,
                     onValueChange = { textInput = it },
-                    label = { Text("Teks Baru") },
+                    label = { Text(if (selectedLayer != null) "Edit Teks" else "Teks Baru") },
                     modifier = Modifier.weight(1f)
                 )
                 Button(
                     onClick = {
                         if (textInput.isNotBlank()) {
-                            onAddText(textInput)
-                            textInput = ""
+                            if (selectedLayer != null) {
+                                onUpdateTextContent?.invoke(textInput)
+                            } else {
+                                onAddText(textInput)
+                                textInput = ""
+                            }
                         }
                     }
                 ) {
-                    Text("Tambah")
+                    Text(if (selectedLayer != null) "Simpan" else "Tambah")
                 }
             }
 
