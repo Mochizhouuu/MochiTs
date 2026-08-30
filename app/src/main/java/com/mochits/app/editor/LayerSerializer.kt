@@ -77,9 +77,12 @@ class LayerSerializer {
         return dtos.map { dto ->
             if (dto.type == "TEXT") {
                 val rawStyle = dto.style ?: TextStyleConfig()
-                val migratedStyle = if (rawStyle.gradientStops.isEmpty()) {
+                var migratedStyle = if (rawStyle.gradientStops.isEmpty()) {
                     rawStyle.copy(gradientStops = rawStyle.getEffectiveGradientStops())
                 } else rawStyle
+                if (migratedStyle.gradientDirection.equals("VERTICAL", ignoreCase = true) && migratedStyle.gradientAngle == 0f) {
+                    migratedStyle = migratedStyle.copy(gradientAngle = 90f)
+                }
                 Layer.TextLayer(
                     id = dto.id,
                     name = dto.name,

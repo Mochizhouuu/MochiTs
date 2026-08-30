@@ -44,8 +44,22 @@ data class TextStyleConfig(
     val gradientStartColor: Int = Color.BLACK,
     val gradientEndColor: Int = Color.WHITE,
     val gradientStops: List<ColorStop> = emptyList(),
-    val gradientDirection: String = "HORIZONTAL" // "HORIZONTAL", "VERTICAL"
+    val gradientDirection: String = "HORIZONTAL", // "HORIZONTAL", "VERTICAL"
+    val gradientAngle: Float = 0f // Angle in degrees (0-360)
 ) {
+    fun calculateGradientPoints(x: Float, y: Float, width: Float, height: Float): FloatArray {
+        val cx = x + width / 2f
+        val cy = y + height / 2f
+        val rad = Math.toRadians(gradientAngle.toDouble())
+        val cosA = kotlin.math.cos(rad).toFloat()
+        val sinA = kotlin.math.sin(rad).toFloat()
+        val halfLength = (kotlin.math.abs(width * cosA) + kotlin.math.abs(height * sinA)) / 2f
+        val x0 = cx - cosA * halfLength
+        val y0 = cy - sinA * halfLength
+        val x1 = cx + cosA * halfLength
+        val y1 = cy + sinA * halfLength
+        return floatArrayOf(x0, y0, x1, y1)
+    }
     fun getEffectiveGradientStops(): List<ColorStop> {
         val stops = gradientStops
         if (!stops.isNullOrEmpty()) {
