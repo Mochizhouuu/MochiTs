@@ -35,11 +35,7 @@ class TextRenderer(private val context: Context) {
         val baselineY = y - fontMetrics.top
 
         if (style.isGradientEnabled) {
-            val (x0, y0, x1, y1) = if (style.gradientDirection.equals("VERTICAL", ignoreCase = true)) {
-                floatArrayOf(x, y, x, y + textHeight)
-            } else {
-                floatArrayOf(x, y, x + textWidth, y)
-            }
+            val (x0, y0, x1, y1) = style.calculateGradientPoints(x, y, textWidth, textHeight)
             val stops = style.getEffectiveGradientStops()
             val colors = IntArray(stops.size)
             val positions = FloatArray(stops.size)

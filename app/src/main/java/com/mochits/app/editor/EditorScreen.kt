@@ -1830,19 +1830,19 @@ fun EffectToolPanel(
                                         }
 
                                         Spacer(modifier = Modifier.height(4.dp))
-                                        Text("Arah Gradient:", style = MaterialTheme.typography.bodySmall)
-                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            FilterChip(
-                                                selected = currentStyle.gradientDirection.equals("HORIZONTAL", ignoreCase = true),
-                                                onClick = { onUpdateStyle(currentStyle.copy(gradientDirection = "HORIZONTAL"), true) },
-                                                label = { Text("Horizontal") }
-                                            )
-                                            FilterChip(
-                                                selected = currentStyle.gradientDirection.equals("VERTICAL", ignoreCase = true),
-                                                onClick = { onUpdateStyle(currentStyle.copy(gradientDirection = "VERTICAL"), true) },
-                                                label = { Text("Vertikal") }
-                                            )
-                                        }
+                                        val angleDegree = currentStyle.gradientAngle.toInt()
+                                        Text("Sudut Gradient (Angle): ${angleDegree}°", style = MaterialTheme.typography.bodySmall)
+                                        Slider(
+                                            value = currentStyle.gradientAngle,
+                                            onValueChange = { newAngle ->
+                                                onSliderDragStart()
+                                                onUpdateStyle(currentStyle.copy(gradientAngle = newAngle), false)
+                                            },
+                                            onValueChangeFinished = {
+                                                onSliderDragEnd()
+                                            },
+                                            valueRange = 0f..360f
+                                        )
                                     }
 
                                     Text("Opacity Teks (Fill): ${(currentStyle.textOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)

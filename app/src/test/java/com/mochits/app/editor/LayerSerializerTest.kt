@@ -25,7 +25,7 @@ class LayerSerializerTest {
             isGradientEnabled = true,
             gradientStartColor = Color.RED,
             gradientEndColor = Color.BLUE,
-            gradientDirection = "VERTICAL"
+            gradientAngle = 90f
         )
         val textLayer = Layer.TextLayer(
             id = "test_layer",
@@ -43,7 +43,7 @@ class LayerSerializerTest {
         assertTrue(layer.style.isGradientEnabled)
         assertEquals(Color.RED, layer.style.gradientStartColor)
         assertEquals(Color.BLUE, layer.style.gradientEndColor)
-        assertEquals("VERTICAL", layer.style.gradientDirection)
+        assertEquals(90f, layer.style.gradientAngle, 0.001f)
         assertEquals(2, layer.style.gradientStops.size)
         assertEquals(0f, layer.style.gradientStops[0].position, 0.001f)
         assertEquals(1f, layer.style.gradientStops[1].position, 0.001f)
@@ -87,6 +87,7 @@ class LayerSerializerTest {
         assertEquals(0f, layer.style.gradientStops[0].position, 0.001f)
         assertEquals(Color.BLUE, layer.style.gradientStops[1].color)
         assertEquals(1f, layer.style.gradientStops[1].position, 0.001f)
+        assertEquals(0f, layer.style.gradientAngle, 0.001f)
     }
 
     @Test
@@ -117,5 +118,59 @@ class LayerSerializerTest {
         assertEquals(3, layer.style.gradientStops.size)
         assertEquals(Color.GREEN, layer.style.gradientStops[1].color)
         assertEquals(0.4f, layer.style.gradientStops[1].position, 0.001f)
+    }
+
+    @Test
+    fun testSerializeAndDeserializeGradientAngle() {
+        val style = TextStyleConfig(
+            isGradientEnabled = true,
+            gradientAngle = 135f
+        )
+        val textLayer = Layer.TextLayer(
+            id = "angle_layer",
+            name = "Angle Layer",
+            text = "Angle 135",
+            style = style
+        )
+
+        val json = serializer.serialize(listOf(textLayer))
+        val deserialized = serializer.deserialize(json)
+
+        assertEquals(1, deserialized.size)
+        val layer = deserialized[0] as Layer.TextLayer
+        assertEquals(135f, layer.style.gradientAngle, 0.001f)
+    }
+
+    @Test
+    fun testDeserializeLegacyJsonWithVerticalDirection() {
+        val legacyVerticalJson = """
+            [
+              {
+                "id": "legacy_v",
+                "type": "TEXT",
+                "name": "Legacy Vertical",
+                "x": 0.0,
+                "y": 0.0,
+                "rotation": 0.0,
+                "scaleX": 1.0,
+                "scaleY": 1.0,
+                "opacity": 1.0,
+                "isVisible": true,
+                "isLocked": false,
+                "text": "Vertical Text",
+                "style": {
+                  "fontName": "Default",
+                  "fontSize": 36.0,
+                  "isGradientEnabled": true,
+                  "gradientDirection": "VERTICAL"
+                }
+              }
+            ]
+        """.trimIndent()
+
+        val deserialized = serializer.deserialize(legacyVerticalJson)
+        assertEquals(1, deserialized.size)
+        val layer = deserialized[0] as Layer.TextLayer
+        assertEquals(90f, layer.style.gradientAngle, 0.001f)
     }
 }
