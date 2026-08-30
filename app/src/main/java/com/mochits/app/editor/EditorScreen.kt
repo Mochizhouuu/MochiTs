@@ -417,6 +417,8 @@ fun EditorScreen(
             var initialTouchAngle by remember { mutableFloatStateOf(0f) }
             var initialTextX by remember { mutableFloatStateOf(0f) }
             var initialTextY by remember { mutableFloatStateOf(0f) }
+            var initialTextCenterX by remember { mutableFloatStateOf(0f) }
+            var initialTextCenterY by remember { mutableFloatStateOf(0f) }
             var initialTouchCanvasPt by remember { mutableStateOf(Offset.Zero) }
 
             var lastTapTimestamp by remember { mutableLongStateOf(0L) }
@@ -602,6 +604,8 @@ fun EditorScreen(
                                         } else if (distResizeSq <= rSq) {
                                             activeHandleType = TextHandleType.RESIZE
                                             viewModel.saveUndoSnapshot()
+                                            initialTextCenterX = textCenterX
+                                            initialTextCenterY = textCenterY
                                             initialDragDist = kotlin.math.hypot(touchCanvasPt.x - textCenterX, touchCanvasPt.y - textCenterY)
                                             initialFontSize = selectedTextLayer.style.fontSize
                                             hitHandle = true
@@ -610,6 +614,8 @@ fun EditorScreen(
                                         } else if (distRotateSq <= rSq) {
                                             activeHandleType = TextHandleType.ROTATE
                                             viewModel.saveUndoSnapshot()
+                                            initialTextCenterX = textCenterX
+                                            initialTextCenterY = textCenterY
                                             initialTouchAngle = Math.toDegrees(kotlin.math.atan2((touchCanvasPt.y - textCenterY).toDouble(), (touchCanvasPt.x - textCenterX).toDouble())).toFloat()
                                             initialTextRotation = selectedTextLayer.rotation
                                             hitHandle = true
@@ -637,9 +643,7 @@ fun EditorScreen(
                                     when (activeHandleType) {
                                         TextHandleType.RESIZE -> {
                                             if (selectedTextLayer != null) {
-                                                val textCenterX = selectedTextLayer.x
-                                                val textCenterY = selectedTextLayer.y
-                                                val currentDist = kotlin.math.hypot(touchCanvasPt.x - textCenterX, touchCanvasPt.y - textCenterY)
+                                                val currentDist = kotlin.math.hypot(touchCanvasPt.x - initialTextCenterX, touchCanvasPt.y - initialTextCenterY)
                                                 if (initialDragDist > 0f) {
                                                     val scaleFactor = currentDist / initialDragDist
                                                     val newSize = (initialFontSize * scaleFactor).coerceIn(10f, 300f)
@@ -680,7 +684,7 @@ fun EditorScreen(
                                     continue
                                 }
 
-                                if (firstChange.previousPressed && !firstChange.pressed) {
+                                if (changes.none { it.pressed }) {
                                     if (activeHandleType != null) {
                                         viewModel.finalizeTextTransform()
                                         activeHandleType = null
