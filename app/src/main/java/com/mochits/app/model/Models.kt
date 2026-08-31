@@ -6,6 +6,12 @@ import com.mochits.core.imaging.Result
 
 typealias MaskToolMode = com.mochits.core.imaging.MaskToolMode
 
+
+enum class TextContainerShape {
+    BOX,
+    OVAL
+}
+
 enum class EditorPanel {
     NONE,
     MASK,
@@ -111,6 +117,9 @@ sealed class Layer(
         override val isVisible: Boolean = true,
         override val isLocked: Boolean = false,
         val text: String,
-        val style: TextStyleConfig = TextStyleConfig()
+        val style: TextStyleConfig = TextStyleConfig(),
+        val textContainerShape: TextContainerShape = TextContainerShape.BOX,
+        val boxWidth: Float? = null,
+        val boxHeight: Float? = null
     ) : Layer(id, name, x, y, rotation, scaleX, scaleY, opacity, isVisible, isLocked)
 }

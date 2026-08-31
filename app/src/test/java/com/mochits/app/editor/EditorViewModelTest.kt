@@ -135,7 +135,7 @@ class EditorViewModelTest {
         val expectedCanvasCenter = viewModel.canvasState.mapper.screenToCanvas(viewportW / 2f, viewportH / 2f)
         val addedLayer = viewModel.layers.value.last() as Layer.TextLayer
 
-        val bounds = viewModel.textRenderer.getTextBounds(text, addedLayer.style, 0f, 0f)
+        val bounds = viewModel.textRenderer.getTextBounds(text, addedLayer.style, 0f, 0f, addedLayer.textContainerShape, addedLayer.boxWidth, addedLayer.boxHeight)
         val expectedFinalX = expectedCanvasCenter.x - (bounds.width() / 2f)
         val expectedFinalY = expectedCanvasCenter.y - (bounds.height() / 2f)
 
@@ -143,7 +143,7 @@ class EditorViewModelTest {
         assertEquals(expectedFinalY, addedLayer.y, 0.01f)
 
         // 3. Verify visual center of bounding box matches canvas center
-        val actualBounds = viewModel.textRenderer.getTextBounds(addedLayer.text, addedLayer.style, addedLayer.x, addedLayer.y)
+        val actualBounds = viewModel.textRenderer.getTextBounds(addedLayer)
         assertEquals(expectedCanvasCenter.x, actualBounds.centerX(), 0.01f)
         assertEquals(expectedCanvasCenter.y, actualBounds.centerY(), 0.01f)
     }
@@ -295,7 +295,7 @@ class EditorViewModelTest {
             assertEquals(angle, currentLayer.rotation, 0.01f)
 
             // Calculate center of text bounds
-            val bounds = viewModel.textRenderer.getTextBounds(currentLayer.text, currentLayer.style, currentLayer.x, currentLayer.y)
+            val bounds = viewModel.textRenderer.getTextBounds(currentLayer)
             val textCenterX = bounds.centerX()
             val textCenterY = bounds.centerY()
 
