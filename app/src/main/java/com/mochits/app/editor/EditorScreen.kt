@@ -1091,20 +1091,62 @@ fun EditorScreen(
                                             color = AndroidColor.parseColor("#3F51B5")
                                         }
 
-                                        // 1. Bottom-Right Resize Handle
-                                        drawContext.canvas.nativeCanvas.drawCircle(bounds.right, bounds.bottom, handleRadius, handleFillPaint)
+                                        // 1. Bottom-Right Resize Handle (Diagonal Double-Arrow Icon ↗↙)
+                                        val resizeFillPaint = AndroidPaint().apply {
+                                            style = AndroidPaint.Style.FILL
+                                            color = AndroidColor.parseColor("#3F51B5")
+                                            isAntiAlias = true
+                                        }
+                                        drawContext.canvas.nativeCanvas.drawCircle(bounds.right, bounds.bottom, handleRadius, resizeFillPaint)
                                         drawContext.canvas.nativeCanvas.drawCircle(bounds.right, bounds.bottom, handleRadius, handleStrokePaint)
 
-                                        // 2. Top-Left Delete (X) Button
+                                        val resizeIconPaint = AndroidPaint().apply {
+                                            style = AndroidPaint.Style.STROKE
+                                            strokeWidth = 2.5f / currentScale
+                                            color = AndroidColor.WHITE
+                                            isAntiAlias = true
+                                            strokeCap = AndroidPaint.Cap.ROUND
+                                            strokeJoin = AndroidPaint.Join.ROUND
+                                        }
+                                        val diagOff = handleRadius * 0.45f
+                                        drawContext.canvas.nativeCanvas.drawLine(
+                                            bounds.right - diagOff, bounds.bottom + diagOff,
+                                            bounds.right + diagOff, bounds.bottom - diagOff,
+                                            resizeIconPaint
+                                        )
+                                        drawContext.canvas.nativeCanvas.drawLine(
+                                            bounds.right + diagOff, bounds.bottom - diagOff,
+                                            bounds.right + diagOff - (diagOff * 0.6f), bounds.bottom - diagOff,
+                                            resizeIconPaint
+                                        )
+                                        drawContext.canvas.nativeCanvas.drawLine(
+                                            bounds.right + diagOff, bounds.bottom - diagOff,
+                                            bounds.right + diagOff, bounds.bottom - diagOff + (diagOff * 0.6f),
+                                            resizeIconPaint
+                                        )
+                                        drawContext.canvas.nativeCanvas.drawLine(
+                                            bounds.right - diagOff, bounds.bottom + diagOff,
+                                            bounds.right - diagOff + (diagOff * 0.6f), bounds.bottom + diagOff,
+                                            resizeIconPaint
+                                        )
+                                        drawContext.canvas.nativeCanvas.drawLine(
+                                            bounds.right - diagOff, bounds.bottom + diagOff,
+                                            bounds.right - diagOff, bounds.bottom + diagOff - (diagOff * 0.6f),
+                                            resizeIconPaint
+                                        )
+
+                                        // 2. Top-Left Delete (X) Button (Red Circle + White "X" Icon)
                                         val deleteFillPaint = AndroidPaint().apply {
                                             style = AndroidPaint.Style.FILL
                                             color = AndroidColor.parseColor("#E53935") // Red
+                                            isAntiAlias = true
                                         }
                                         val xPaint = AndroidPaint().apply {
                                             style = AndroidPaint.Style.STROKE
                                             strokeWidth = 3f / currentScale
                                             color = AndroidColor.WHITE
                                             isAntiAlias = true
+                                            strokeCap = AndroidPaint.Cap.ROUND
                                         }
                                         drawContext.canvas.nativeCanvas.drawCircle(bounds.left, bounds.top, handleRadius, deleteFillPaint)
                                         val crossOffset = handleRadius * 0.45f
@@ -1117,7 +1159,7 @@ fun EditorScreen(
                                             bounds.left - crossOffset, bounds.top + crossOffset, xPaint
                                         )
 
-                                        // 3. Top-Center Rotate Handle with connecting vertical line
+                                        // 3. Top-Center Rotate Handle (Green Circle + Circular Arrow Icon)
                                         val rotateDist = 36f / currentScale
                                         val rotateY = bounds.top - rotateDist
                                         val linePaint = AndroidPaint().apply {
@@ -1126,36 +1168,99 @@ fun EditorScreen(
                                             color = AndroidColor.parseColor("#3F51B5")
                                         }
                                         drawContext.canvas.nativeCanvas.drawLine(bounds.centerX(), bounds.top, bounds.centerX(), rotateY, linePaint)
-                                        drawContext.canvas.nativeCanvas.drawCircle(bounds.centerX(), rotateY, handleRadius, handleFillPaint)
-                                        drawContext.canvas.nativeCanvas.drawCircle(bounds.centerX(), rotateY, handleRadius, handleStrokePaint)
 
-                                        // 4. Vertical Stretch Handles (Top & Bottom Center)
+                                        val rotateFillPaint = AndroidPaint().apply {
+                                            style = AndroidPaint.Style.FILL
+                                            color = AndroidColor.parseColor("#4CAF50") // Green
+                                            isAntiAlias = true
+                                        }
+                                        drawContext.canvas.nativeCanvas.drawCircle(bounds.centerX(), rotateY, handleRadius, rotateFillPaint)
+
+                                        val rotateArcPaint = AndroidPaint().apply {
+                                            style = AndroidPaint.Style.STROKE
+                                            strokeWidth = 2.5f / currentScale
+                                            color = AndroidColor.WHITE
+                                            isAntiAlias = true
+                                            strokeCap = AndroidPaint.Cap.ROUND
+                                        }
+                                        val arcR = handleRadius * 0.5f
+                                        val arcRect = RectF(
+                                            bounds.centerX() - arcR, rotateY - arcR,
+                                            bounds.centerX() + arcR, rotateY + arcR
+                                        )
+                                        drawContext.canvas.nativeCanvas.drawArc(arcRect, 45f, 270f, false, rotateArcPaint)
+                                        val rotateArrowhead = android.graphics.Path().apply {
+                                            val tipX = bounds.centerX() + arcR * kotlin.math.cos(Math.toRadians(45.0)).toFloat()
+                                            val tipY = rotateY + arcR * kotlin.math.sin(Math.toRadians(45.0)).toFloat()
+                                            moveTo(tipX, tipY)
+                                            lineTo(tipX + 4f / currentScale, tipY - 5f / currentScale)
+                                            lineTo(tipX + 5f / currentScale, tipY + 4f / currentScale)
+                                            close()
+                                        }
+                                        val rotateArrowPaint = AndroidPaint().apply {
+                                            style = AndroidPaint.Style.FILL
+                                            color = AndroidColor.WHITE
+                                            isAntiAlias = true
+                                        }
+                                        drawContext.canvas.nativeCanvas.drawPath(rotateArrowhead, rotateArrowPaint)
+
+                                        // 4. Vertical Stretch Handles (Top & Bottom Center - Pill + ↕ Arrow Icon)
                                         val pillW = handleRadius * 1.6f
                                         val pillH = handleRadius * 0.9f
 
-                                        // Top Stretch Handle
-                                        val topPillRect = RectF(bounds.centerX() - pillW / 2f, bounds.top - pillH / 2f, bounds.centerX() + pillW / 2f, bounds.top + pillH / 2f)
-                                        drawContext.canvas.nativeCanvas.drawRoundRect(topPillRect, 6f, 6f, handleFillPaint)
-                                        drawContext.canvas.nativeCanvas.drawRoundRect(topPillRect, 6f, 6f, handleStrokePaint)
+                                        val vArrowPaint = AndroidPaint().apply {
+                                            style = AndroidPaint.Style.STROKE
+                                            strokeWidth = 2f / currentScale
+                                            color = AndroidColor.parseColor("#3F51B5")
+                                            isAntiAlias = true
+                                            strokeCap = AndroidPaint.Cap.ROUND
+                                            strokeJoin = AndroidPaint.Join.ROUND
+                                        }
 
-                                        // Bottom Stretch Handle
-                                        val bottomPillRect = RectF(bounds.centerX() - pillW / 2f, bounds.bottom - pillH / 2f, bounds.centerX() + pillW / 2f, bounds.bottom + pillH / 2f)
-                                        drawContext.canvas.nativeCanvas.drawRoundRect(bottomPillRect, 6f, 6f, handleFillPaint)
-                                        drawContext.canvas.nativeCanvas.drawRoundRect(bottomPillRect, 6f, 6f, handleStrokePaint)
+                                        fun drawVStretchHandle(cx: Float, cy: Float) {
+                                            val rect = RectF(cx - pillW / 2f, cy - pillH / 2f, cx + pillW / 2f, cy + pillH / 2f)
+                                            drawContext.canvas.nativeCanvas.drawRoundRect(rect, 6f, 6f, handleFillPaint)
+                                            drawContext.canvas.nativeCanvas.drawRoundRect(rect, 6f, 6f, handleStrokePaint)
 
-                                        // 5. Horizontal Stretch Handles (Left & Right Center)
+                                            val arrowLen = pillH * 0.35f
+                                            drawContext.canvas.nativeCanvas.drawLine(cx, cy - arrowLen, cx, cy + arrowLen, vArrowPaint)
+                                            drawContext.canvas.nativeCanvas.drawLine(cx, cy - arrowLen, cx - 3f / currentScale, cy - arrowLen + 3f / currentScale, vArrowPaint)
+                                            drawContext.canvas.nativeCanvas.drawLine(cx, cy - arrowLen, cx + 3f / currentScale, cy - arrowLen + 3f / currentScale, vArrowPaint)
+                                            drawContext.canvas.nativeCanvas.drawLine(cx, cy + arrowLen, cx - 3f / currentScale, cy + arrowLen - 3f / currentScale, vArrowPaint)
+                                            drawContext.canvas.nativeCanvas.drawLine(cx, cy + arrowLen, cx + 3f / currentScale, cy + arrowLen - 3f / currentScale, vArrowPaint)
+                                        }
+
+                                        drawVStretchHandle(bounds.centerX(), bounds.top)
+                                        drawVStretchHandle(bounds.centerX(), bounds.bottom)
+
+                                        // 5. Horizontal Stretch Handles (Left & Right Center - Pill + ↔ Arrow Icon)
                                         val pillHW = handleRadius * 0.9f
                                         val pillHH = handleRadius * 1.6f
 
-                                        // Left Stretch Handle
-                                        val leftPillRect = RectF(bounds.left - pillHW / 2f, bounds.centerY() - pillHH / 2f, bounds.left + pillHW / 2f, bounds.centerY() + pillHH / 2f)
-                                        drawContext.canvas.nativeCanvas.drawRoundRect(leftPillRect, 6f, 6f, handleFillPaint)
-                                        drawContext.canvas.nativeCanvas.drawRoundRect(leftPillRect, 6f, 6f, handleStrokePaint)
+                                        val hArrowPaint = AndroidPaint().apply {
+                                            style = AndroidPaint.Style.STROKE
+                                            strokeWidth = 2f / currentScale
+                                            color = AndroidColor.parseColor("#3F51B5")
+                                            isAntiAlias = true
+                                            strokeCap = AndroidPaint.Cap.ROUND
+                                            strokeJoin = AndroidPaint.Join.ROUND
+                                        }
 
-                                        // Right Stretch Handle
-                                        val rightPillRect = RectF(bounds.right - pillHW / 2f, bounds.centerY() - pillHH / 2f, bounds.right + pillHW / 2f, bounds.centerY() + pillHH / 2f)
-                                        drawContext.canvas.nativeCanvas.drawRoundRect(rightPillRect, 6f, 6f, handleFillPaint)
-                                        drawContext.canvas.nativeCanvas.drawRoundRect(rightPillRect, 6f, 6f, handleStrokePaint)
+                                        fun drawHStretchHandle(cx: Float, cy: Float) {
+                                            val rect = RectF(cx - pillHW / 2f, cy - pillHH / 2f, cx + pillHW / 2f, cy + pillHH / 2f)
+                                            drawContext.canvas.nativeCanvas.drawRoundRect(rect, 6f, 6f, handleFillPaint)
+                                            drawContext.canvas.nativeCanvas.drawRoundRect(rect, 6f, 6f, handleStrokePaint)
+
+                                            val arrowLen = pillHW * 0.35f
+                                            drawContext.canvas.nativeCanvas.drawLine(cx - arrowLen, cy, cx + arrowLen, cy, hArrowPaint)
+                                            drawContext.canvas.nativeCanvas.drawLine(cx - arrowLen, cy, cx - arrowLen + 3f / currentScale, cy - 3f / currentScale, hArrowPaint)
+                                            drawContext.canvas.nativeCanvas.drawLine(cx - arrowLen, cy, cx - arrowLen + 3f / currentScale, cy + 3f / currentScale, hArrowPaint)
+                                            drawContext.canvas.nativeCanvas.drawLine(cx + arrowLen, cy, cx + arrowLen - 3f / currentScale, cy - 3f / currentScale, hArrowPaint)
+                                            drawContext.canvas.nativeCanvas.drawLine(cx + arrowLen, cy, cx + arrowLen - 3f / currentScale, cy + 3f / currentScale, hArrowPaint)
+                                        }
+
+                                        drawHStretchHandle(bounds.left, bounds.centerY())
+                                        drawHStretchHandle(bounds.right, bounds.centerY())
                                     }
 
                                     drawContext.canvas.nativeCanvas.restore()

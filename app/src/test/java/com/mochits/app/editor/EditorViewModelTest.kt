@@ -513,6 +513,10 @@ class EditorViewModelTest {
 
         val updatedLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
         assertEquals(com.mochits.app.model.TextContainerShape.OVAL, updatedLayer.textContainerShape)
+        assertNotNull(updatedLayer.boxWidth)
+        assertNotNull(updatedLayer.boxHeight)
+        assertTrue(updatedLayer.boxWidth!! >= 30f)
+        assertTrue(updatedLayer.boxHeight!! >= 20f)
 
         // Verify layout result runs without error for OVAL
         val bounds = viewModel.textRenderer.getTextBounds(updatedLayer)

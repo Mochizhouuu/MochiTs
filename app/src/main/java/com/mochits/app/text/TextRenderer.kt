@@ -9,6 +9,7 @@ import android.graphics.Typeface
 import com.mochits.app.model.Layer
 import com.mochits.app.model.TextContainerShape
 import com.mochits.app.model.TextStyleConfig
+import java.util.regex.Pattern
 import kotlin.math.sqrt
 
 data class RenderedLine(
@@ -26,6 +27,17 @@ data class TextLayoutResult(
 
 class TextRenderer(private val context: Context) {
 
+    companion object {
+        private val TOKEN_PATTERN: Pattern = Pattern.compile("\\s+|[^\\s]+")
+    }
+
+    // Reusable paint instances to avoid frequent GC allocations during rapid drag gestures
+    private val reusableLayoutPaint = Paint()
+    private val reusableRenderPaint = Paint()
+    private val reusableGlowPaint = Paint()
+    private val reusableShadowPaint = Paint()
+    private val reusableStrokePaint = Paint()
+
     fun layoutText(
         text: String,
         paint: Paint,
@@ -36,7 +48,7 @@ class TextRenderer(private val context: Context) {
         val fontMetrics = paint.fontMetrics
         val lineHeight = (fontMetrics.bottom - fontMetrics.top).coerceAtLeast(10f)
 
-        if (boxWidth == null && boxHeight == null) {
+        if (boxWidth == null && boxHeight == null && shape == TextContainerShape.BOX) {
             val rawLines = if (text.isEmpty()) listOf("") else text.split("\n")
             val lines = rawLines.map { line ->
                 val w = paint.measureText(if (line.isEmpty()) " " else line)
@@ -49,11 +61,19 @@ class TextRenderer(private val context: Context) {
 
         val targetW = (boxWidth ?: 200f).coerceAtLeast(20f)
 
+        // If boxHeight is null for OVAL shape, estimate container height from unconstrained lines
+        val effectiveBoxHeight: Float? = if (shape == TextContainerShape.OVAL && boxHeight == null) {
+            val unconstrainedLinesCount = if (text.isEmpty()) 1 else text.split("\n").size
+            (unconstrainedLinesCount * lineHeight * 1.5f).coerceAtLeast(40f)
+        } else {
+            boxHeight
+        }
+
         fun getAvailableWidth(lineIdx: Int): Float {
-            if (shape == TextContainerShape.BOX || boxHeight == null) {
+            if (shape == TextContainerShape.BOX || effectiveBoxHeight == null) {
                 return targetW
             }
-            val targetH = boxHeight.coerceAtLeast(20f)
+            val targetH = effectiveBoxHeight.coerceAtLeast(20f)
             val a = targetW / 2f
             val b = targetH / 2f
             val y = (lineIdx + 0.5f) * lineHeight - b
@@ -70,16 +90,15 @@ class TextRenderer(private val context: Context) {
 
         for (para in paragraphs) {
             if (para.isEmpty()) {
-                val availW = getAvailableWidth(currentLineIdx)
-                val xOff = if (shape == TextContainerShape.OVAL) (targetW - 0f) / 2f else 0f
+                val xOff = if (shape == TextContainerShape.OVAL) targetW / 2f else 0f
                 lines.add(RenderedLine("", 0f, xOff))
                 currentLineIdx++
                 continue
             }
 
-            // Split into tokens (words and spaces)
+            // Split into tokens (words and spaces) using cached regex pattern
             val tokens = mutableListOf<String>()
-            val matcher = java.util.regex.Pattern.compile("\\s+|[^\\s]+").matcher(para)
+            val matcher = TOKEN_PATTERN.matcher(para)
             while (matcher.find()) {
                 tokens.add(matcher.group())
             }
@@ -199,7 +218,8 @@ class TextRenderer(private val context: Context) {
         val fillAlpha = (style.textOpacity * 255).toInt().coerceIn(0, 255)
         val strokeAlpha = (style.strokeOpacity * 255).toInt().coerceIn(0, 255)
 
-        val paint = Paint().apply {
+        val paint = reusableRenderPaint.apply {
+            reset()
             isAntiAlias = true
             textSize = style.fontSize
             color = style.textColor
@@ -237,7 +257,8 @@ class TextRenderer(private val context: Context) {
         }
 
         val glowPaint = if (style.glowColor != Color.TRANSPARENT && style.glowRadius > 0f) {
-            Paint(paint).apply {
+            reusableGlowPaint.apply {
+                set(paint)
                 color = style.glowColor
                 alpha = fillAlpha
                 setShadowLayer(style.glowRadius, 0f, 0f, style.glowColor)
@@ -245,7 +266,8 @@ class TextRenderer(private val context: Context) {
         } else null
 
         val shadowPaint = if (style.shadowColor != Color.TRANSPARENT && style.shadowRadius > 0f) {
-            Paint(paint).apply {
+            reusableShadowPaint.apply {
+                set(paint)
                 color = style.shadowColor
                 alpha = fillAlpha
                 setShadowLayer(style.shadowRadius, style.shadowDx, style.shadowDy, style.shadowColor)
@@ -253,7 +275,8 @@ class TextRenderer(private val context: Context) {
         } else null
 
         val strokePaint = if (style.strokeColor != Color.TRANSPARENT && style.strokeWidth > 0f) {
-            Paint(paint).apply {
+            reusableStrokePaint.apply {
+                set(paint)
                 this.style = Paint.Style.STROKE
                 strokeWidth = style.strokeWidth
                 color = style.strokeColor
@@ -297,7 +320,8 @@ class TextRenderer(private val context: Context) {
         boxWidth: Float? = null,
         boxHeight: Float? = null
     ): RectF {
-        val paint = Paint().apply {
+        val paint = reusableLayoutPaint.apply {
+            reset()
             isAntiAlias = true
             textSize = style.fontSize
             typeface = getTypeface(style.fontName, style.fontStyle)
