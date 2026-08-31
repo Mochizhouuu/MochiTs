@@ -655,6 +655,29 @@ val defaultTextStyle = MutableStateFlow(TextStyleConfig())
         autoSave()
     }
 
+    fun updateSelectedTextLayerStretch(
+        boxWidth: Float?,
+        boxHeight: Float?,
+        newX: Float,
+        newY: Float,
+        saveUndo: Boolean = false
+    ) {
+        if (saveUndo) {
+            saveUndoSnapshot()
+        }
+        val selectedId = selectedLayerId.value ?: return
+        layers.value = layers.value.map { layer ->
+            if (layer.id == selectedId && layer is Layer.TextLayer) {
+                layer.copy(boxWidth = boxWidth, boxHeight = boxHeight, x = newX, y = newY)
+            } else {
+                layer
+            }
+        }
+        if (saveUndo) {
+            autoSave()
+        }
+    }
+
     fun updateSelectedTextLayerDimensions(boxWidth: Float?, boxHeight: Float?, saveUndo: Boolean = true) {
         if (saveUndo) {
             saveUndoSnapshot()
