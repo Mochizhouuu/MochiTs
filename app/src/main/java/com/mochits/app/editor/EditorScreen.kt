@@ -609,7 +609,8 @@ fun EditorScreen(
                                 // 2. TEXT HANDLES INTERCEPTION: Check hit-testing on handles
                                 val firstChange = changes.first()
                                 val touchCanvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
-                                val handleHitRadius = (40f / viewModel.canvasState.scale)
+                                val handleHitRadius = (36f / viewModel.canvasState.scale)
+                                val stretchHitRadius = (28f / viewModel.canvasState.scale)
 
                                 val isJustDown = !firstChange.previousPressed && firstChange.pressed
                                 if (isJustDown) {
@@ -653,6 +654,7 @@ fun EditorScreen(
                                                 (unrotatedPt.y - stretchHRightCenter.y) * (unrotatedPt.y - stretchHRightCenter.y)
 
                                         val rSq = handleHitRadius * handleHitRadius
+                                        val stretchRSq = stretchHitRadius * stretchHitRadius
 
                                         if (distDeleteSq <= rSq) {
                                             activeHandleType = TextHandleType.DELETE
@@ -683,7 +685,7 @@ fun EditorScreen(
                                             hitHandle = true
                                             firstChange.consume()
                                             continue
-                                        } else if (distStretchV1Sq <= rSq || distStretchV2Sq <= rSq) {
+                                        } else if (distStretchV1Sq <= stretchRSq || distStretchV2Sq <= stretchRSq) {
                                             activeHandleType = TextHandleType.STRETCH_V
                                             viewModel.saveUndoSnapshot()
                                             initialTextCenterX = textCenterX
@@ -693,7 +695,7 @@ fun EditorScreen(
                                             hitHandle = true
                                             firstChange.consume()
                                             continue
-                                        } else if (distStretchH1Sq <= rSq || distStretchH2Sq <= rSq) {
+                                        } else if (distStretchH1Sq <= stretchRSq || distStretchH2Sq <= stretchRSq) {
                                             activeHandleType = TextHandleType.STRETCH_H
                                             viewModel.saveUndoSnapshot()
                                             initialTextCenterX = textCenterX
@@ -746,6 +748,64 @@ fun EditorScreen(
                                                 val deltaAngle = currentAngle - initialTouchAngle
                                                 val newRotation = (initialTextRotation + deltaAngle) % 360f
                                                 viewModel.updateSelectedTextLayerRotation(newRotation, saveUndo = false)
+                                                triggerRedraw++
+                                            }
+                                        }
+                                        TextHandleType.STRETCH_V -> {
+                                            if (selectedTextLayer != null) {
+                                                val unrotatedPt = if (selectedTextLayer.rotation != 0f) {
+                                                    val rad = Math.toRadians(-selectedTextLayer.rotation.toDouble())
+                                                    val cosA = kotlin.math.cos(rad)
+                                                    val sinA = kotlin.math.sin(rad)
+                                                    val dx = (touchCanvasPt.x - initialTextCenterX).toDouble()
+                                                    val dy = (touchCanvasPt.y - initialTextCenterY).toDouble()
+                                                    Offset(
+                                                        (initialTextCenterX + dx * cosA - dy * sinA).toFloat(),
+                                                        (initialTextCenterY + dx * sinA + dy * cosA).toFloat()
+                                                    )
+                                                } else {
+                                                    touchCanvasPt
+                                                }
+                                                val currentBoxW = selectedTextLayer.boxWidth ?: initialBoxW
+                                                val newBoxH = (kotlin.math.abs(unrotatedPt.y - initialTextCenterY) * 2f).coerceAtLeast(20f)
+                                                val newX = initialTextCenterX - (currentBoxW / 2f)
+                                                val newY = initialTextCenterY - (newBoxH / 2f)
+                                                viewModel.updateSelectedTextLayerStretch(
+                                                    boxWidth = currentBoxW,
+                                                    boxHeight = newBoxH,
+                                                    newX = newX,
+                                                    newY = newY,
+                                                    saveUndo = false
+                                                )
+                                                triggerRedraw++
+                                            }
+                                        }
+                                        TextHandleType.STRETCH_H -> {
+                                            if (selectedTextLayer != null) {
+                                                val unrotatedPt = if (selectedTextLayer.rotation != 0f) {
+                                                    val rad = Math.toRadians(-selectedTextLayer.rotation.toDouble())
+                                                    val cosA = kotlin.math.cos(rad)
+                                                    val sinA = kotlin.math.sin(rad)
+                                                    val dx = (touchCanvasPt.x - initialTextCenterX).toDouble()
+                                                    val dy = (touchCanvasPt.y - initialTextCenterY).toDouble()
+                                                    Offset(
+                                                        (initialTextCenterX + dx * cosA - dy * sinA).toFloat(),
+                                                        (initialTextCenterY + dx * sinA + dy * cosA).toFloat()
+                                                    )
+                                                } else {
+                                                    touchCanvasPt
+                                                }
+                                                val currentBoxH = selectedTextLayer.boxHeight ?: initialBoxH
+                                                val newBoxW = (kotlin.math.abs(unrotatedPt.x - initialTextCenterX) * 2f).coerceAtLeast(30f)
+                                                val newX = initialTextCenterX - (newBoxW / 2f)
+                                                val newY = initialTextCenterY - (currentBoxH / 2f)
+                                                viewModel.updateSelectedTextLayerStretch(
+                                                    boxWidth = newBoxW,
+                                                    boxHeight = currentBoxH,
+                                                    newX = newX,
+                                                    newY = newY,
+                                                    saveUndo = false
+                                                )
                                                 triggerRedraw++
                                             }
                                         }

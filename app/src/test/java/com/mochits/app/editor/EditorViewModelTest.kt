@@ -418,4 +418,105 @@ class EditorViewModelTest {
         assertFalse(viewModel.isEyedropperActive.value)
         assertEquals(null, viewModel.eyedropperCanvasPt.value)
     }
+    @Test
+    fun testStretchHandles_updateDimensionsSymmetricallyAndPreserveCenter() {
+        viewModel.addTextLayer("Stretch Test")
+        val layerId = viewModel.selectedLayerId.value
+        assertNotNull(layerId)
+
+        val layer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        val initialBounds = viewModel.textRenderer.getTextBounds(layer)
+        val initialCenterX = initialBounds.centerX()
+        val initialCenterY = initialBounds.centerY()
+
+        // 1. Stretch Horizontal
+        val newWidth = 400f
+        val newX = initialCenterX - (newWidth / 2f)
+        viewModel.updateSelectedTextLayerStretch(
+            boxWidth = newWidth,
+            boxHeight = layer.boxHeight,
+            newX = newX,
+            newY = layer.y,
+            saveUndo = true
+        )
+
+        val layerAfterH = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        assertEquals(newWidth, layerAfterH.boxWidth ?: 0f, 0.01f)
+        val boundsAfterH = viewModel.textRenderer.getTextBounds(layerAfterH)
+        assertEquals(initialCenterX, boundsAfterH.centerX(), 0.1f)
+        assertEquals(initialCenterY, boundsAfterH.centerY(), 0.1f)
+
+        // 2. Stretch Vertical
+        val newHeight = 300f
+        val newY = initialCenterY - (newHeight / 2f)
+        viewModel.updateSelectedTextLayerStretch(
+            boxWidth = layerAfterH.boxWidth,
+            boxHeight = newHeight,
+            newX = layerAfterH.x,
+            newY = newY,
+            saveUndo = true
+        )
+
+        val layerAfterV = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        assertEquals(newHeight, layerAfterV.boxHeight ?: 0f, 0.01f)
+        val boundsAfterV = viewModel.textRenderer.getTextBounds(layerAfterV)
+        assertEquals(initialCenterX, boundsAfterV.centerX(), 0.1f)
+        assertEquals(initialCenterY, boundsAfterV.centerY(), 0.1f)
+    }
+
+    @Test
+    fun testNormalMove_worksCleanlyAfterStretchInteraction() {
+        viewModel.addTextLayer("Stretch then Move")
+        val layerId = viewModel.selectedLayerId.value
+        assertNotNull(layerId)
+
+        val layer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        val bounds = viewModel.textRenderer.getTextBounds(layer)
+        val cx = bounds.centerX()
+        val cy = bounds.centerY()
+
+        // Perform stretch
+        val newW = 350f
+        viewModel.updateSelectedTextLayerStretch(
+            boxWidth = newW,
+            boxHeight = layer.boxHeight,
+            newX = cx - (newW / 2f),
+            newY = layer.y,
+            saveUndo = true
+        )
+
+        val stretchedLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        val startX = stretchedLayer.x
+        val startY = stretchedLayer.y
+
+        // Perform normal body move
+        val deltaX = 50f
+        val deltaY = 100f
+        viewModel.updateSelectedTextLayerPosition(startX + deltaX, startY + deltaY, saveUndo = true)
+
+        val movedLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        assertEquals(startX + deltaX, movedLayer.x, 0.01f)
+        assertEquals(startY + deltaY, movedLayer.y, 0.01f)
+    }
+
+    @Test
+    fun testContainerShapeSwitch_BoxToOvalAndReflow() {
+        viewModel.addTextLayer("Text Inside Container")
+        val layerId = viewModel.selectedLayerId.value
+        assertNotNull(layerId)
+
+        val initialLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        assertEquals(com.mochits.app.model.TextContainerShape.BOX, initialLayer.textContainerShape)
+
+        // Switch to OVAL
+        viewModel.updateSelectedTextLayerContainerShape(com.mochits.app.model.TextContainerShape.OVAL)
+
+        val updatedLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        assertEquals(com.mochits.app.model.TextContainerShape.OVAL, updatedLayer.textContainerShape)
+
+        // Verify layout result runs without error for OVAL
+        val bounds = viewModel.textRenderer.getTextBounds(updatedLayer)
+        assertTrue(bounds.width() > 0f)
+        assertTrue(bounds.height() > 0f)
+    }
 }
