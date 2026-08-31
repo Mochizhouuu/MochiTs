@@ -6,6 +6,7 @@ import com.mochits.app.model.Layer
 import com.mochits.app.model.TextContainerShape
 import com.mochits.app.model.TextStyleConfig
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -56,6 +57,30 @@ class TextRendererTest {
 
         val topOvalLine = ovalResult.lines.first()
         assertTrue(topOvalLine.xOffset >= 0f)
+    }
+
+    @Test
+    fun testTextReflow_OvalWithNullBoxHeight() {
+        val paint = Paint().apply {
+            textSize = 30f
+        }
+        val text = "Paragraf pertama\nParagraf kedua yang sedikit lebih panjang untuk menguji oval"
+
+        val ovalResultNullH = textRenderer.layoutText(
+            text = text,
+            paint = paint,
+            shape = TextContainerShape.OVAL,
+            boxWidth = 200f,
+            boxHeight = null
+        )
+
+        assertTrue("Oval layout should generate rendered lines", ovalResultNullH.lines.isNotEmpty())
+        assertTrue("Container width should match requested boxWidth", ovalResultNullH.containerWidth >= 200f)
+        assertTrue("Container height should be calculated from estimated line height", ovalResultNullH.containerHeight > 0f)
+
+        // Verify that xOffset centers text lines inside oval bounds
+        val firstLine = ovalResultNullH.lines.first()
+        assertTrue("First line in oval should have xOffset >= 0", firstLine.xOffset >= 0f)
     }
 
     @Test

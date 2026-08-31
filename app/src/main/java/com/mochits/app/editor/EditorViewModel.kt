@@ -645,9 +645,21 @@ val defaultTextStyle = MutableStateFlow(TextStyleConfig())
     fun updateSelectedTextLayerContainerShape(shape: com.mochits.app.model.TextContainerShape) {
         val selectedId = selectedLayerId.value ?: return
         saveUndoSnapshot()
+        val renderer = com.mochits.app.text.TextRenderer(context)
         layers.value = layers.value.map { layer ->
             if (layer.id == selectedId && layer is Layer.TextLayer) {
-                layer.copy(textContainerShape = shape)
+                if (shape == com.mochits.app.model.TextContainerShape.OVAL && (layer.boxWidth == null || layer.boxHeight == null)) {
+                    val bounds = renderer.getTextBounds(layer)
+                    val w = layer.boxWidth ?: bounds.width().coerceAtLeast(30f)
+                    val h = layer.boxHeight ?: bounds.height().coerceAtLeast(20f)
+                    layer.copy(
+                        textContainerShape = shape,
+                        boxWidth = w,
+                        boxHeight = h
+                    )
+                } else {
+                    layer.copy(textContainerShape = shape)
+                }
             } else {
                 layer
             }
