@@ -7,6 +7,12 @@ import com.mochits.core.imaging.Result
 typealias MaskToolMode = com.mochits.core.imaging.MaskToolMode
 
 
+enum class TextAlignment {
+    LEFT,
+    CENTER,
+    RIGHT
+}
+
 enum class TextContainerShape {
     BOX,
     OVAL
@@ -46,6 +52,7 @@ data class TextStyleConfig(
     val isVertical: Boolean = false,
     val letterSpacing: Float = 0f,
     val lineSpacing: Float = 1.0f,
+    val alignment: TextAlignment = TextAlignment.CENTER,
     val isGradientEnabled: Boolean = false,
     val gradientStartColor: Int = Color.BLACK,
     val gradientEndColor: Int = Color.WHITE,

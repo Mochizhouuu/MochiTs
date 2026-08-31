@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
 import com.mochits.app.model.Layer
+import com.mochits.app.model.TextAlignment
 import com.mochits.app.model.TextContainerShape
 import com.mochits.app.model.TextStyleConfig
 import java.util.regex.Pattern
@@ -22,13 +23,17 @@ data class TextLayoutResult(
     val lines: List<RenderedLine>,
     val containerWidth: Float,
     val containerHeight: Float,
-    val lineHeight: Float
+    val lineHeight: Float,
+    val minX: Float = 0f,
+    val maxX: Float = containerWidth,
+    val topOffset: Float = 0f
 )
 
 class TextRenderer(private val context: Context) {
 
     companion object {
         private val TOKEN_PATTERN: Pattern = Pattern.compile("\\s+|[^\\s]+")
+        private val typefaceCache = java.util.concurrent.ConcurrentHashMap<String, Typeface>()
     }
 
     // Reusable paint instances to avoid frequent GC allocations during rapid drag gestures
@@ -43,20 +48,31 @@ class TextRenderer(private val context: Context) {
         paint: Paint,
         shape: TextContainerShape = TextContainerShape.BOX,
         boxWidth: Float? = null,
-        boxHeight: Float? = null
+        boxHeight: Float? = null,
+        alignment: TextAlignment = TextAlignment.CENTER
     ): TextLayoutResult {
         val fontMetrics = paint.fontMetrics
         val lineHeight = (fontMetrics.bottom - fontMetrics.top).coerceAtLeast(10f)
 
         if (boxWidth == null && boxHeight == null && shape == TextContainerShape.BOX) {
             val rawLines = if (text.isEmpty()) listOf("") else text.split("\n")
-            val lines = rawLines.map { line ->
-                val w = paint.measureText(if (line.isEmpty()) " " else line)
-                RenderedLine(text = line, width = w, xOffset = 0f)
+            val lineWidths = rawLines.map { line ->
+                paint.measureText(if (line.isEmpty()) " " else line)
             }
-            val maxW = lines.maxOfOrNull { it.width }?.coerceAtLeast(20f) ?: 20f
+            val maxW = lineWidths.maxOfOrNull { it }?.coerceAtLeast(20f) ?: 20f
+            val lines = rawLines.zip(lineWidths).map { (line, w) ->
+                val xOff = when (alignment) {
+                    TextAlignment.LEFT -> 0f
+                    TextAlignment.CENTER -> (maxW - w) / 2f
+                    TextAlignment.RIGHT -> maxW - w
+                }
+                RenderedLine(text = line, width = w, xOffset = xOff)
+            }
             val totalH = (lines.size * lineHeight).coerceAtLeast(lineHeight)
-            return TextLayoutResult(lines, maxW, totalH, lineHeight)
+            val nonEmptyLines = lines.filter { it.text.isNotEmpty() }
+            val minX = if (nonEmptyLines.isEmpty()) 0f else (nonEmptyLines.minOfOrNull { it.xOffset } ?: 0f)
+            val maxX = if (nonEmptyLines.isEmpty()) maxW else (nonEmptyLines.maxOfOrNull { it.xOffset + it.width }?.coerceAtLeast(minX + 20f) ?: maxW)
+            return TextLayoutResult(lines, maxW, totalH, lineHeight, minX, maxX, 0f)
         }
 
         val targetW = (boxWidth ?: 200f).coerceAtLeast(20f)
@@ -83,6 +99,16 @@ class TextRenderer(private val context: Context) {
             return avail.coerceAtLeast(minLineWidth)
         }
 
+        fun calculateLineXOffset(lineIdx: Int, lineW: Float): Float {
+            val availW = getAvailableWidth(lineIdx)
+            val sliceStart = if (shape == TextContainerShape.OVAL) (targetW - availW) / 2f else 0f
+            return when (alignment) {
+                TextAlignment.LEFT -> sliceStart
+                TextAlignment.CENTER -> sliceStart + (availW - lineW) / 2f
+                TextAlignment.RIGHT -> sliceStart + availW - lineW
+            }
+        }
+
         val lines = mutableListOf<RenderedLine>()
         val paragraphs = if (text.isEmpty()) listOf("") else text.split("\n")
 
@@ -90,7 +116,7 @@ class TextRenderer(private val context: Context) {
 
         for (para in paragraphs) {
             if (para.isEmpty()) {
-                val xOff = if (shape == TextContainerShape.OVAL) targetW / 2f else 0f
+                val xOff = calculateLineXOffset(currentLineIdx, 0f)
                 lines.add(RenderedLine("", 0f, xOff))
                 currentLineIdx++
                 continue
@@ -127,7 +153,7 @@ class TextRenderer(private val context: Context) {
                         // Push current line
                         val lineStr = currentLineStr.trimEnd()
                         val lineW = paint.measureText(if (lineStr.isEmpty()) " " else lineStr)
-                        val xOff = if (shape == TextContainerShape.OVAL) (targetW - lineW) / 2f else 0f
+                        val xOff = calculateLineXOffset(currentLineIdx, lineW)
                         lines.add(RenderedLine(lineStr, lineW, xOff))
                         currentLineIdx++
                         currentLineStr = ""
@@ -149,7 +175,7 @@ class TextRenderer(private val context: Context) {
                             val part1 = cleanToken.substring(0, splitIdx) + "-"
                             val remaining = cleanToken.substring(splitIdx)
                             val lineW = paint.measureText(part1)
-                            val xOff = if (shape == TextContainerShape.OVAL) (targetW - lineW) / 2f else 0f
+                            val xOff = calculateLineXOffset(currentLineIdx, lineW)
                             lines.add(RenderedLine(part1, lineW, xOff))
                             currentLineIdx++
                             tokens[tokenIdx] = remaining
@@ -158,7 +184,7 @@ class TextRenderer(private val context: Context) {
                             val part1 = cleanToken.substring(0, 1)
                             val remaining = cleanToken.substring(1)
                             val lineW = paint.measureText(part1)
-                            val xOff = if (shape == TextContainerShape.OVAL) (targetW - lineW) / 2f else 0f
+                            val xOff = calculateLineXOffset(currentLineIdx, lineW)
                             lines.add(RenderedLine(part1, lineW, xOff))
                             currentLineIdx++
                             if (remaining.isNotEmpty()) {
@@ -174,7 +200,7 @@ class TextRenderer(private val context: Context) {
             if (currentLineStr.isNotEmpty()) {
                 val lineStr = currentLineStr.trimEnd()
                 val lineW = paint.measureText(if (lineStr.isEmpty()) " " else lineStr)
-                val xOff = if (shape == TextContainerShape.OVAL) (targetW - lineW) / 2f else 0f
+                val xOff = calculateLineXOffset(currentLineIdx, lineW)
                 lines.add(RenderedLine(lineStr, lineW, xOff))
                 currentLineIdx++
             }
@@ -184,7 +210,16 @@ class TextRenderer(private val context: Context) {
         val calculatedH = (lines.size * lineHeight).coerceAtLeast(lineHeight)
         val finalContainerH = boxHeight ?: calculatedH
 
-        return TextLayoutResult(lines, finalContainerW, finalContainerH, lineHeight)
+        val totalTextHeight = lines.size * lineHeight
+        val topOffset = if (boxHeight != null && shape == TextContainerShape.OVAL) {
+            ((finalContainerH - totalTextHeight) / 2f).coerceAtLeast(0f)
+        } else 0f
+
+        val nonEmptyLines = lines.filter { it.text.isNotEmpty() }
+        val minX = if (nonEmptyLines.isEmpty()) 0f else (nonEmptyLines.minOfOrNull { it.xOffset } ?: 0f)
+        val maxX = if (nonEmptyLines.isEmpty()) finalContainerW else (nonEmptyLines.maxOfOrNull { it.xOffset + it.width }?.coerceAtLeast(minX + 20f) ?: finalContainerW)
+
+        return TextLayoutResult(lines, finalContainerW, finalContainerH, lineHeight, minX, maxX, topOffset)
     }
 
     fun drawStyledText(
@@ -227,13 +262,8 @@ class TextRenderer(private val context: Context) {
             typeface = getTypeface(style.fontName, style.fontStyle)
         }
 
-        val layoutResult = layoutText(text, paint, shape, boxWidth, boxHeight)
+        val layoutResult = layoutText(text, paint, shape, boxWidth, boxHeight, style.alignment)
         val fontMetrics = paint.fontMetrics
-
-        val totalTextHeight = layoutResult.lines.size * layoutResult.lineHeight
-        val topOffset = if (boxHeight != null && shape == TextContainerShape.OVAL) {
-            ((layoutResult.containerHeight - totalTextHeight) / 2f).coerceAtLeast(0f)
-        } else 0f
 
         if (style.isGradientEnabled) {
             val (x0, y0, x1, y1) = style.calculateGradientPoints(
@@ -287,7 +317,7 @@ class TextRenderer(private val context: Context) {
         layoutResult.lines.forEachIndexed { i, line ->
             if (line.text.isNotEmpty()) {
                 val lineX = x + line.xOffset
-                val baselineY = y + topOffset + (i * layoutResult.lineHeight) - fontMetrics.top
+                val baselineY = y + layoutResult.topOffset + (i * layoutResult.lineHeight) - fontMetrics.top
 
                 glowPaint?.let { canvas.drawText(line.text, lineX, baselineY, it) }
                 shadowPaint?.let { canvas.drawText(line.text, lineX, baselineY, it) }
@@ -326,28 +356,32 @@ class TextRenderer(private val context: Context) {
             textSize = style.fontSize
             typeface = getTypeface(style.fontName, style.fontStyle)
         }
-        val layoutResult = layoutText(text, paint, shape, boxWidth, boxHeight)
+        val layoutResult = layoutText(text, paint, shape, boxWidth, boxHeight, style.alignment)
+        val totalTextHeight = (layoutResult.lines.size * layoutResult.lineHeight).coerceAtLeast(layoutResult.lineHeight)
         return RectF(
-            x,
-            y,
-            x + layoutResult.containerWidth,
-            y + layoutResult.containerHeight
+            x + layoutResult.minX,
+            y + layoutResult.topOffset,
+            x + layoutResult.maxX,
+            y + layoutResult.topOffset + totalTextHeight
         )
     }
 
     private fun getTypeface(fontName: String, fontStyle: String = "Regular"): Typeface {
-        val baseTypeface = when (fontName.lowercase().trim()) {
-            "serif" -> Typeface.SERIF
-            "sans", "sans-serif" -> Typeface.SANS_SERIF
-            "monospace", "mono" -> Typeface.MONOSPACE
-            else -> Typeface.DEFAULT
+        val key = "${fontName.lowercase().trim()}_${fontStyle.lowercase().trim()}"
+        return typefaceCache.getOrPut(key) {
+            val baseTypeface = when (fontName.lowercase().trim()) {
+                "serif" -> Typeface.SERIF
+                "sans", "sans-serif" -> Typeface.SANS_SERIF
+                "monospace", "mono" -> Typeface.MONOSPACE
+                else -> Typeface.DEFAULT
+            }
+            val styleInt = when (fontStyle.lowercase().trim()) {
+                "bold" -> Typeface.BOLD
+                "italic" -> Typeface.ITALIC
+                "bolditalic", "bold+italic" -> Typeface.BOLD_ITALIC
+                else -> Typeface.NORMAL
+            }
+            Typeface.create(baseTypeface, styleInt)
         }
-        val styleInt = when (fontStyle.lowercase().trim()) {
-            "bold" -> Typeface.BOLD
-            "italic" -> Typeface.ITALIC
-            "bolditalic", "bold+italic" -> Typeface.BOLD_ITALIC
-            else -> Typeface.NORMAL
-        }
-        return Typeface.create(baseTypeface, styleInt)
     }
 }
