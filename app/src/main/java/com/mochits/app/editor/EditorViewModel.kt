@@ -16,6 +16,8 @@ import com.mochits.app.imaging.LaMaModelManager
 import com.mochits.app.model.EditorPanel
 import com.mochits.app.model.Layer
 import com.mochits.app.model.MaskToolMode
+import com.mochits.app.ui.color.ColorUtils
+import androidx.compose.ui.geometry.Offset
 import com.mochits.app.model.TextStyleConfig
 import com.mochits.app.project.ProjectEntity
 import com.mochits.app.project.ProjectRepository
@@ -64,7 +66,65 @@ class EditorViewModel @Inject constructor(
     val brushSize = MutableStateFlow(40f)
     val magicWandTolerance = MutableStateFlow(32f)
     val magicWandExpand = MutableStateFlow(0f)
-    val defaultTextStyle = MutableStateFlow(TextStyleConfig())
+
+    val isEyedropperActive = MutableStateFlow(false)
+    val eyedropperCanvasPt = MutableStateFlow<Offset?>(null)
+    val sampledColorPreview = MutableStateFlow<Int?>(null)
+    private var compositeBitmap: Bitmap? = null
+    private var eyedropperTargetConsumer: ((Int) -> Unit)? = null
+
+    fun startEyedropper(onColorSelected: (Int) -> Unit) {
+        val base = baseBitmap.value ?: return
+        eyedropperTargetConsumer = onColorSelected
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            try {
+                val comp = exporter.exportToBitmap(base, layers.value)
+                compositeBitmap = comp
+                val initialPt = Offset(base.width / 2f, base.height / 2f)
+                eyedropperCanvasPt.value = initialPt
+                val initialColor = ColorUtils.samplePixelColor(comp, initialPt.x, initialPt.y) ?: android.graphics.Color.BLACK
+                sampledColorPreview.value = initialColor
+                isEyedropperActive.value = true
+            } catch (t: Throwable) {
+                t.printStackTrace()
+            }
+        }
+    }
+
+    fun updateEyedropperPosition(canvasPt: Offset) {
+        val comp = compositeBitmap ?: return
+        val clampedPt = Offset(
+            canvasPt.x.coerceIn(0f, comp.width - 1f),
+            canvasPt.y.coerceIn(0f, comp.height - 1f)
+        )
+        eyedropperCanvasPt.value = clampedPt
+        val color = ColorUtils.samplePixelColor(comp, clampedPt.x, clampedPt.y)
+        if (color != null) {
+            sampledColorPreview.value = color
+        }
+    }
+
+    fun confirmEyedropper() {
+        val color = sampledColorPreview.value
+        val consumer = eyedropperTargetConsumer
+        cancelEyedropper()
+        if (color != null && consumer != null) {
+            consumer.invoke(color)
+        }
+    }
+
+    fun cancelEyedropper() {
+        isEyedropperActive.value = false
+        eyedropperCanvasPt.value = null
+        sampledColorPreview.value = null
+        eyedropperTargetConsumer = null
+        compositeBitmap?.let {
+            if (!it.isRecycled) it.recycle()
+        }
+        compositeBitmap = null
+    }
+
+val defaultTextStyle = MutableStateFlow(TextStyleConfig())
 
     var maskSelectionTools: MaskSelectionTools? = null
         private set
