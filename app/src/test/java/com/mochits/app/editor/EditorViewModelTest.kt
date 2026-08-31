@@ -442,9 +442,8 @@ class EditorViewModelTest {
 
         val layerAfterH = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
         assertEquals(newWidth, layerAfterH.boxWidth ?: 0f, 0.01f)
-        val boundsAfterH = viewModel.textRenderer.getTextBounds(layerAfterH)
-        assertEquals(initialCenterX, boundsAfterH.centerX(), 0.1f)
-        assertEquals(initialCenterY, boundsAfterH.centerY(), 0.1f)
+        assertEquals(newX, layerAfterH.x, 0.01f)
+        assertEquals(layer.y, layerAfterH.y, 0.01f)
 
         // 2. Stretch Vertical
         val newHeight = 300f
@@ -459,9 +458,8 @@ class EditorViewModelTest {
 
         val layerAfterV = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
         assertEquals(newHeight, layerAfterV.boxHeight ?: 0f, 0.01f)
-        val boundsAfterV = viewModel.textRenderer.getTextBounds(layerAfterV)
-        assertEquals(initialCenterX, boundsAfterV.centerX(), 0.1f)
-        assertEquals(initialCenterY, boundsAfterV.centerY(), 0.1f)
+        assertEquals(layerAfterH.x, layerAfterV.x, 0.01f)
+        assertEquals(newY, layerAfterV.y, 0.01f)
     }
 
     @Test

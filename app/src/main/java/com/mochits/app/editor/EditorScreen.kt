@@ -24,6 +24,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.FormatAlignLeft
+import androidx.compose.material.icons.automirrored.filled.FormatAlignRight
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
@@ -473,6 +475,31 @@ fun EditorScreen(
             }
 
             var panAccumulator by remember { mutableFloatStateOf(0f) }
+
+            val outlinePaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; isAntiAlias = true; color = AndroidColor.RED } }
+            val maskPaintCache = remember { AndroidPaint().apply { colorFilter = android.graphics.PorterDuffColorFilter(AndroidColor.argb(64, 255, 0, 0), android.graphics.PorterDuff.Mode.SRC_IN) } }
+            val lassoPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.RED; isAntiAlias = true } }
+            val lassoPathCache = remember { android.graphics.Path() }
+            val crossPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.RED; isAntiAlias = true } }
+            val fillPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.FILL; isAntiAlias = true } }
+            val strokePaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.WHITE; isAntiAlias = true } }
+            val alphaPaintCache = remember { AndroidPaint() }
+            val boxPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.parseColor("#3F51B5") } }
+            val handleFillPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.FILL; color = AndroidColor.WHITE } }
+            val handleStrokePaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.parseColor("#3F51B5") } }
+            val resizeFillPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.FILL; color = AndroidColor.parseColor("#3F51B5"); isAntiAlias = true } }
+            val resizeIconPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.WHITE; isAntiAlias = true; strokeCap = AndroidPaint.Cap.ROUND; strokeJoin = AndroidPaint.Join.ROUND } }
+            val deleteFillPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.FILL; color = AndroidColor.parseColor("#E53935"); isAntiAlias = true } }
+            val xPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.WHITE; isAntiAlias = true; strokeCap = AndroidPaint.Cap.ROUND } }
+            val linePaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.parseColor("#3F51B5") } }
+            val rotateFillPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.FILL; color = AndroidColor.parseColor("#4CAF50"); isAntiAlias = true } }
+            val rotateArcPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.WHITE; isAntiAlias = true; strokeCap = AndroidPaint.Cap.ROUND } }
+            val rotateArrowPathCache = remember { android.graphics.Path() }
+            val rotateArrowPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.FILL; color = AndroidColor.WHITE; isAntiAlias = true } }
+            val vArrowPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.parseColor("#3F51B5"); isAntiAlias = true; strokeCap = AndroidPaint.Cap.ROUND; strokeJoin = AndroidPaint.Join.ROUND } }
+            val hArrowPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.parseColor("#3F51B5"); isAntiAlias = true; strokeCap = AndroidPaint.Cap.ROUND; strokeJoin = AndroidPaint.Join.ROUND } }
+            val arcRectCache = remember { RectF() }
+            val pillRectCache = remember { RectF() }
 
             Canvas(
                 modifier = Modifier
@@ -942,12 +969,7 @@ fun EditorScreen(
                         val strokeW = 3f / currentScale
                         val cornerLen = 24f / currentScale
 
-                        val outlinePaint = AndroidPaint().apply {
-                            style = AndroidPaint.Style.STROKE
-                            strokeWidth = strokeW
-                            color = AndroidColor.RED
-                            isAntiAlias = true
-                        }
+                        val outlinePaint = outlinePaintCache.apply { strokeWidth = strokeW }
 
                         drawContext.canvas.nativeCanvas.drawRect(0f, 0f, canvasW, canvasH, outlinePaint)
 
@@ -968,12 +990,7 @@ fun EditorScreen(
                     // 2. Red Translucent Mask Selection Overlay (alpha = 0.25f)
                     viewModel.maskSelectionTools?.maskBitmap?.let { maskBmp ->
                         if (!maskBmp.isRecycled) {
-                            val maskPaint = AndroidPaint().apply {
-                                colorFilter = android.graphics.PorterDuffColorFilter(
-                                    AndroidColor.argb(64, 255, 0, 0), // Translucent Red ~25%
-                                    android.graphics.PorterDuff.Mode.SRC_IN
-                                )
-                            }
+                            val maskPaint = maskPaintCache
                             drawContext.canvas.nativeCanvas.drawBitmap(maskBmp, 0f, 0f, maskPaint)
                         }
                     }
@@ -982,19 +999,16 @@ fun EditorScreen(
                     viewModel.maskSelectionTools?.currentLassoPoints?.let { pts ->
                         if (pts.size >= 2) {
                             val currentScale = viewModel.canvasState.scale.coerceAtLeast(0.1f)
-                            val lassoPaint = AndroidPaint().apply {
-                                style = AndroidPaint.Style.STROKE
+                            val lassoPaint = lassoPaintCache.apply {
                                 strokeWidth = 4f / currentScale
-                                color = AndroidColor.RED
-                                isAntiAlias = true
                                 pathEffect = DashPathEffect(floatArrayOf(8f / currentScale, 8f / currentScale), 0f)
                             }
-                            val path = android.graphics.Path()
-                            path.moveTo(pts.first().x, pts.first().y)
+                            lassoPathCache.reset()
+                            lassoPathCache.moveTo(pts.first().x, pts.first().y)
                             for (i in 1 until pts.size) {
-                                path.lineTo(pts[i].x, pts[i].y)
+                                lassoPathCache.lineTo(pts[i].x, pts[i].y)
                             }
-                            drawContext.canvas.nativeCanvas.drawPath(path, lassoPaint)
+                            drawContext.canvas.nativeCanvas.drawPath(lassoPathCache, lassoPaint)
                         }
                     }
 
@@ -1008,28 +1022,14 @@ fun EditorScreen(
                         val swatchOffset = 60f / currentScale
 
                         // Red Crosshair Paint
-                        val crossPaint = AndroidPaint().apply {
-                            style = AndroidPaint.Style.STROKE
-                            strokeWidth = strokeW
-                            color = AndroidColor.RED
-                            isAntiAlias = true
-                        }
+                        val crossPaint = crossPaintCache.apply { strokeWidth = strokeW }
                         drawContext.canvas.nativeCanvas.drawLine(pt.x - crossArm, pt.y, pt.x + crossArm, pt.y, crossPaint)
                         drawContext.canvas.nativeCanvas.drawLine(pt.x, pt.y - crossArm, pt.x, pt.y + crossArm, crossPaint)
 
                         // Sampled Color Swatch Bubble
                         val sampledCol = sampledColorPreview ?: AndroidColor.BLACK
-                        val fillPaint = AndroidPaint().apply {
-                            style = AndroidPaint.Style.FILL
-                            color = sampledCol
-                            isAntiAlias = true
-                        }
-                        val strokePaint = AndroidPaint().apply {
-                            style = AndroidPaint.Style.STROKE
-                            strokeWidth = 3f / currentScale
-                            color = AndroidColor.WHITE
-                            isAntiAlias = true
-                        }
+                        val fillPaint = fillPaintCache.apply { color = sampledCol }
+                        val strokePaint = strokePaintCache.apply { strokeWidth = 3f / currentScale }
                         val swatchCenter = Offset(pt.x, pt.y - swatchOffset)
                         drawContext.canvas.nativeCanvas.drawCircle(swatchCenter.x, swatchCenter.y, swatchRadius, fillPaint)
                         drawContext.canvas.nativeCanvas.drawCircle(swatchCenter.x, swatchCenter.y, swatchRadius, strokePaint)
@@ -1048,7 +1048,7 @@ fun EditorScreen(
                         if (layer.isVisible) {
                             when (layer) {
                                 is Layer.TextLayer -> {
-                                    val alphaPaint = AndroidPaint().apply {
+                                    val alphaPaint = alphaPaintCache.apply {
                                         alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
                                     }
                                     val count = drawContext.canvas.nativeCanvas.saveLayer(null, alphaPaint)
@@ -1073,41 +1073,25 @@ fun EditorScreen(
                                         val strokeW = 3f / currentScale
                                         val handleRadius = 14f / currentScale
 
-                                        val boxPaint = AndroidPaint().apply {
-                                            style = AndroidPaint.Style.STROKE
+                                        val boxPaint = boxPaintCache.apply {
                                             strokeWidth = strokeW
-                                            color = AndroidColor.parseColor("#3F51B5")
                                             pathEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
                                         }
-                                        drawContext.canvas.nativeCanvas.drawRect(bounds, boxPaint)
+                                        if (layer.textContainerShape == com.mochits.app.model.TextContainerShape.OVAL) {
+                                            drawContext.canvas.nativeCanvas.drawOval(bounds, boxPaint)
+                                        } else {
+                                            drawContext.canvas.nativeCanvas.drawRect(bounds, boxPaint)
+                                        }
 
-                                        val handleFillPaint = AndroidPaint().apply {
-                                            style = AndroidPaint.Style.FILL
-                                            color = AndroidColor.WHITE
-                                        }
-                                        val handleStrokePaint = AndroidPaint().apply {
-                                            style = AndroidPaint.Style.STROKE
-                                            strokeWidth = strokeW
-                                            color = AndroidColor.parseColor("#3F51B5")
-                                        }
+                                        val handleFillPaint = handleFillPaintCache
+                                        val handleStrokePaint = handleStrokePaintCache.apply { strokeWidth = strokeW }
 
                                         // 1. Bottom-Right Resize Handle (Diagonal Double-Arrow Icon ↗↙)
-                                        val resizeFillPaint = AndroidPaint().apply {
-                                            style = AndroidPaint.Style.FILL
-                                            color = AndroidColor.parseColor("#3F51B5")
-                                            isAntiAlias = true
-                                        }
+                                        val resizeFillPaint = resizeFillPaintCache
                                         drawContext.canvas.nativeCanvas.drawCircle(bounds.right, bounds.bottom, handleRadius, resizeFillPaint)
                                         drawContext.canvas.nativeCanvas.drawCircle(bounds.right, bounds.bottom, handleRadius, handleStrokePaint)
 
-                                        val resizeIconPaint = AndroidPaint().apply {
-                                            style = AndroidPaint.Style.STROKE
-                                            strokeWidth = 2.5f / currentScale
-                                            color = AndroidColor.WHITE
-                                            isAntiAlias = true
-                                            strokeCap = AndroidPaint.Cap.ROUND
-                                            strokeJoin = AndroidPaint.Join.ROUND
-                                        }
+                                        val resizeIconPaint = resizeIconPaintCache.apply { strokeWidth = 2.5f / currentScale }
                                         val diagOff = handleRadius * 0.45f
                                         drawContext.canvas.nativeCanvas.drawLine(
                                             bounds.right - diagOff, bounds.bottom + diagOff,
@@ -1136,18 +1120,8 @@ fun EditorScreen(
                                         )
 
                                         // 2. Top-Left Delete (X) Button (Red Circle + White "X" Icon)
-                                        val deleteFillPaint = AndroidPaint().apply {
-                                            style = AndroidPaint.Style.FILL
-                                            color = AndroidColor.parseColor("#E53935") // Red
-                                            isAntiAlias = true
-                                        }
-                                        val xPaint = AndroidPaint().apply {
-                                            style = AndroidPaint.Style.STROKE
-                                            strokeWidth = 3f / currentScale
-                                            color = AndroidColor.WHITE
-                                            isAntiAlias = true
-                                            strokeCap = AndroidPaint.Cap.ROUND
-                                        }
+                                        val deleteFillPaint = deleteFillPaintCache
+                                        val xPaint = xPaintCache.apply { strokeWidth = 3f / currentScale }
                                         drawContext.canvas.nativeCanvas.drawCircle(bounds.left, bounds.top, handleRadius, deleteFillPaint)
                                         val crossOffset = handleRadius * 0.45f
                                         drawContext.canvas.nativeCanvas.drawLine(
@@ -1162,65 +1136,39 @@ fun EditorScreen(
                                         // 3. Top-Center Rotate Handle (Green Circle + Circular Arrow Icon)
                                         val rotateDist = 36f / currentScale
                                         val rotateY = bounds.top - rotateDist
-                                        val linePaint = AndroidPaint().apply {
-                                            style = AndroidPaint.Style.STROKE
-                                            strokeWidth = 2f / currentScale
-                                            color = AndroidColor.parseColor("#3F51B5")
-                                        }
+                                        val linePaint = linePaintCache.apply { strokeWidth = 2f / currentScale }
                                         drawContext.canvas.nativeCanvas.drawLine(bounds.centerX(), bounds.top, bounds.centerX(), rotateY, linePaint)
 
-                                        val rotateFillPaint = AndroidPaint().apply {
-                                            style = AndroidPaint.Style.FILL
-                                            color = AndroidColor.parseColor("#4CAF50") // Green
-                                            isAntiAlias = true
-                                        }
+                                        val rotateFillPaint = rotateFillPaintCache
                                         drawContext.canvas.nativeCanvas.drawCircle(bounds.centerX(), rotateY, handleRadius, rotateFillPaint)
 
-                                        val rotateArcPaint = AndroidPaint().apply {
-                                            style = AndroidPaint.Style.STROKE
-                                            strokeWidth = 2.5f / currentScale
-                                            color = AndroidColor.WHITE
-                                            isAntiAlias = true
-                                            strokeCap = AndroidPaint.Cap.ROUND
-                                        }
+                                        val rotateArcPaint = rotateArcPaintCache.apply { strokeWidth = 2.5f / currentScale }
                                         val arcR = handleRadius * 0.5f
-                                        val arcRect = RectF(
+                                        arcRectCache.set(
                                             bounds.centerX() - arcR, rotateY - arcR,
                                             bounds.centerX() + arcR, rotateY + arcR
                                         )
-                                        drawContext.canvas.nativeCanvas.drawArc(arcRect, 45f, 270f, false, rotateArcPaint)
-                                        val rotateArrowhead = android.graphics.Path().apply {
-                                            val tipX = bounds.centerX() + arcR * kotlin.math.cos(Math.toRadians(45.0)).toFloat()
-                                            val tipY = rotateY + arcR * kotlin.math.sin(Math.toRadians(45.0)).toFloat()
-                                            moveTo(tipX, tipY)
-                                            lineTo(tipX + 4f / currentScale, tipY - 5f / currentScale)
-                                            lineTo(tipX + 5f / currentScale, tipY + 4f / currentScale)
-                                            close()
-                                        }
-                                        val rotateArrowPaint = AndroidPaint().apply {
-                                            style = AndroidPaint.Style.FILL
-                                            color = AndroidColor.WHITE
-                                            isAntiAlias = true
-                                        }
-                                        drawContext.canvas.nativeCanvas.drawPath(rotateArrowhead, rotateArrowPaint)
+                                        drawContext.canvas.nativeCanvas.drawArc(arcRectCache, 45f, 270f, false, rotateArcPaint)
+                                        val tipX = bounds.centerX() + arcR * kotlin.math.cos(Math.toRadians(45.0)).toFloat()
+                                        val tipY = rotateY + arcR * kotlin.math.sin(Math.toRadians(45.0)).toFloat()
+                                        rotateArrowPathCache.reset()
+                                        rotateArrowPathCache.moveTo(tipX, tipY)
+                                        rotateArrowPathCache.lineTo(tipX + 4f / currentScale, tipY - 5f / currentScale)
+                                        rotateArrowPathCache.lineTo(tipX + 5f / currentScale, tipY + 4f / currentScale)
+                                        rotateArrowPathCache.close()
+                                        val rotateArrowPaint = rotateArrowPaintCache
+                                        drawContext.canvas.nativeCanvas.drawPath(rotateArrowPathCache, rotateArrowPaint)
 
                                         // 4. Vertical Stretch Handles (Top & Bottom Center - Pill + ↕ Arrow Icon)
                                         val pillW = handleRadius * 1.6f
                                         val pillH = handleRadius * 0.9f
 
-                                        val vArrowPaint = AndroidPaint().apply {
-                                            style = AndroidPaint.Style.STROKE
-                                            strokeWidth = 2f / currentScale
-                                            color = AndroidColor.parseColor("#3F51B5")
-                                            isAntiAlias = true
-                                            strokeCap = AndroidPaint.Cap.ROUND
-                                            strokeJoin = AndroidPaint.Join.ROUND
-                                        }
+                                        val vArrowPaint = vArrowPaintCache.apply { strokeWidth = 2f / currentScale }
 
                                         fun drawVStretchHandle(cx: Float, cy: Float) {
-                                            val rect = RectF(cx - pillW / 2f, cy - pillH / 2f, cx + pillW / 2f, cy + pillH / 2f)
-                                            drawContext.canvas.nativeCanvas.drawRoundRect(rect, 6f, 6f, handleFillPaint)
-                                            drawContext.canvas.nativeCanvas.drawRoundRect(rect, 6f, 6f, handleStrokePaint)
+                                            pillRectCache.set(cx - pillW / 2f, cy - pillH / 2f, cx + pillW / 2f, cy + pillH / 2f)
+                                            drawContext.canvas.nativeCanvas.drawRoundRect(pillRectCache, 6f, 6f, handleFillPaint)
+                                            drawContext.canvas.nativeCanvas.drawRoundRect(pillRectCache, 6f, 6f, handleStrokePaint)
 
                                             val arrowLen = pillH * 0.35f
                                             drawContext.canvas.nativeCanvas.drawLine(cx, cy - arrowLen, cx, cy + arrowLen, vArrowPaint)
@@ -1237,19 +1185,12 @@ fun EditorScreen(
                                         val pillHW = handleRadius * 0.9f
                                         val pillHH = handleRadius * 1.6f
 
-                                        val hArrowPaint = AndroidPaint().apply {
-                                            style = AndroidPaint.Style.STROKE
-                                            strokeWidth = 2f / currentScale
-                                            color = AndroidColor.parseColor("#3F51B5")
-                                            isAntiAlias = true
-                                            strokeCap = AndroidPaint.Cap.ROUND
-                                            strokeJoin = AndroidPaint.Join.ROUND
-                                        }
+                                        val hArrowPaint = hArrowPaintCache.apply { strokeWidth = 2f / currentScale }
 
                                         fun drawHStretchHandle(cx: Float, cy: Float) {
-                                            val rect = RectF(cx - pillHW / 2f, cy - pillHH / 2f, cx + pillHW / 2f, cy + pillHH / 2f)
-                                            drawContext.canvas.nativeCanvas.drawRoundRect(rect, 6f, 6f, handleFillPaint)
-                                            drawContext.canvas.nativeCanvas.drawRoundRect(rect, 6f, 6f, handleStrokePaint)
+                                            pillRectCache.set(cx - pillHW / 2f, cy - pillHH / 2f, cx + pillHW / 2f, cy + pillHH / 2f)
+                                            drawContext.canvas.nativeCanvas.drawRoundRect(pillRectCache, 6f, 6f, handleFillPaint)
+                                            drawContext.canvas.nativeCanvas.drawRoundRect(pillRectCache, 6f, 6f, handleStrokePaint)
 
                                             val arrowLen = pillHW * 0.35f
                                             drawContext.canvas.nativeCanvas.drawLine(cx - arrowLen, cy, cx + arrowLen, cy, hArrowPaint)
@@ -1269,7 +1210,7 @@ fun EditorScreen(
                                 is Layer.ImageLayer -> {
                                     layer.bitmap?.let { imgBmp ->
                                         if (!imgBmp.isRecycled) {
-                                            val imgPaint = AndroidPaint().apply {
+                                            val imgPaint = alphaPaintCache.apply {
                                                 alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
                                             }
                                             drawContext.canvas.nativeCanvas.drawBitmap(imgBmp, layer.x, layer.y, imgPaint)
@@ -1832,6 +1773,31 @@ fun TextToolPanel(
                 Icon(
                     imageVector = if (isFontOptionsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                     contentDescription = if (isFontOptionsExpanded) "Tutup Opsi Font" else "Buka Opsi Font"
+                )
+            }
+
+            Text("Alignment Teks:", style = MaterialTheme.typography.bodyMedium)
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = currentStyle.alignment == com.mochits.app.model.TextAlignment.LEFT,
+                    onClick = { onUpdateStyle(currentStyle.copy(alignment = com.mochits.app.model.TextAlignment.LEFT), true) },
+                    label = { Text("Rata Kiri") },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.FormatAlignLeft, contentDescription = "Rata Kiri", modifier = Modifier.size(18.dp)) }
+                )
+                FilterChip(
+                    selected = currentStyle.alignment == com.mochits.app.model.TextAlignment.CENTER,
+                    onClick = { onUpdateStyle(currentStyle.copy(alignment = com.mochits.app.model.TextAlignment.CENTER), true) },
+                    label = { Text("Rata Tengah") },
+                    leadingIcon = { Icon(Icons.Default.FormatAlignCenter, contentDescription = "Rata Tengah", modifier = Modifier.size(18.dp)) }
+                )
+                FilterChip(
+                    selected = currentStyle.alignment == com.mochits.app.model.TextAlignment.RIGHT,
+                    onClick = { onUpdateStyle(currentStyle.copy(alignment = com.mochits.app.model.TextAlignment.RIGHT), true) },
+                    label = { Text("Rata Kanan") },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.FormatAlignRight, contentDescription = "Rata Kanan", modifier = Modifier.size(18.dp)) }
                 )
             }
 

@@ -3,6 +3,7 @@ package com.mochits.app.text
 import android.graphics.Paint
 import androidx.compose.ui.geometry.Offset
 import com.mochits.app.model.Layer
+import com.mochits.app.model.TextAlignment
 import com.mochits.app.model.TextContainerShape
 import com.mochits.app.model.TextStyleConfig
 import org.junit.Assert.assertEquals
@@ -154,5 +155,38 @@ class TextRendererTest {
             assertEquals(topHandleUnrotated.x, unrotatedResultPt.x, 0.1f)
             assertEquals(topHandleUnrotated.y, unrotatedResultPt.y, 0.1f)
         }
+    }
+
+    @Test
+    fun testTextAlignment_LeftCenterRight() {
+        val paint = Paint().apply { textSize = 30f }
+        val text = "Short"
+
+        val leftResult = textRenderer.layoutText(text, paint, TextContainerShape.BOX, 200f, 100f, TextAlignment.LEFT)
+        val centerResult = textRenderer.layoutText(text, paint, TextContainerShape.BOX, 200f, 100f, TextAlignment.CENTER)
+        val rightResult = textRenderer.layoutText(text, paint, TextContainerShape.BOX, 200f, 100f, TextAlignment.RIGHT)
+
+        assertEquals(0f, leftResult.lines[0].xOffset, 0.01f)
+        assertTrue(centerResult.lines[0].xOffset > 0f)
+        assertTrue(rightResult.lines[0].xOffset > centerResult.lines[0].xOffset)
+    }
+
+    @Test
+    fun testGetTextBounds_ShrinksWithShorterText() {
+        val style = TextStyleConfig(fontSize = 36f, alignment = TextAlignment.CENTER)
+        val longLayer = Layer.TextLayer(
+            id = "layer1", name = "Text", text = "This is a long sentence that wraps",
+            style = style, textContainerShape = TextContainerShape.BOX, boxWidth = 300f, boxHeight = 200f
+        )
+        val shortLayer = Layer.TextLayer(
+            id = "layer2", name = "Text", text = "Hi",
+            style = style, textContainerShape = TextContainerShape.BOX, boxWidth = 300f, boxHeight = 200f
+        )
+
+        val longBounds = textRenderer.getTextBounds(longLayer)
+        val shortBounds = textRenderer.getTextBounds(shortLayer)
+
+        assertTrue(shortBounds.width() < longBounds.width())
+        assertTrue(shortBounds.height() < longBounds.height())
     }
 }

@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.mochits.app.model.Layer
+import com.mochits.app.model.TextAlignment
 import com.mochits.app.model.TextContainerShape
 import com.mochits.app.model.TextStyleConfig
 import com.mochits.app.text.TextRenderer
