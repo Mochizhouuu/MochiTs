@@ -356,4 +356,66 @@ class EditorViewModelTest {
         val unrotatedLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
         assertEquals(0f, unrotatedLayer.rotation, 0.01f)
     }
+
+    @Test
+    fun testRepeatedEyedropperSessions_activatesAndSamplesMultipleTimesInSameSession() = runBlocking {
+        var firstSelectedColor: Int? = null
+        var secondSelectedColor: Int? = null
+
+        // Ensure base bitmap is initialized
+        viewModel.setupCanvasSize(100, 100)
+
+        // --- Session 1 ---
+        viewModel.startEyedropper { color ->
+            firstSelectedColor = color
+        }
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+
+        assertTrue(viewModel.isEyedropperActive.value)
+        assertNotNull(viewModel.eyedropperCanvasPt.value)
+        assertNotNull(viewModel.sampledColorPreview.value)
+
+        // Move eyedropper crosshair
+        viewModel.updateEyedropperPosition(androidx.compose.ui.geometry.Offset(10f, 10f))
+        assertEquals(10f, viewModel.eyedropperCanvasPt.value?.x ?: 0f, 0.01f)
+
+        // Confirm selection 1
+        viewModel.confirmEyedropper()
+
+        assertFalse(viewModel.isEyedropperActive.value)
+        assertEquals(null, viewModel.eyedropperCanvasPt.value)
+        assertEquals(null, viewModel.sampledColorPreview.value)
+        assertNotNull(firstSelectedColor)
+
+        // --- Session 2 (Re-activation in same session) ---
+        viewModel.startEyedropper { color ->
+            secondSelectedColor = color
+        }
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+
+        assertTrue(viewModel.isEyedropperActive.value)
+        assertNotNull(viewModel.eyedropperCanvasPt.value)
+        // Verify crosshair reset to center
+        val expectedCenterX = (viewModel.baseBitmap.value?.width ?: 100) / 2f
+        assertEquals(expectedCenterX, viewModel.eyedropperCanvasPt.value?.x ?: 0f, 0.01f)
+
+        viewModel.updateEyedropperPosition(androidx.compose.ui.geometry.Offset(50f, 50f))
+        assertEquals(50f, viewModel.eyedropperCanvasPt.value?.x ?: 0f, 0.01f)
+
+        // Confirm selection 2
+        viewModel.confirmEyedropper()
+
+        assertFalse(viewModel.isEyedropperActive.value)
+        assertEquals(null, viewModel.eyedropperCanvasPt.value)
+        assertNotNull(secondSelectedColor)
+
+        // --- Session 3 (Cancel) ---
+        viewModel.startEyedropper { }
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+        assertTrue(viewModel.isEyedropperActive.value)
+
+        viewModel.cancelEyedropper()
+        assertFalse(viewModel.isEyedropperActive.value)
+        assertEquals(null, viewModel.eyedropperCanvasPt.value)
+    }
 }
