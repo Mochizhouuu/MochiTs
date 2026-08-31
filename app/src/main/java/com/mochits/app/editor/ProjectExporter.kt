@@ -36,7 +36,7 @@ class ProjectExporter(private val context: Context) {
                         }
                         val count = canvas.saveLayer(null, alphaPaint)
 
-                        val bounds = textRenderer.getTextBounds(layer.text, layer.style, layer.x, layer.y)
+                        val bounds = textRenderer.getTextBounds(layer)
                         val textCenterX = bounds.centerX()
                         val textCenterY = bounds.centerY()
 
@@ -47,10 +47,7 @@ class ProjectExporter(private val context: Context) {
 
                         textRenderer.drawStyledText(
                             canvas = canvas,
-                            text = layer.text,
-                            style = layer.style,
-                            x = layer.x,
-                            y = layer.y
+                            layer = layer
                         )
 
                         canvas.restore()

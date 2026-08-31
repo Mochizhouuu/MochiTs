@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.mochits.app.model.Layer
+import com.mochits.app.model.TextContainerShape
 import com.mochits.app.model.TextStyleConfig
 import com.mochits.app.text.TextRenderer
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +27,9 @@ data class LayerJsonDto(
     val isLocked: Boolean,
     val text: String? = null,
     val style: TextStyleConfig? = null,
+    val textContainerShape: TextContainerShape? = null,
+    val boxWidth: Float? = null,
+    val boxHeight: Float? = null,
     val imagePath: String? = null
 )
 
@@ -48,7 +52,10 @@ class LayerSerializer {
                     isVisible = layer.isVisible,
                     isLocked = layer.isLocked,
                     text = layer.text,
-                    style = layer.style
+                    style = layer.style,
+                    textContainerShape = layer.textContainerShape,
+                    boxWidth = layer.boxWidth,
+                    boxHeight = layer.boxHeight
                 )
                 is Layer.ImageLayer -> LayerJsonDto(
                     id = layer.id,
@@ -95,7 +102,10 @@ class LayerSerializer {
                     isVisible = dto.isVisible,
                     isLocked = dto.isLocked,
                     text = dto.text ?: "",
-                    style = migratedStyle
+                    style = migratedStyle,
+                    textContainerShape = dto.textContainerShape ?: TextContainerShape.BOX,
+                    boxWidth = dto.boxWidth,
+                    boxHeight = dto.boxHeight
                 )
             } else {
                 Layer.ImageLayer(

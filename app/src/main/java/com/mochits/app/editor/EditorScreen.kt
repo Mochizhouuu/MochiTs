@@ -48,7 +48,7 @@ import com.mochits.app.ui.color.ColorPickerRow
 import java.io.File
 
 private enum class TextHandleType {
-    RESIZE, ROTATE, DELETE, BODY_MOVE
+    RESIZE, ROTATE, DELETE, STRETCH_V, STRETCH_H, BODY_MOVE
 }
 
 private fun isPointInsideTextLayer(
@@ -56,7 +56,7 @@ private fun isPointInsideTextLayer(
     touchCanvasPt: Offset,
     textRenderer: TextRenderer
 ): Boolean {
-    val bounds = textRenderer.getTextBounds(layer.text, layer.style, layer.x, layer.y)
+    val bounds = textRenderer.getTextBounds(layer)
     val paddedBounds = RectF(bounds.left - 16f, bounds.top - 16f, bounds.right + 16f, bounds.bottom + 16f)
     if (layer.rotation == 0f) {
         return paddedBounds.contains(touchCanvasPt.x, touchCanvasPt.y)
@@ -346,6 +346,7 @@ fun EditorScreen(
                         onAddText = { text -> viewModel.addTextLayer(text, viewportWidth = currentViewportW, viewportHeight = currentViewportH) },
                         onUpdateTextContent = { text -> viewModel.updateSelectedTextContent(text) },
                         onUpdateStyle = { style, saveUndo -> viewModel.updateSelectedTextLayerStyle(style, saveUndo = saveUndo) },
+                        onUpdateContainerShape = { shape -> viewModel.updateSelectedTextLayerContainerShape(shape) },
                         onCapitalizationTransform = { newText -> viewModel.updateSelectedTextContent(newText) },
                         onSliderDragStart = { viewModel.onSliderDragStart() },
                         onSliderDragEnd = { viewModel.onSliderDragEnd() }
@@ -402,14 +403,9 @@ fun EditorScreen(
 
             // Selected text layer & handle bounds calculation
             val selectedTextLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer
-            val handleCanvasCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text) {
+            val handleCanvasCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text, selectedTextLayer?.boxWidth, selectedTextLayer?.boxHeight) {
                 if (selectedTextLayer != null) {
-                    val bounds = textRenderer.getTextBounds(
-                        selectedTextLayer.text,
-                        selectedTextLayer.style,
-                        selectedTextLayer.x,
-                        selectedTextLayer.y
-                    )
+                    val bounds = textRenderer.getTextBounds(selectedTextLayer)
                     Offset(bounds.right, bounds.bottom)
                 } else {
                     Offset.Zero
@@ -426,6 +422,8 @@ fun EditorScreen(
             var initialTextCenterX by remember { mutableFloatStateOf(0f) }
             var initialTextCenterY by remember { mutableFloatStateOf(0f) }
             var initialTouchCanvasPt by remember { mutableStateOf(Offset.Zero) }
+            var initialBoxW by remember { mutableFloatStateOf(0f) }
+            var initialBoxH by remember { mutableFloatStateOf(0f) }
 
             var lastTapTimestamp by remember { mutableLongStateOf(0L) }
             var lastTapLayerId by remember { mutableStateOf<String?>(null) }
@@ -433,16 +431,44 @@ fun EditorScreen(
             // Handle positions in unrotated text bounds space
             val deleteHandleCanvasCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text) {
                 if (selectedTextLayer != null) {
-                    val bounds = textRenderer.getTextBounds(selectedTextLayer.text, selectedTextLayer.style, selectedTextLayer.x, selectedTextLayer.y)
+                    val bounds = textRenderer.getTextBounds(selectedTextLayer)
                     Offset(bounds.left, bounds.top)
                 } else Offset.Zero
             }
 
-            val rotateHandleCanvasCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text) {
+            val rotateHandleCanvasCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text, selectedTextLayer?.boxWidth, selectedTextLayer?.boxHeight) {
                 if (selectedTextLayer != null) {
-                    val bounds = textRenderer.getTextBounds(selectedTextLayer.text, selectedTextLayer.style, selectedTextLayer.x, selectedTextLayer.y)
+                    val bounds = textRenderer.getTextBounds(selectedTextLayer)
                     val offsetDist = 36f / viewModel.canvasState.scale
                     Offset(bounds.centerX(), bounds.top - offsetDist)
+                } else Offset.Zero
+            }
+
+            val stretchVTopCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text, selectedTextLayer?.boxWidth, selectedTextLayer?.boxHeight) {
+                if (selectedTextLayer != null) {
+                    val bounds = textRenderer.getTextBounds(selectedTextLayer)
+                    Offset(bounds.centerX(), bounds.top)
+                } else Offset.Zero
+            }
+
+            val stretchVBottomCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text, selectedTextLayer?.boxWidth, selectedTextLayer?.boxHeight) {
+                if (selectedTextLayer != null) {
+                    val bounds = textRenderer.getTextBounds(selectedTextLayer)
+                    Offset(bounds.centerX(), bounds.bottom)
+                } else Offset.Zero
+            }
+
+            val stretchHLeftCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text, selectedTextLayer?.boxWidth, selectedTextLayer?.boxHeight) {
+                if (selectedTextLayer != null) {
+                    val bounds = textRenderer.getTextBounds(selectedTextLayer)
+                    Offset(bounds.left, bounds.centerY())
+                } else Offset.Zero
+            }
+
+            val stretchHRightCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text, selectedTextLayer?.boxWidth, selectedTextLayer?.boxHeight) {
+                if (selectedTextLayer != null) {
+                    val bounds = textRenderer.getTextBounds(selectedTextLayer)
+                    Offset(bounds.right, bounds.centerY())
                 } else Offset.Zero
             }
 
@@ -451,7 +477,7 @@ fun EditorScreen(
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(isEyedropperActive, activePanel, selectedTextLayer, layers, handleCanvasCenter, deleteHandleCanvasCenter, rotateHandleCanvasCenter) {
+                    .pointerInput(isEyedropperActive, activePanel, selectedTextLayer, layers, handleCanvasCenter, deleteHandleCanvasCenter, rotateHandleCanvasCenter, stretchVTopCenter, stretchVBottomCenter, stretchHLeftCenter, stretchHRightCenter) {
                         awaitPointerEventScope {
                             while (true) {
                                 val event = awaitPointerEvent()
@@ -590,7 +616,7 @@ fun EditorScreen(
                                     panAccumulator = 0f
                                     var hitHandle = false
                                     if (selectedTextLayer != null) {
-                                        val bounds = textRenderer.getTextBounds(selectedTextLayer.text, selectedTextLayer.style, selectedTextLayer.x, selectedTextLayer.y)
+                                        val bounds = textRenderer.getTextBounds(selectedTextLayer)
                                         val textCenterX = bounds.centerX()
                                         val textCenterY = bounds.centerY()
 
@@ -615,6 +641,16 @@ fun EditorScreen(
                                                 (unrotatedPt.y - deleteHandleCanvasCenter.y) * (unrotatedPt.y - deleteHandleCanvasCenter.y)
                                         val distRotateSq = (unrotatedPt.x - rotateHandleCanvasCenter.x) * (unrotatedPt.x - rotateHandleCanvasCenter.x) +
                                                 (unrotatedPt.y - rotateHandleCanvasCenter.y) * (unrotatedPt.y - rotateHandleCanvasCenter.y)
+
+                                        val distStretchV1Sq = (unrotatedPt.x - stretchVTopCenter.x) * (unrotatedPt.x - stretchVTopCenter.x) +
+                                                (unrotatedPt.y - stretchVTopCenter.y) * (unrotatedPt.y - stretchVTopCenter.y)
+                                        val distStretchV2Sq = (unrotatedPt.x - stretchVBottomCenter.x) * (unrotatedPt.x - stretchVBottomCenter.x) +
+                                                (unrotatedPt.y - stretchVBottomCenter.y) * (unrotatedPt.y - stretchVBottomCenter.y)
+
+                                        val distStretchH1Sq = (unrotatedPt.x - stretchHLeftCenter.x) * (unrotatedPt.x - stretchHLeftCenter.x) +
+                                                (unrotatedPt.y - stretchHLeftCenter.y) * (unrotatedPt.y - stretchHLeftCenter.y)
+                                        val distStretchH2Sq = (unrotatedPt.x - stretchHRightCenter.x) * (unrotatedPt.x - stretchHRightCenter.x) +
+                                                (unrotatedPt.y - stretchHRightCenter.y) * (unrotatedPt.y - stretchHRightCenter.y)
 
                                         val rSq = handleHitRadius * handleHitRadius
 
@@ -644,6 +680,26 @@ fun EditorScreen(
                                             initialTextCenterY = textCenterY
                                             initialTouchAngle = Math.toDegrees(kotlin.math.atan2((touchCanvasPt.y - textCenterY).toDouble(), (touchCanvasPt.x - textCenterX).toDouble())).toFloat()
                                             initialTextRotation = selectedTextLayer.rotation
+                                            hitHandle = true
+                                            firstChange.consume()
+                                            continue
+                                        } else if (distStretchV1Sq <= rSq || distStretchV2Sq <= rSq) {
+                                            activeHandleType = TextHandleType.STRETCH_V
+                                            viewModel.saveUndoSnapshot()
+                                            initialTextCenterX = textCenterX
+                                            initialTextCenterY = textCenterY
+                                            initialBoxW = bounds.width()
+                                            initialBoxH = bounds.height()
+                                            hitHandle = true
+                                            firstChange.consume()
+                                            continue
+                                        } else if (distStretchH1Sq <= rSq || distStretchH2Sq <= rSq) {
+                                            activeHandleType = TextHandleType.STRETCH_H
+                                            viewModel.saveUndoSnapshot()
+                                            initialTextCenterX = textCenterX
+                                            initialTextCenterY = textCenterY
+                                            initialBoxW = bounds.width()
+                                            initialBoxH = bounds.height()
                                             hitHandle = true
                                             firstChange.consume()
                                             continue
@@ -683,7 +739,7 @@ fun EditorScreen(
                                         }
                                         TextHandleType.ROTATE -> {
                                             if (selectedTextLayer != null) {
-                                                val bounds = textRenderer.getTextBounds(selectedTextLayer.text, selectedTextLayer.style, selectedTextLayer.x, selectedTextLayer.y)
+                                                val bounds = textRenderer.getTextBounds(selectedTextLayer)
                                                 val textCenterX = bounds.centerX()
                                                 val textCenterY = bounds.centerY()
                                                 val currentAngle = Math.toDegrees(kotlin.math.atan2((touchCanvasPt.y - textCenterY).toDouble(), (touchCanvasPt.x - textCenterX).toDouble())).toFloat()
@@ -937,7 +993,7 @@ fun EditorScreen(
                                     }
                                     val count = drawContext.canvas.nativeCanvas.saveLayer(null, alphaPaint)
 
-                                    val bounds: RectF = textRenderer.getTextBounds(layer.text, layer.style, layer.x, layer.y)
+                                    val bounds: RectF = textRenderer.getTextBounds(layer)
                                     val textCenterX = bounds.centerX()
                                     val textCenterY = bounds.centerY()
 
@@ -948,10 +1004,7 @@ fun EditorScreen(
 
                                     textRenderer.drawStyledText(
                                         canvas = drawContext.canvas.nativeCanvas,
-                                        text = layer.text,
-                                        style = layer.style,
-                                        x = layer.x,
-                                        y = layer.y
+                                        layer = layer
                                     )
 
                                     // Render bounding box & controls (Resize, Rotate, Delete) if selected
@@ -1015,6 +1068,34 @@ fun EditorScreen(
                                         drawContext.canvas.nativeCanvas.drawLine(bounds.centerX(), bounds.top, bounds.centerX(), rotateY, linePaint)
                                         drawContext.canvas.nativeCanvas.drawCircle(bounds.centerX(), rotateY, handleRadius, handleFillPaint)
                                         drawContext.canvas.nativeCanvas.drawCircle(bounds.centerX(), rotateY, handleRadius, handleStrokePaint)
+
+                                        // 4. Vertical Stretch Handles (Top & Bottom Center)
+                                        val pillW = handleRadius * 1.6f
+                                        val pillH = handleRadius * 0.9f
+
+                                        // Top Stretch Handle
+                                        val topPillRect = RectF(bounds.centerX() - pillW / 2f, bounds.top - pillH / 2f, bounds.centerX() + pillW / 2f, bounds.top + pillH / 2f)
+                                        drawContext.canvas.nativeCanvas.drawRoundRect(topPillRect, 6f, 6f, handleFillPaint)
+                                        drawContext.canvas.nativeCanvas.drawRoundRect(topPillRect, 6f, 6f, handleStrokePaint)
+
+                                        // Bottom Stretch Handle
+                                        val bottomPillRect = RectF(bounds.centerX() - pillW / 2f, bounds.bottom - pillH / 2f, bounds.centerX() + pillW / 2f, bounds.bottom + pillH / 2f)
+                                        drawContext.canvas.nativeCanvas.drawRoundRect(bottomPillRect, 6f, 6f, handleFillPaint)
+                                        drawContext.canvas.nativeCanvas.drawRoundRect(bottomPillRect, 6f, 6f, handleStrokePaint)
+
+                                        // 5. Horizontal Stretch Handles (Left & Right Center)
+                                        val pillHW = handleRadius * 0.9f
+                                        val pillHH = handleRadius * 1.6f
+
+                                        // Left Stretch Handle
+                                        val leftPillRect = RectF(bounds.left - pillHW / 2f, bounds.centerY() - pillHH / 2f, bounds.left + pillHW / 2f, bounds.centerY() + pillHH / 2f)
+                                        drawContext.canvas.nativeCanvas.drawRoundRect(leftPillRect, 6f, 6f, handleFillPaint)
+                                        drawContext.canvas.nativeCanvas.drawRoundRect(leftPillRect, 6f, 6f, handleStrokePaint)
+
+                                        // Right Stretch Handle
+                                        val rightPillRect = RectF(bounds.right - pillHW / 2f, bounds.centerY() - pillHH / 2f, bounds.right + pillHW / 2f, bounds.centerY() + pillHH / 2f)
+                                        drawContext.canvas.nativeCanvas.drawRoundRect(rightPillRect, 6f, 6f, handleFillPaint)
+                                        drawContext.canvas.nativeCanvas.drawRoundRect(rightPillRect, 6f, 6f, handleStrokePaint)
                                     }
 
                                     drawContext.canvas.nativeCanvas.restore()
@@ -1517,6 +1598,7 @@ fun TextToolPanel(
     onAddText: (String) -> Unit,
     onUpdateTextContent: ((String) -> Unit)? = null,
     onUpdateStyle: (TextStyleConfig, Boolean) -> Unit,
+    onUpdateContainerShape: ((com.mochits.app.model.TextContainerShape) -> Unit)? = null,
     onCapitalizationTransform: ((String) -> Unit)? = null,
     onSliderDragStart: () -> Unit = {},
     onSliderDragEnd: () -> Unit = {}
@@ -1586,6 +1668,25 @@ fun TextToolPanel(
                     imageVector = if (isFontOptionsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                     contentDescription = if (isFontOptionsExpanded) "Tutup Opsi Font" else "Buka Opsi Font"
                 )
+            }
+
+            if (selectedLayer != null) {
+                Text("Bentuk Kontainer Teks:", style = MaterialTheme.typography.bodyMedium)
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedLayer.textContainerShape == com.mochits.app.model.TextContainerShape.BOX,
+                        onClick = { onUpdateContainerShape?.invoke(com.mochits.app.model.TextContainerShape.BOX) },
+                        label = { Text("Kotak") }
+                    )
+                    FilterChip(
+                        selected = selectedLayer.textContainerShape == com.mochits.app.model.TextContainerShape.OVAL,
+                        onClick = { onUpdateContainerShape?.invoke(com.mochits.app.model.TextContainerShape.OVAL) },
+                        label = { Text("Oval") }
+                    )
+                }
             }
 
             if (isFontOptionsExpanded) {

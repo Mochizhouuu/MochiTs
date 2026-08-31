@@ -641,6 +641,37 @@ val defaultTextStyle = MutableStateFlow(TextStyleConfig())
         }
     }
 
+
+    fun updateSelectedTextLayerContainerShape(shape: com.mochits.app.model.TextContainerShape) {
+        val selectedId = selectedLayerId.value ?: return
+        saveUndoSnapshot()
+        layers.value = layers.value.map { layer ->
+            if (layer.id == selectedId && layer is Layer.TextLayer) {
+                layer.copy(textContainerShape = shape)
+            } else {
+                layer
+            }
+        }
+        autoSave()
+    }
+
+    fun updateSelectedTextLayerDimensions(boxWidth: Float?, boxHeight: Float?, saveUndo: Boolean = true) {
+        if (saveUndo) {
+            saveUndoSnapshot()
+        }
+        val selectedId = selectedLayerId.value ?: return
+        layers.value = layers.value.map { layer ->
+            if (layer.id == selectedId && layer is Layer.TextLayer) {
+                layer.copy(boxWidth = boxWidth, boxHeight = boxHeight)
+            } else {
+                layer
+            }
+        }
+        if (saveUndo) {
+            autoSave()
+        }
+    }
+
     fun finalizeTextTransform() {
         autoSave()
     }
