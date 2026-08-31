@@ -175,12 +175,12 @@ class TextRendererTest {
     fun testGetTextBounds_ShrinksWithShorterText() {
         val style = TextStyleConfig(fontSize = 36f, alignment = TextAlignment.CENTER)
         val longLayer = Layer.TextLayer(
-            id = "layer1", name = "Text", text = "This is a long sentence that wraps",
-            style = style, textContainerShape = TextContainerShape.BOX, boxWidth = 300f, boxHeight = 200f
+            id = "layer1", name = "Text", text = "This is a long sentence\nthat wraps across\nmultiple lines",
+            style = style, textContainerShape = TextContainerShape.BOX, boxWidth = null, boxHeight = null
         )
         val shortLayer = Layer.TextLayer(
             id = "layer2", name = "Text", text = "Hi",
-            style = style, textContainerShape = TextContainerShape.BOX, boxWidth = 300f, boxHeight = 200f
+            style = style, textContainerShape = TextContainerShape.BOX, boxWidth = null, boxHeight = null
         )
 
         val longBounds = textRenderer.getTextBounds(longLayer)
@@ -188,5 +188,18 @@ class TextRendererTest {
 
         assertTrue(shortBounds.width() < longBounds.width())
         assertTrue(shortBounds.height() < longBounds.height())
+    }
+
+    @Test
+    fun testGetTextBounds_ReturnsFullContainerBoundsWhenBoxDimensionsSpecified() {
+        val style = TextStyleConfig(fontSize = 36f, alignment = TextAlignment.CENTER)
+        val ovalLayer = Layer.TextLayer(
+            id = "oval1", name = "Oval Text", text = "Hi",
+            style = style, textContainerShape = TextContainerShape.OVAL, boxWidth = 300f, boxHeight = 200f
+        )
+
+        val bounds = textRenderer.getTextBounds(ovalLayer)
+        assertEquals(300f, bounds.width(), 0.01f)
+        assertEquals(200f, bounds.height(), 0.01f)
     }
 }

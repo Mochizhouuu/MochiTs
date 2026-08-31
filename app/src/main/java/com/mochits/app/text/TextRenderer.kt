@@ -211,7 +211,7 @@ class TextRenderer(private val context: Context) {
         val finalContainerH = boxHeight ?: calculatedH
 
         val totalTextHeight = lines.size * lineHeight
-        val topOffset = if (boxHeight != null && shape == TextContainerShape.OVAL) {
+        val topOffset = if (boxHeight != null) {
             ((finalContainerH - totalTextHeight) / 2f).coerceAtLeast(0f)
         } else 0f
 
@@ -357,7 +357,13 @@ class TextRenderer(private val context: Context) {
             typeface = getTypeface(style.fontName, style.fontStyle)
         }
         val layoutResult = layoutText(text, paint, shape, boxWidth, boxHeight, style.alignment)
+        if (boxWidth != null && boxHeight != null) {
+            return RectF(x, y, x + boxWidth, y + boxHeight)
+        }
         val totalTextHeight = (layoutResult.lines.size * layoutResult.lineHeight).coerceAtLeast(layoutResult.lineHeight)
+        if (boxWidth != null) {
+            return RectF(x, y + layoutResult.topOffset, x + boxWidth, y + layoutResult.topOffset + totalTextHeight)
+        }
         return RectF(
             x + layoutResult.minX,
             y + layoutResult.topOffset,

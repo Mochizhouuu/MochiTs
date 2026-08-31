@@ -441,15 +441,7 @@ fun EditorScreen(
             val rotateHandleCanvasCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text, selectedTextLayer?.boxWidth, selectedTextLayer?.boxHeight) {
                 if (selectedTextLayer != null) {
                     val bounds = textRenderer.getTextBounds(selectedTextLayer)
-                    val offsetDist = 36f / viewModel.canvasState.scale
-                    Offset(bounds.centerX(), bounds.top - offsetDist)
-                } else Offset.Zero
-            }
-
-            val stretchVTopCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text, selectedTextLayer?.boxWidth, selectedTextLayer?.boxHeight) {
-                if (selectedTextLayer != null) {
-                    val bounds = textRenderer.getTextBounds(selectedTextLayer)
-                    Offset(bounds.centerX(), bounds.top)
+                    Offset(bounds.right, bounds.top)
                 } else Offset.Zero
             }
 
@@ -457,13 +449,6 @@ fun EditorScreen(
                 if (selectedTextLayer != null) {
                     val bounds = textRenderer.getTextBounds(selectedTextLayer)
                     Offset(bounds.centerX(), bounds.bottom)
-                } else Offset.Zero
-            }
-
-            val stretchHLeftCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text, selectedTextLayer?.boxWidth, selectedTextLayer?.boxHeight) {
-                if (selectedTextLayer != null) {
-                    val bounds = textRenderer.getTextBounds(selectedTextLayer)
-                    Offset(bounds.left, bounds.centerY())
                 } else Offset.Zero
             }
 
@@ -504,7 +489,7 @@ fun EditorScreen(
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(isEyedropperActive, activePanel, selectedTextLayer, layers, handleCanvasCenter, deleteHandleCanvasCenter, rotateHandleCanvasCenter, stretchVTopCenter, stretchVBottomCenter, stretchHLeftCenter, stretchHRightCenter) {
+                    .pointerInput(isEyedropperActive, activePanel, selectedTextLayer, layers, handleCanvasCenter, deleteHandleCanvasCenter, rotateHandleCanvasCenter, stretchVBottomCenter, stretchHRightCenter) {
                         awaitPointerEventScope {
                             while (true) {
                                 val event = awaitPointerEvent()
@@ -670,14 +655,10 @@ fun EditorScreen(
                                         val distRotateSq = (unrotatedPt.x - rotateHandleCanvasCenter.x) * (unrotatedPt.x - rotateHandleCanvasCenter.x) +
                                                 (unrotatedPt.y - rotateHandleCanvasCenter.y) * (unrotatedPt.y - rotateHandleCanvasCenter.y)
 
-                                        val distStretchV1Sq = (unrotatedPt.x - stretchVTopCenter.x) * (unrotatedPt.x - stretchVTopCenter.x) +
-                                                (unrotatedPt.y - stretchVTopCenter.y) * (unrotatedPt.y - stretchVTopCenter.y)
-                                        val distStretchV2Sq = (unrotatedPt.x - stretchVBottomCenter.x) * (unrotatedPt.x - stretchVBottomCenter.x) +
+                                        val distStretchVSq = (unrotatedPt.x - stretchVBottomCenter.x) * (unrotatedPt.x - stretchVBottomCenter.x) +
                                                 (unrotatedPt.y - stretchVBottomCenter.y) * (unrotatedPt.y - stretchVBottomCenter.y)
 
-                                        val distStretchH1Sq = (unrotatedPt.x - stretchHLeftCenter.x) * (unrotatedPt.x - stretchHLeftCenter.x) +
-                                                (unrotatedPt.y - stretchHLeftCenter.y) * (unrotatedPt.y - stretchHLeftCenter.y)
-                                        val distStretchH2Sq = (unrotatedPt.x - stretchHRightCenter.x) * (unrotatedPt.x - stretchHRightCenter.x) +
+                                        val distStretchHSq = (unrotatedPt.x - stretchHRightCenter.x) * (unrotatedPt.x - stretchHRightCenter.x) +
                                                 (unrotatedPt.y - stretchHRightCenter.y) * (unrotatedPt.y - stretchHRightCenter.y)
 
                                         val rSq = handleHitRadius * handleHitRadius
@@ -692,16 +673,6 @@ fun EditorScreen(
                                             firstChange.consume()
                                             triggerRedraw++
                                             continue
-                                        } else if (distResizeSq <= rSq) {
-                                            activeHandleType = TextHandleType.RESIZE
-                                            viewModel.saveUndoSnapshot()
-                                            initialTextCenterX = textCenterX
-                                            initialTextCenterY = textCenterY
-                                            initialDragDist = kotlin.math.hypot(touchCanvasPt.x - textCenterX, touchCanvasPt.y - textCenterY)
-                                            initialFontSize = selectedTextLayer.style.fontSize
-                                            hitHandle = true
-                                            firstChange.consume()
-                                            continue
                                         } else if (distRotateSq <= rSq) {
                                             activeHandleType = TextHandleType.ROTATE
                                             viewModel.saveUndoSnapshot()
@@ -712,23 +683,39 @@ fun EditorScreen(
                                             hitHandle = true
                                             firstChange.consume()
                                             continue
-                                        } else if (distStretchV1Sq <= stretchRSq || distStretchV2Sq <= stretchRSq) {
-                                            activeHandleType = TextHandleType.STRETCH_V
+                                        } else if (distResizeSq <= rSq) {
+                                            activeHandleType = TextHandleType.RESIZE
                                             viewModel.saveUndoSnapshot()
                                             initialTextCenterX = textCenterX
                                             initialTextCenterY = textCenterY
-                                            initialBoxW = bounds.width()
-                                            initialBoxH = bounds.height()
+                                            initialDragDist = kotlin.math.hypot(touchCanvasPt.x - textCenterX, touchCanvasPt.y - textCenterY)
+                                            initialFontSize = selectedTextLayer.style.fontSize
+                                            initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
+                                            initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
                                             hitHandle = true
                                             firstChange.consume()
                                             continue
-                                        } else if (distStretchH1Sq <= stretchRSq || distStretchH2Sq <= stretchRSq) {
-                                            activeHandleType = TextHandleType.STRETCH_H
+                                        } else if (distStretchVSq <= stretchRSq) {
+                                            activeHandleType = TextHandleType.STRETCH_V
                                             viewModel.saveUndoSnapshot()
+                                            initialTextX = selectedTextLayer.x
+                                            initialTextY = selectedTextLayer.y
                                             initialTextCenterX = textCenterX
                                             initialTextCenterY = textCenterY
-                                            initialBoxW = bounds.width()
-                                            initialBoxH = bounds.height()
+                                            initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
+                                            initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
+                                            hitHandle = true
+                                            firstChange.consume()
+                                            continue
+                                        } else if (distStretchHSq <= stretchRSq) {
+                                            activeHandleType = TextHandleType.STRETCH_H
+                                            viewModel.saveUndoSnapshot()
+                                            initialTextX = selectedTextLayer.x
+                                            initialTextY = selectedTextLayer.y
+                                            initialTextCenterX = textCenterX
+                                            initialTextCenterY = textCenterY
+                                            initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
+                                            initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
                                             hitHandle = true
                                             firstChange.consume()
                                             continue
@@ -758,8 +745,17 @@ fun EditorScreen(
                                                 if (initialDragDist > 0f) {
                                                     val scaleFactor = currentDist / initialDragDist
                                                     val newSize = (initialFontSize * scaleFactor).coerceIn(10f, 300f)
-                                                    viewModel.updateSelectedTextLayerStyle(
-                                                        selectedTextLayer.style.copy(fontSize = newSize),
+                                                    val newBoxW = if (selectedTextLayer.boxWidth != null || selectedTextLayer.textContainerShape == com.mochits.app.model.TextContainerShape.OVAL) {
+                                                        (initialBoxW * scaleFactor).coerceAtLeast(30f)
+                                                    } else null
+                                                    val newBoxH = if (selectedTextLayer.boxHeight != null || selectedTextLayer.textContainerShape == com.mochits.app.model.TextContainerShape.OVAL) {
+                                                        (initialBoxH * scaleFactor).coerceAtLeast(20f)
+                                                    } else null
+
+                                                    viewModel.updateSelectedTextLayerResize(
+                                                        fontSize = newSize,
+                                                        boxWidth = newBoxW,
+                                                        boxHeight = newBoxH,
                                                         saveUndo = false
                                                     )
                                                     triggerRedraw++
@@ -768,10 +764,7 @@ fun EditorScreen(
                                         }
                                         TextHandleType.ROTATE -> {
                                             if (selectedTextLayer != null) {
-                                                val bounds = textRenderer.getTextBounds(selectedTextLayer)
-                                                val textCenterX = bounds.centerX()
-                                                val textCenterY = bounds.centerY()
-                                                val currentAngle = Math.toDegrees(kotlin.math.atan2((touchCanvasPt.y - textCenterY).toDouble(), (touchCanvasPt.x - textCenterX).toDouble())).toFloat()
+                                                val currentAngle = Math.toDegrees(kotlin.math.atan2((touchCanvasPt.y - initialTextCenterY).toDouble(), (touchCanvasPt.x - initialTextCenterX).toDouble())).toFloat()
                                                 val deltaAngle = currentAngle - initialTouchAngle
                                                 val newRotation = (initialTextRotation + deltaAngle) % 360f
                                                 viewModel.updateSelectedTextLayerRotation(newRotation, saveUndo = false)
@@ -794,14 +787,12 @@ fun EditorScreen(
                                                     touchCanvasPt
                                                 }
                                                 val currentBoxW = selectedTextLayer.boxWidth ?: initialBoxW
-                                                val newBoxH = (kotlin.math.abs(unrotatedPt.y - initialTextCenterY) * 2f).coerceAtLeast(20f)
-                                                val newX = initialTextCenterX - (currentBoxW / 2f)
-                                                val newY = initialTextCenterY - (newBoxH / 2f)
+                                                val newBoxH = (unrotatedPt.y - initialTextY).coerceAtLeast(20f)
                                                 viewModel.updateSelectedTextLayerStretch(
                                                     boxWidth = currentBoxW,
                                                     boxHeight = newBoxH,
-                                                    newX = newX,
-                                                    newY = newY,
+                                                    newX = initialTextX,
+                                                    newY = initialTextY,
                                                     saveUndo = false
                                                 )
                                                 triggerRedraw++
@@ -823,14 +814,12 @@ fun EditorScreen(
                                                     touchCanvasPt
                                                 }
                                                 val currentBoxH = selectedTextLayer.boxHeight ?: initialBoxH
-                                                val newBoxW = (kotlin.math.abs(unrotatedPt.x - initialTextCenterX) * 2f).coerceAtLeast(30f)
-                                                val newX = initialTextCenterX - (newBoxW / 2f)
-                                                val newY = initialTextCenterY - (currentBoxH / 2f)
+                                                val newBoxW = (unrotatedPt.x - initialTextX).coerceAtLeast(30f)
                                                 viewModel.updateSelectedTextLayerStretch(
                                                     boxWidth = newBoxW,
                                                     boxHeight = currentBoxH,
-                                                    newX = newX,
-                                                    newY = newY,
+                                                    newX = initialTextX,
+                                                    newY = initialTextY,
                                                     saveUndo = false
                                                 )
                                                 triggerRedraw++
@@ -1133,24 +1122,20 @@ fun EditorScreen(
                                             bounds.left - crossOffset, bounds.top + crossOffset, xPaint
                                         )
 
-                                        // 3. Top-Center Rotate Handle (Green Circle + Circular Arrow Icon)
-                                        val rotateDist = 36f / currentScale
-                                        val rotateY = bounds.top - rotateDist
-                                        val linePaint = linePaintCache.apply { strokeWidth = 2f / currentScale }
-                                        drawContext.canvas.nativeCanvas.drawLine(bounds.centerX(), bounds.top, bounds.centerX(), rotateY, linePaint)
-
+                                        // 3. Top-Right Rotate Handle (Green Circle + Circular Arrow Icon)
                                         val rotateFillPaint = rotateFillPaintCache
-                                        drawContext.canvas.nativeCanvas.drawCircle(bounds.centerX(), rotateY, handleRadius, rotateFillPaint)
+                                        drawContext.canvas.nativeCanvas.drawCircle(bounds.right, bounds.top, handleRadius, rotateFillPaint)
+                                        drawContext.canvas.nativeCanvas.drawCircle(bounds.right, bounds.top, handleRadius, handleStrokePaint)
 
                                         val rotateArcPaint = rotateArcPaintCache.apply { strokeWidth = 2.5f / currentScale }
                                         val arcR = handleRadius * 0.5f
                                         arcRectCache.set(
-                                            bounds.centerX() - arcR, rotateY - arcR,
-                                            bounds.centerX() + arcR, rotateY + arcR
+                                            bounds.right - arcR, bounds.top - arcR,
+                                            bounds.right + arcR, bounds.top + arcR
                                         )
                                         drawContext.canvas.nativeCanvas.drawArc(arcRectCache, 45f, 270f, false, rotateArcPaint)
-                                        val tipX = bounds.centerX() + arcR * kotlin.math.cos(Math.toRadians(45.0)).toFloat()
-                                        val tipY = rotateY + arcR * kotlin.math.sin(Math.toRadians(45.0)).toFloat()
+                                        val tipX = bounds.right + arcR * kotlin.math.cos(Math.toRadians(45.0)).toFloat()
+                                        val tipY = bounds.top + arcR * kotlin.math.sin(Math.toRadians(45.0)).toFloat()
                                         rotateArrowPathCache.reset()
                                         rotateArrowPathCache.moveTo(tipX, tipY)
                                         rotateArrowPathCache.lineTo(tipX + 4f / currentScale, tipY - 5f / currentScale)
@@ -1159,10 +1144,9 @@ fun EditorScreen(
                                         val rotateArrowPaint = rotateArrowPaintCache
                                         drawContext.canvas.nativeCanvas.drawPath(rotateArrowPathCache, rotateArrowPaint)
 
-                                        // 4. Vertical Stretch Handles (Top & Bottom Center - Pill + ↕ Arrow Icon)
+                                        // 4. Vertical Stretch Handle (Bottom Center - Pill + ↕ Arrow Icon)
                                         val pillW = handleRadius * 1.6f
                                         val pillH = handleRadius * 0.9f
-
                                         val vArrowPaint = vArrowPaintCache.apply { strokeWidth = 2f / currentScale }
 
                                         fun drawVStretchHandle(cx: Float, cy: Float) {
@@ -1178,13 +1162,11 @@ fun EditorScreen(
                                             drawContext.canvas.nativeCanvas.drawLine(cx, cy + arrowLen, cx + 3f / currentScale, cy + arrowLen - 3f / currentScale, vArrowPaint)
                                         }
 
-                                        drawVStretchHandle(bounds.centerX(), bounds.top)
                                         drawVStretchHandle(bounds.centerX(), bounds.bottom)
 
-                                        // 5. Horizontal Stretch Handles (Left & Right Center - Pill + ↔ Arrow Icon)
+                                        // 5. Horizontal Stretch Handle (Right Center - Pill + ↔ Arrow Icon)
                                         val pillHW = handleRadius * 0.9f
                                         val pillHH = handleRadius * 1.6f
-
                                         val hArrowPaint = hArrowPaintCache.apply { strokeWidth = 2f / currentScale }
 
                                         fun drawHStretchHandle(cx: Float, cy: Float) {
@@ -1200,7 +1182,6 @@ fun EditorScreen(
                                             drawContext.canvas.nativeCanvas.drawLine(cx + arrowLen, cy, cx + arrowLen - 3f / currentScale, cy + 3f / currentScale, hArrowPaint)
                                         }
 
-                                        drawHStretchHandle(bounds.left, bounds.centerY())
                                         drawHStretchHandle(bounds.right, bounds.centerY())
                                     }
 
