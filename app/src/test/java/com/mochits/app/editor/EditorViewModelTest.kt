@@ -419,47 +419,108 @@ class EditorViewModelTest {
         assertEquals(null, viewModel.eyedropperCanvasPt.value)
     }
     @Test
-    fun testStretchHandles_updateDimensionsSymmetricallyAndPreserveCenter() {
-        viewModel.addTextLayer("Stretch Test")
+    fun testOneWayStretchVerticalAndHorizontal_keepsTopLeftFixed() {
+        viewModel.addTextLayer("One-Way Stretch Test")
         val layerId = viewModel.selectedLayerId.value
         assertNotNull(layerId)
 
-        val layer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
-        val initialBounds = viewModel.textRenderer.getTextBounds(layer)
-        val initialCenterX = initialBounds.centerX()
-        val initialCenterY = initialBounds.centerY()
+        val initialLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        val initialX = initialLayer.x
+        val initialY = initialLayer.y
 
-        // 1. Stretch Horizontal
-        val newWidth = 400f
-        val newX = initialCenterX - (newWidth / 2f)
+        // 1. One-Way Stretch Vertical (pull bottom edge down)
+        val newHeight = 350f
         viewModel.updateSelectedTextLayerStretch(
-            boxWidth = newWidth,
-            boxHeight = layer.boxHeight,
-            newX = newX,
-            newY = layer.y,
-            saveUndo = true
-        )
-
-        val layerAfterH = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
-        assertEquals(newWidth, layerAfterH.boxWidth ?: 0f, 0.01f)
-        assertEquals(newX, layerAfterH.x, 0.01f)
-        assertEquals(layer.y, layerAfterH.y, 0.01f)
-
-        // 2. Stretch Vertical
-        val newHeight = 300f
-        val newY = initialCenterY - (newHeight / 2f)
-        viewModel.updateSelectedTextLayerStretch(
-            boxWidth = layerAfterH.boxWidth,
+            boxWidth = initialLayer.boxWidth,
             boxHeight = newHeight,
-            newX = layerAfterH.x,
-            newY = newY,
+            newX = initialX,
+            newY = initialY,
             saveUndo = true
         )
 
         val layerAfterV = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
         assertEquals(newHeight, layerAfterV.boxHeight ?: 0f, 0.01f)
-        assertEquals(layerAfterH.x, layerAfterV.x, 0.01f)
-        assertEquals(newY, layerAfterV.y, 0.01f)
+        assertEquals(initialX, layerAfterV.x, 0.01f)
+        assertEquals(initialY, layerAfterV.y, 0.01f)
+
+        // 2. One-Way Stretch Horizontal (pull right edge right)
+        val newWidth = 450f
+        viewModel.updateSelectedTextLayerStretch(
+            boxWidth = newWidth,
+            boxHeight = layerAfterV.boxHeight,
+            newX = initialX,
+            newY = initialY,
+            saveUndo = true
+        )
+
+        val layerAfterH = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        assertEquals(newWidth, layerAfterH.boxWidth ?: 0f, 0.01f)
+        assertEquals(newHeight, layerAfterH.boxHeight ?: 0f, 0.01f)
+        assertEquals(initialX, layerAfterH.x, 0.01f)
+        assertEquals(initialY, layerAfterH.y, 0.01f)
+    }
+
+    @Test
+    fun testResizeWithExplicitBoxDimensions_scalesProportionallyBothBoxAndFont() {
+        viewModel.addTextLayer("Resize Proportional Test")
+        val layerId = viewModel.selectedLayerId.value
+        assertNotNull(layerId)
+
+        // Set initial box dimensions (e.g. from stretch or oval)
+        val initialFontSize = 40f
+        val initialBoxW = 200f
+        val initialBoxH = 100f
+
+        viewModel.updateSelectedTextLayerResize(
+            fontSize = initialFontSize,
+            boxWidth = initialBoxW,
+            boxHeight = initialBoxH,
+            saveUndo = true
+        )
+
+        val scaleFactor = 1.5f
+        viewModel.updateSelectedTextLayerResize(
+            fontSize = initialFontSize * scaleFactor,
+            boxWidth = initialBoxW * scaleFactor,
+            boxHeight = initialBoxH * scaleFactor,
+            saveUndo = false
+        )
+
+        val resizedLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        assertEquals(60f, resizedLayer.style.fontSize, 0.01f)
+        assertEquals(300f, resizedLayer.boxWidth ?: 0f, 0.01f)
+        assertEquals(150f, resizedLayer.boxHeight ?: 0f, 0.01f)
+    }
+
+    @Test
+    fun testRotateTopRightHandle_calculatesAngleFromTopRightCornerAcrossRotations() {
+        viewModel.addTextLayer("Top Right Rotate Test")
+        val layerId = viewModel.selectedLayerId.value
+        assertNotNull(layerId)
+
+        val shapes = listOf(com.mochits.app.model.TextContainerShape.BOX, com.mochits.app.model.TextContainerShape.OVAL)
+        val angles = listOf(0f, 45f, 90f)
+
+        for (shape in shapes) {
+            viewModel.updateSelectedTextLayerContainerShape(shape)
+            for (initialAngle in angles) {
+                viewModel.updateSelectedTextLayerRotation(initialAngle, saveUndo = false)
+                val layer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+                assertEquals(initialAngle, layer.rotation, 0.01f)
+
+                val bounds = viewModel.textRenderer.getTextBounds(layer)
+                val textCenterX = bounds.centerX()
+                val textCenterY = bounds.centerY()
+
+                val touchAngle = Math.toDegrees(kotlin.math.atan2((bounds.top - textCenterY).toDouble(), (bounds.right - textCenterX).toDouble())).toFloat()
+                val deltaAngle = 15f
+                val newAngle = (layer.rotation + deltaAngle) % 360f
+
+                viewModel.updateSelectedTextLayerRotation(newAngle, saveUndo = false)
+                val rotatedLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+                assertEquals(newAngle, rotatedLayer.rotation, 0.01f)
+            }
+        }
     }
 
     @Test
@@ -471,7 +532,7 @@ class EditorViewModelTest {
         val layer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
         val bounds = viewModel.textRenderer.getTextBounds(layer)
         val cx = bounds.centerX()
-        val cy = bounds.centerY()
+        // val cy = bounds.centerY()
 
         // Perform stretch
         val newW = 350f
