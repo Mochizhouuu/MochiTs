@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
@@ -43,9 +44,6 @@ import com.mochits.app.model.MaskToolMode
 import com.mochits.app.model.TextStyleConfig
 import androidx.documentfile.provider.DocumentFile
 import com.mochits.app.text.TextRenderer
-import com.mochits.app.ui.color.ColorPickerRow
-import com.mochits.app.ui.color.ColorPickerRow
-import com.mochits.app.ui.color.ColorPickerRow
 import com.mochits.app.ui.color.ColorPickerRow
 import java.io.File
 
@@ -470,55 +468,15 @@ fun EditorScreen(
                                     continue
                                 }
 
-                                // 0. EYEDROPPER MODE ACTIVE: Intercept all drags/taps to move crosshair
-                                if (isEyedropperActive) {
-                                    val firstChange = changes.first()
-                                    val touchCanvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
-                                    viewModel.updateEyedropperPosition(touchCanvasPt)
-                                    firstChange.consume()
-                                    triggerRedraw++
-                                    continue
-                                }
 
-                                // 0. EYEDROPPER MODE ACTIVE: Intercept all drags/taps to move crosshair
-                                if (isEyedropperActive) {
-                                    val firstChange = changes.first()
-                                    val touchCanvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
-                                    viewModel.updateEyedropperPosition(touchCanvasPt)
-                                    firstChange.consume()
-                                    triggerRedraw++
-                                    continue
-                                }
 
-                                // 0. EYEDROPPER MODE ACTIVE: Intercept all drags/taps to move crosshair
-                                if (isEyedropperActive) {
-                                    val firstChange = changes.first()
-                                    val touchCanvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
-                                    viewModel.updateEyedropperPosition(touchCanvasPt)
-                                    firstChange.consume()
-                                    triggerRedraw++
-                                    continue
-                                }
 
-                                // 0. EYEDROPPER MODE ACTIVE: Intercept all drags/taps to move crosshair
-                                if (isEyedropperActive) {
-                                    val firstChange = changes.first()
-                                    val touchCanvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
-                                    viewModel.updateEyedropperPosition(touchCanvasPt)
-                                    firstChange.consume()
-                                    triggerRedraw++
-                                    continue
-                                }
 
-                                // 0. EYEDROPPER MODE ACTIVE: Intercept all drags/taps to move crosshair
-                                if (isEyedropperActive) {
-                                    val firstChange = changes.first()
-                                    val touchCanvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
-                                    viewModel.updateEyedropperPosition(touchCanvasPt)
-                                    firstChange.consume()
-                                    triggerRedraw++
-                                    continue
-                                }
+
+
+
+
+
 
                                 // 1. MASK TOOL ACTIVE: Handle mask drawing strokes (1 finger) vs Pan/Zoom (2+ fingers)
                                 if (activePanel == EditorPanel.ERASE || activePanel == EditorPanel.MASK) {
@@ -961,154 +919,14 @@ fun EditorScreen(
                         drawContext.canvas.nativeCanvas.drawCircle(swatchCenter.x, swatchCenter.y, swatchRadius, strokePaint)
                     }
 
-                    // 3. Eyedropper Crosshair & Swatch Preview Overlay
-                    if (isEyedropperActive && eyedropperCanvasPt != null) {
-                        val pt = eyedropperCanvasPt!!
-                        val currentScale = viewModel.canvasState.scale.coerceAtLeast(0.1f)
-                        val strokeW = 4f / currentScale
-                        val crossArm = 24f / currentScale
-                        val swatchRadius = 28f / currentScale
-                        val swatchOffset = 60f / currentScale
 
-                        // Red Crosshair Paint
-                        val crossPaint = AndroidPaint().apply {
-                            style = AndroidPaint.Style.STROKE
-                            strokeWidth = strokeW
-                            color = AndroidColor.RED
-                            isAntiAlias = true
-                        }
-                        drawContext.canvas.nativeCanvas.drawLine(pt.x - crossArm, pt.y, pt.x + crossArm, pt.y, crossPaint)
-                        drawContext.canvas.nativeCanvas.drawLine(pt.x, pt.y - crossArm, pt.x, pt.y + crossArm, crossPaint)
 
-                        // Sampled Color Swatch Bubble
-                        val sampledCol = sampledColorPreview ?: AndroidColor.BLACK
-                        val fillPaint = AndroidPaint().apply {
-                            style = AndroidPaint.Style.FILL
-                            color = sampledCol
-                            isAntiAlias = true
-                        }
-                        val strokePaint = AndroidPaint().apply {
-                            style = AndroidPaint.Style.STROKE
-                            strokeWidth = 3f / currentScale
-                            color = AndroidColor.WHITE
-                            isAntiAlias = true
-                        }
-                        val swatchCenter = Offset(pt.x, pt.y - swatchOffset)
-                        drawContext.canvas.nativeCanvas.drawCircle(swatchCenter.x, swatchCenter.y, swatchRadius, fillPaint)
-                        drawContext.canvas.nativeCanvas.drawCircle(swatchCenter.x, swatchCenter.y, swatchRadius, strokePaint)
-                    }
 
-                    // 3. Eyedropper Crosshair & Swatch Preview Overlay
-                    if (isEyedropperActive && eyedropperCanvasPt != null) {
-                        val pt = eyedropperCanvasPt!!
-                        val currentScale = viewModel.canvasState.scale.coerceAtLeast(0.1f)
-                        val strokeW = 4f / currentScale
-                        val crossArm = 24f / currentScale
-                        val swatchRadius = 28f / currentScale
-                        val swatchOffset = 60f / currentScale
-
-                        // Red Crosshair Paint
-                        val crossPaint = AndroidPaint().apply {
-                            style = AndroidPaint.Style.STROKE
-                            strokeWidth = strokeW
-                            color = AndroidColor.RED
-                            isAntiAlias = true
-                        }
-                        drawContext.canvas.nativeCanvas.drawLine(pt.x - crossArm, pt.y, pt.x + crossArm, pt.y, crossPaint)
-                        drawContext.canvas.nativeCanvas.drawLine(pt.x, pt.y - crossArm, pt.x, pt.y + crossArm, crossPaint)
-
-                        // Sampled Color Swatch Bubble
-                        val sampledCol = sampledColorPreview ?: AndroidColor.BLACK
-                        val fillPaint = AndroidPaint().apply {
-                            style = AndroidPaint.Style.FILL
-                            color = sampledCol
-                            isAntiAlias = true
-                        }
-                        val strokePaint = AndroidPaint().apply {
-                            style = AndroidPaint.Style.STROKE
-                            strokeWidth = 3f / currentScale
-                            color = AndroidColor.WHITE
-                            isAntiAlias = true
-                        }
-                        val swatchCenter = Offset(pt.x, pt.y - swatchOffset)
-                        drawContext.canvas.nativeCanvas.drawCircle(swatchCenter.x, swatchCenter.y, swatchRadius, fillPaint)
-                        drawContext.canvas.nativeCanvas.drawCircle(swatchCenter.x, swatchCenter.y, swatchRadius, strokePaint)
-                    }
 
                     // 3. Render Layers
-                    // 4. Eyedropper Crosshair & Swatch Preview Overlay
-                    if (isEyedropperActive && eyedropperCanvasPt != null) {
-                        val pt = eyedropperCanvasPt!!
-                        val currentScale = viewModel.canvasState.scale.coerceAtLeast(0.1f)
-                        val strokeW = 4f / currentScale
-                        val crossArm = 24f / currentScale
-                        val swatchRadius = 28f / currentScale
-                        val swatchOffset = 60f / currentScale
 
-                        // Red Crosshair Paint
-                        val crossPaint = AndroidPaint().apply {
-                            style = AndroidPaint.Style.STROKE
-                            strokeWidth = strokeW
-                            color = AndroidColor.RED
-                            isAntiAlias = true
-                        }
-                        drawContext.canvas.nativeCanvas.drawLine(pt.x - crossArm, pt.y, pt.x + crossArm, pt.y, crossPaint)
-                        drawContext.canvas.nativeCanvas.drawLine(pt.x, pt.y - crossArm, pt.x, pt.y + crossArm, crossPaint)
 
-                        // Sampled Color Swatch Bubble
-                        val sampledCol = sampledColorPreview ?: AndroidColor.BLACK
-                        val fillPaint = AndroidPaint().apply {
-                            style = AndroidPaint.Style.FILL
-                            color = sampledCol
-                            isAntiAlias = true
-                        }
-                        val strokePaint = AndroidPaint().apply {
-                            style = AndroidPaint.Style.STROKE
-                            strokeWidth = 3f / currentScale
-                            color = AndroidColor.WHITE
-                            isAntiAlias = true
-                        }
-                        val swatchCenter = Offset(pt.x, pt.y - swatchOffset)
-                        drawContext.canvas.nativeCanvas.drawCircle(swatchCenter.x, swatchCenter.y, swatchRadius, fillPaint)
-                        drawContext.canvas.nativeCanvas.drawCircle(swatchCenter.x, swatchCenter.y, swatchRadius, strokePaint)
-                    }
 
-                    // 4. Eyedropper Crosshair & Swatch Preview Overlay
-                    if (isEyedropperActive && eyedropperCanvasPt != null) {
-                        val pt = eyedropperCanvasPt!!
-                        val currentScale = viewModel.canvasState.scale.coerceAtLeast(0.1f)
-                        val strokeW = 4f / currentScale
-                        val crossArm = 24f / currentScale
-                        val swatchRadius = 28f / currentScale
-                        val swatchOffset = 60f / currentScale
-
-                        // Red Crosshair Paint
-                        val crossPaint = AndroidPaint().apply {
-                            style = AndroidPaint.Style.STROKE
-                            strokeWidth = strokeW
-                            color = AndroidColor.RED
-                            isAntiAlias = true
-                        }
-                        drawContext.canvas.nativeCanvas.drawLine(pt.x - crossArm, pt.y, pt.x + crossArm, pt.y, crossPaint)
-                        drawContext.canvas.nativeCanvas.drawLine(pt.x, pt.y - crossArm, pt.x, pt.y + crossArm, crossPaint)
-
-                        // Sampled Color Swatch Bubble
-                        val sampledCol = sampledColorPreview ?: AndroidColor.BLACK
-                        val fillPaint = AndroidPaint().apply {
-                            style = AndroidPaint.Style.FILL
-                            color = sampledCol
-                            isAntiAlias = true
-                        }
-                        val strokePaint = AndroidPaint().apply {
-                            style = AndroidPaint.Style.STROKE
-                            strokeWidth = 3f / currentScale
-                            color = AndroidColor.WHITE
-                            isAntiAlias = true
-                        }
-                        val swatchCenter = Offset(pt.x, pt.y - swatchOffset)
-                        drawContext.canvas.nativeCanvas.drawCircle(swatchCenter.x, swatchCenter.y, swatchRadius, fillPaint)
-                        drawContext.canvas.nativeCanvas.drawCircle(swatchCenter.x, swatchCenter.y, swatchRadius, strokePaint)
-                    }
 
                     layers.forEach { layer ->
                         if (layer.isVisible) {
@@ -1222,33 +1040,90 @@ fun EditorScreen(
                 drawContext.canvas.nativeCanvas.restore()
             }
 
-            // Floating Confirm/Cancel Action Bar for Eyedropper
+            // Floating Confirm/Cancel Action Bar for Eyedropper (Pill Container)
             if (isEyedropperActive) {
                 Surface(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .padding(top = 16.dp),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    tonalElevation = 8.dp
+                        .padding(top = 12.dp, start = 16.dp, end = 16.dp)
+                        .widthIn(max = 500.dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f),
+                    tonalElevation = 6.dp,
+                    shadowElevation = 8.dp
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(
-                            text = "Geser crosshair untuk mengambil warna",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Button(
-                            onClick = { viewModel.confirmEyedropper() },
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)
+                        // Left: Icon + Instruction
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f, fill = false)
                         ) {
-                            Text("Pilih")
+                            Icon(
+                                imageVector = Icons.Default.Colorize,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = "Geser crosshair ambil warna",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1
+                            )
                         }
-                        IconButton(onClick = { viewModel.cancelEyedropper() }) {
-                            Icon(Icons.Default.Close, contentDescription = "Batal")
+
+                        // Center/Right: Sample Swatch + Action Buttons
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Sampled Color Swatch Circle Preview
+                            val sampledCol = sampledColorPreview ?: AndroidColor.BLACK
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .background(
+                                        color = Color(sampledCol),
+                                        shape = androidx.compose.foundation.shape.CircleShape
+                                    )
+                                    .border(
+                                        width = 2.dp,
+                                        color = MaterialTheme.colorScheme.outline,
+                                        shape = androidx.compose.foundation.shape.CircleShape
+                                    )
+                            )
+
+                            // Confirm Button
+                            Button(
+                                onClick = { viewModel.confirmEyedropper() },
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                                modifier = Modifier.height(36.dp)
+                            ) {
+                                Text(
+                                    text = "Pilih",
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                            }
+
+                            // Cancel Button
+                            IconButton(
+                                onClick = { viewModel.cancelEyedropper() },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Batal",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 }

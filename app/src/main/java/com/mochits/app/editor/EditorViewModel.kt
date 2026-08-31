@@ -75,16 +75,22 @@ class EditorViewModel @Inject constructor(
 
     fun startEyedropper(onColorSelected: (Int) -> Unit) {
         val base = baseBitmap.value ?: return
+        compositeBitmap?.let { if (!it.isRecycled) it.recycle() }
+        compositeBitmap = null
         eyedropperTargetConsumer = onColorSelected
+
+        val initialPt = Offset(base.width / 2f, base.height / 2f)
+        eyedropperCanvasPt.value = initialPt
+        val initialColor = ColorUtils.samplePixelColor(base, initialPt.x, initialPt.y) ?: android.graphics.Color.BLACK
+        sampledColorPreview.value = initialColor
+        isEyedropperActive.value = true
+
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
             try {
                 val comp = exporter.exportToBitmap(base, layers.value)
                 compositeBitmap = comp
-                val initialPt = Offset(base.width / 2f, base.height / 2f)
-                eyedropperCanvasPt.value = initialPt
-                val initialColor = ColorUtils.samplePixelColor(comp, initialPt.x, initialPt.y) ?: android.graphics.Color.BLACK
-                sampledColorPreview.value = initialColor
-                isEyedropperActive.value = true
+                val compColor = ColorUtils.samplePixelColor(comp, initialPt.x, initialPt.y) ?: initialColor
+                sampledColorPreview.value = compColor
             } catch (t: Throwable) {
                 t.printStackTrace()
             }
@@ -92,13 +98,13 @@ class EditorViewModel @Inject constructor(
     }
 
     fun updateEyedropperPosition(canvasPt: Offset) {
-        val comp = compositeBitmap ?: return
+        val targetBmp = compositeBitmap ?: baseBitmap.value ?: return
         val clampedPt = Offset(
-            canvasPt.x.coerceIn(0f, comp.width - 1f),
-            canvasPt.y.coerceIn(0f, comp.height - 1f)
+            canvasPt.x.coerceIn(0f, targetBmp.width - 1f),
+            canvasPt.y.coerceIn(0f, targetBmp.height - 1f)
         )
         eyedropperCanvasPt.value = clampedPt
-        val color = ColorUtils.samplePixelColor(comp, clampedPt.x, clampedPt.y)
+        val color = ColorUtils.samplePixelColor(targetBmp, clampedPt.x, clampedPt.y)
         if (color != null) {
             sampledColorPreview.value = color
         }
