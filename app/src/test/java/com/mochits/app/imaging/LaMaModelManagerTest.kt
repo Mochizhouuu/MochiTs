@@ -85,4 +85,17 @@ class LaMaModelManagerTest {
         assertEquals(LaMaModelStatus.NOT_DOWNLOADED, managerSettings.modelStatus.value)
         assertEquals(LaMaModelStatus.NOT_DOWNLOADED, managerEditor.modelStatus.value)
     }
+
+    @Test
+    fun testTempFileCleanupOnCheckStatusWhenNotDownloading() {
+        val targetFile = managerSettings.getModelFile()
+        targetFile.parentFile?.mkdirs()
+        val tempFile = File(targetFile.parentFile, "lama_manga.onnx.tmp")
+        tempFile.writeBytes(ByteArray(2048))
+
+        assertTrue(tempFile.exists())
+        val status = managerSettings.checkModelStatus()
+        assertEquals(LaMaModelStatus.NOT_DOWNLOADED, status)
+        assertFalse(tempFile.exists())
+    }
 }
