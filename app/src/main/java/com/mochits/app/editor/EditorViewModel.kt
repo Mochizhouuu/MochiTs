@@ -59,7 +59,7 @@ class EditorViewModel @Inject constructor(
     val lamaDownloadProgress = MutableStateFlow(0f)
     val userMessage = MutableStateFlow<String?>(null)
 
-    val lamaModelManager = LaMaModelManager(context)
+    val lamaModelManager = LaMaModelManager.getInstance(context)
     val lamaInpaintEngine = LaMaInpaintEngine(context)
 
     val maskToolMode = MutableStateFlow(MaskToolMode.BRUSH)
@@ -426,8 +426,10 @@ val defaultTextStyle = MutableStateFlow(TextStyleConfig())
                 lamaDownloadProgress.value = progress
             }
             isDownloadingLaMaModel.value = false
-            if (!success) {
-                userMessage.value = "Gagal mengunduh model LaMa. Menggunakan model Telea."
+            if (success) {
+                userMessage.value = "Model LaMa berhasil diunduh."
+            } else {
+                userMessage.value = "Gagal mengunduh model LaMa. Periksa koneksi internet Anda."
             }
             onComplete(success)
         }
@@ -441,16 +443,20 @@ val defaultTextStyle = MutableStateFlow(TextStyleConfig())
             isProcessingInpaint.value = true
 
             if (selectedInpaintModel.value == InpaintModel.LAMA) {
-                if (!lamaModelManager.isModelDownloaded()) {
-                    userMessage.value = "Mengunduh model LaMa..."
+                val status = lamaModelManager.checkModelStatus()
+                if (status != com.mochits.app.imaging.LaMaModelStatus.DOWNLOADED) {
+                    if (status == com.mochits.app.imaging.LaMaModelStatus.CORRUPTED_ERROR) {
+                        userMessage.value = "File model LaMa rusak. Mengunduh ulang..."
+                    } else {
+                        userMessage.value = "Mengunduh model LaMa..."
+                    }
                     isDownloadingLaMaModel.value = true
                     val downloaded = lamaModelManager.downloadModel { progress ->
                         lamaDownloadProgress.value = progress
                     }
                     isDownloadingLaMaModel.value = false
                     if (!downloaded) {
-                        userMessage.value = "Gagal mengunduh model LaMa, menggunakan Telea."
-                        runTeleaFallback(currentBase, tools)
+                        userMessage.value = "Gagal mengunduh model LaMa. Periksa koneksi internet atau unduh via Pengaturan."
                         isProcessingInpaint.value = false
                         return@launch
                     }
@@ -464,8 +470,7 @@ val defaultTextStyle = MutableStateFlow(TextStyleConfig())
                         autoSave()
                     }
                     is Result.Error -> {
-                        userMessage.value = "Inference LaMa gagal. Fallback ke Telea."
-                        runTeleaFallback(currentBase, tools)
+                        userMessage.value = "Inference LaMa gagal: ${lamaResult.exception.message}"
                     }
                     else -> {}
                 }

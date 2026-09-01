@@ -17,7 +17,7 @@ import java.nio.FloatBuffer
 
 class LaMaInpaintEngine(private val context: Context) {
 
-    private val modelManager = LaMaModelManager(context)
+    private val modelManager = LaMaModelManager.getInstance(context)
     private var ortEnv: OrtEnvironment? = null
     private var ortSession: OrtSession? = null
 
