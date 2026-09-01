@@ -114,25 +114,60 @@ class LaMaModelManager private constructor(context: Context) {
                 try {
                     Log.d(TAG, "Starting download attempt ${retryCount + 1}/$maxRetries from $urlString (existingBytes: $existingBytes)")
 
-                    val url = URL(urlString)
-                    connection = url.openConnection() as HttpURLConnection
-                    connection.connectTimeout = 15000
-                    connection.readTimeout = 60000
-                    connection.instanceFollowRedirects = true
+                    var currentUrl = urlString
+                    var redirectCount = 0
+                    val maxRedirects = 10
+                    var requestRangeBytes = existingBytes
 
-                    if (existingBytes > 0) {
-                        connection.setRequestProperty("Range", "bytes=$existingBytes-")
+                    while (redirectCount < maxRedirects) {
+                        val url = URL(currentUrl)
+                        connection = url.openConnection() as HttpURLConnection
+                        connection.connectTimeout = 15000
+                        connection.readTimeout = 60000
+                        connection.instanceFollowRedirects = false
+
+                        if (requestRangeBytes > 0) {
+                            connection.setRequestProperty("Range", "bytes=$requestRangeBytes-")
+                        }
+
+                        connection.connect()
+                        val resCode = connection.responseCode
+                        Log.d(TAG, "HTTP response code: $resCode for $currentUrl (redirect #$redirectCount)")
+
+                        if (resCode == HttpURLConnection.HTTP_MOVED_PERM ||
+                            resCode == HttpURLConnection.HTTP_MOVED_TEMP ||
+                            resCode == HttpURLConnection.HTTP_SEE_OTHER ||
+                            resCode == 307 ||
+                            resCode == 308
+                        ) {
+                            val location = connection.getHeaderField("Location")
+                            connection.disconnect()
+                            if (location.isNullOrEmpty()) {
+                                Log.w(TAG, "Redirect location header missing at $currentUrl")
+                                break
+                            }
+                            currentUrl = URL(url, location).toString()
+                            redirectCount++
+                            Log.d(TAG, "Following redirect to $currentUrl")
+                            continue
+                        }
+                        break
                     }
 
-                    connection.connect()
-                    val responseCode = connection.responseCode
-                    Log.d(TAG, "HTTP response code: $responseCode for $urlString")
+                    val responseCode = connection?.responseCode ?: -1
+                    if (responseCode == 416) { // HTTP 416 Range Not Satisfiable
+                        Log.w(TAG, "HTTP 416 Range Not Satisfiable from $currentUrl. Deleting temp file and retrying from byte 0.")
+                        if (tempFile.exists()) tempFile.delete()
+                        retryCount++
+                        if (retryCount < maxRetries) delay(1000L * retryCount)
+                        continue
+                    }
 
                     val isPartialContent = (responseCode == HttpURLConnection.HTTP_PARTIAL)
                     val isOK = (responseCode == HttpURLConnection.HTTP_OK)
 
                     if (!isPartialContent && !isOK) {
-                        Log.w(TAG, "Download failed with unexpected response code $responseCode from $urlString")
+                        Log.w(TAG, "Download failed with unexpected response code $responseCode from $currentUrl")
                         if (responseCode == HttpURLConnection.HTTP_NOT_FOUND) {
                             // Don't retry on 404, break retry loop to try next URL
                             break
@@ -142,18 +177,25 @@ class LaMaModelManager private constructor(context: Context) {
                         continue
                     }
 
-                    val append = isPartialContent && existingBytes > 0
-                    val contentLength = connection.contentLengthLong
-                    val totalExpectedLength = if (append) existingBytes + contentLength else contentLength
+                    val append = isPartialContent && requestRangeBytes > 0
+                    val contentLength = connection?.contentLengthLong ?: -1L
+                    val totalExpectedLength = if (append) requestRangeBytes + contentLength else contentLength
 
-                    input = connection.inputStream
+                    val stream = connection?.inputStream
+                    if (stream == null) {
+                        Log.w(TAG, "InputStream is null for $currentUrl")
+                        retryCount++
+                        if (retryCount < maxRetries) delay(1000L * retryCount)
+                        continue
+                    }
+                    input = stream
                     output = FileOutputStream(tempFile, append)
 
                     val data = ByteArray(16384)
-                    var currentDownloadedBytes = if (append) existingBytes else 0L
+                    var currentDownloadedBytes = if (append) requestRangeBytes else 0L
                     var count: Int
 
-                    while (input.read(data).also { count = it } != -1) {
+                    while (stream.read(data).also { count = it } != -1) {
                         output.write(data, 0, count)
                         currentDownloadedBytes += count.toLong()
 
@@ -166,8 +208,8 @@ class LaMaModelManager private constructor(context: Context) {
 
                     output.flush()
                     output.close()
-                    input.close()
-                    connection.disconnect()
+                    stream.close()
+                    connection?.disconnect()
 
                     Log.d(TAG, "Download stream completed for $urlString. Temp file size: ${tempFile.length()} bytes")
 
