@@ -75,7 +75,6 @@ class TextRendererTest {
 
         assertTrue("Should have multiple rendered lines", result.lines.size > 1)
 
-        // Verify that words fit comfortably on lines and average line length is reasonable (no per-character breaking)
         val avgLineCharCount = result.lines.map { it.text.trim().length }.average()
         assertTrue("Average line length should be reasonable (> 5 chars), got $avgLineCharCount", avgLineCharCount > 5)
     }
@@ -85,17 +84,14 @@ class TextRendererTest {
         val paint = Paint().apply { textSize = 28f }
         val text = "Pertama kali teks dimasukkan ke dalam bentuk oval lalu di-stretch menjadi lebih besar dan dikembalikan lebih kecil."
 
-        // 1. Initial size
         val initialResult = textRenderer.layoutText(
             text = text, paint = paint, shape = TextContainerShape.OVAL, boxWidth = 200f, boxHeight = 150f
         )
 
-        // 2. Stretch larger
         val largerResult = textRenderer.layoutText(
             text = text, paint = paint, shape = TextContainerShape.OVAL, boxWidth = 400f, boxHeight = 300f
         )
 
-        // 3. Stretch smaller
         val smallerResult = textRenderer.layoutText(
             text = text, paint = paint, shape = TextContainerShape.OVAL, boxWidth = 120f, boxHeight = 90f
         )
@@ -103,7 +99,6 @@ class TextRendererTest {
         assertTrue("Larger box should have fewer or equal lines than initial", largerResult.lines.size <= initialResult.lines.size)
         assertTrue("Smaller box should have more or equal lines than initial", smallerResult.lines.size >= initialResult.lines.size)
 
-        // Verify clean wrapping without single-char lines or wild per-char hyphens in smaller box
         for (line in smallerResult.lines) {
             val trimmed = line.text.trim()
             if (trimmed.endsWith("-")) {
@@ -160,7 +155,7 @@ class TextRendererTest {
     }
 
     @Test
-    fun testScenario7_PreciseVisualBoundingBox() {
+    fun testScenario7_ExplicitContainerBoundingBox() {
         val style = TextStyleConfig(fontSize = 36f, alignment = TextAlignment.CENTER)
         val ovalLayer = Layer.TextLayer(
             id = "oval1", name = "Oval Text", text = "Hi",
@@ -168,9 +163,8 @@ class TextRendererTest {
         )
 
         val bounds = textRenderer.getTextBounds(ovalLayer)
-        // Precise visual bounds wrap actual text lines, not the raw container boxWidth/boxHeight
-        assertTrue("Visual bounds width should wrap actual text ('Hi'), smaller than full 300px box width", bounds.width() < 300f)
-        assertTrue("Visual bounds height should wrap actual text line height, smaller than full 200px box height", bounds.height() < 200f)
+        assertEquals("Container width should be explicitly 300px", 300f, bounds.width(), 0.01f)
+        assertEquals("Container height should be explicitly 200px", 200f, bounds.height(), 0.01f)
     }
 
     @Test
@@ -266,7 +260,6 @@ class TextRendererTest {
         val style = TextStyleConfig(fontSize = 30f, alignment = TextAlignment.LEFT)
         val text = "A long single line of text that should remain unconstrained horizontally"
 
-        // 1. Initial state: boxWidth = null, boxHeight = null
         val layerInitial = Layer.TextLayer(
             id = "t1", name = "Text", text = text, style = style,
             textContainerShape = TextContainerShape.BOX, boxWidth = null, boxHeight = null
@@ -275,11 +268,9 @@ class TextRendererTest {
             text = text, paint = Paint().apply { textSize = 30f },
             shape = TextContainerShape.BOX, boxWidth = null, boxHeight = null
         )
-        val initialBounds = textRenderer.getTextBounds(layerInitial)
 
         assertEquals("Should be single line", 1, initialLayout.lines.size)
 
-        // 2. Vertical stretch applied: boxHeight set explicitly (e.g., 300f), boxWidth remains null
         val stretchedHeight = 300f
         val layerStretched = layerInitial.copy(boxHeight = stretchedHeight)
 
@@ -289,11 +280,9 @@ class TextRendererTest {
         )
         val stretchedBounds = textRenderer.getTextBounds(layerStretched)
 
-        // Verify width is NOT constrained / wrapped to 200f
         assertEquals("Line count should remain 1", 1, stretchedLayout.lines.size)
         assertEquals("Container width should equal initial natural width", initialLayout.containerWidth, stretchedLayout.containerWidth, 0.01f)
 
-        // Verify bottom of bounds reflects full boxHeight
         assertEquals("Bounds height should reflect explicit boxHeight", stretchedHeight, stretchedBounds.height(), 0.01f)
         assertEquals("Bounds bottom should equal y + boxHeight", layerStretched.y + stretchedHeight, stretchedBounds.bottom, 0.01f)
     }
@@ -303,7 +292,6 @@ class TextRendererTest {
         val paint = Paint().apply { textSize = 28f }
         val text = "Teks ini digunakan untuk menguji performa reflow dan layout pada shape BOX dan OVAL berulang kali selama gesture drag"
 
-        // Warm up cache
         textRenderer.layoutText(text, paint, TextContainerShape.BOX, 200f, 300f)
         textRenderer.layoutText(text, paint, TextContainerShape.OVAL, 200f, 300f)
 
@@ -313,7 +301,6 @@ class TextRendererTest {
         repeat(iterations) {
             textRenderer.layoutText(text, paint, TextContainerShape.BOX, 200f + (it % 10), 300f + (it % 10))
         }
-        val boxDurationMs = (System.nanoTime() - boxStartTime) / 1_000_000.0
 
         val ovalStartTime = System.nanoTime()
         repeat(iterations) {
@@ -321,7 +308,6 @@ class TextRendererTest {
         }
         val ovalDurationMs = (System.nanoTime() - ovalStartTime) / 1_000_000.0
 
-        // Performance requirement: 1000 reflows for OVAL should be extremely fast (< 200ms in Robolectric environment)
         assertTrue("OVAL layout performance should be fast (< 200ms for 1000 calls), took ${ovalDurationMs}ms", ovalDurationMs < 200.0)
     }
 }

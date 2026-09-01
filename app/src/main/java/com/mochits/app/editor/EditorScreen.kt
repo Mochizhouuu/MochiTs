@@ -786,7 +786,7 @@ fun EditorScreen(
                                                 } else {
                                                     touchCanvasPt
                                                 }
-                                                val currentBoxW = selectedTextLayer.boxWidth ?: initialBoxW
+                                                val currentBoxW = selectedTextLayer.boxWidth
                                                 val newBoxH = (unrotatedPt.y - initialTextY).coerceAtLeast(20f)
                                                 viewModel.updateSelectedTextLayerStretch(
                                                     boxWidth = currentBoxW,
@@ -813,7 +813,7 @@ fun EditorScreen(
                                                 } else {
                                                     touchCanvasPt
                                                 }
-                                                val currentBoxH = selectedTextLayer.boxHeight ?: initialBoxH
+                                                val currentBoxH = selectedTextLayer.boxHeight
                                                 val newBoxW = (unrotatedPt.x - initialTextX).coerceAtLeast(30f)
                                                 viewModel.updateSelectedTextLayerStretch(
                                                     boxWidth = newBoxW,
