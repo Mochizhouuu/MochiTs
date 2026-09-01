@@ -16,6 +16,8 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MaskSelectionToolsTest {
 
+    private fun getAlpha(pixel: Int): Int = (pixel ushr 24) or (pixel and 0xFF)
+
     @Test
     fun testInitializationAndSize() {
         val tools = MaskSelectionTools(100, 200)
@@ -57,11 +59,11 @@ class MaskSelectionToolsTest {
 
         // Check that white pixel region (e.g. 10, 10) is masked (alpha > 0)
         val maskBmp = tools.maskBitmap
-        val maskedPixelVal = maskBmp.getPixel(10, 10) and 0xFF
+        val maskedPixelVal = getAlpha(maskBmp.getPixel(10, 10))
         assertEquals(255, maskedPixelVal)
 
         // Check that black pixel region (e.g. 10, 30) is NOT masked (alpha == 0)
-        val unmaskedPixelVal = maskBmp.getPixel(10, 30) and 0xFF
+        val unmaskedPixelVal = getAlpha(maskBmp.getPixel(10, 30))
         assertEquals(0, unmaskedPixelVal)
     }
 
@@ -78,13 +80,13 @@ class MaskSelectionToolsTest {
 
         // Low tolerance (2%) should NOT select (1,0)
         tools.magicWandSelect(srcBitmap, Offset(0f, 0f), tolerance = 2f)
-        var p1Val = tools.maskBitmap.getPixel(1, 0) and 0xFF
+        var p1Val = getAlpha(tools.maskBitmap.getPixel(1, 0))
         assertEquals(0, p1Val)
 
         // Clear mask and try higher tolerance (10%) which SHOULD select (1,0)
         tools.clearMask()
         tools.magicWandSelect(srcBitmap, Offset(0f, 0f), tolerance = 10f)
-        p1Val = tools.maskBitmap.getPixel(1, 0) and 0xFF
+        p1Val = getAlpha(tools.maskBitmap.getPixel(1, 0))
         assertEquals(255, p1Val)
     }
 
@@ -112,7 +114,7 @@ class MaskSelectionToolsTest {
         val maskBmp1 = tools.maskBitmap
         for (y in 0 until 50) {
             for (x in 0 until 50) {
-                if ((maskBmp1.getPixel(x, y) and 0xFF) > 0) lowTolCount++
+                if (getAlpha(maskBmp1.getPixel(x, y)) > 0) lowTolCount++
             }
         }
 
@@ -123,7 +125,7 @@ class MaskSelectionToolsTest {
         val maskBmp2 = tools.maskBitmap
         for (y in 0 until 50) {
             for (x in 0 until 50) {
-                if ((maskBmp2.getPixel(x, y) and 0xFF) > 0) highTolCount++
+                if (getAlpha(maskBmp2.getPixel(x, y)) > 0) highTolCount++
             }
         }
 
@@ -148,7 +150,7 @@ class MaskSelectionToolsTest {
         var unexpandedCount = 0
         for (y in 0 until 30) {
             for (x in 0 until 30) {
-                if ((tools.maskBitmap.getPixel(x, y) and 0xFF) > 0) unexpandedCount++
+                if (getAlpha(tools.maskBitmap.getPixel(x, y)) > 0) unexpandedCount++
             }
         }
         assertEquals(4, unexpandedCount)
@@ -159,14 +161,14 @@ class MaskSelectionToolsTest {
         var expandedCount = 0
         for (y in 0 until 30) {
             for (x in 0 until 30) {
-                if ((tools.maskBitmap.getPixel(x, y) and 0xFF) > 0) expandedCount++
+                if (getAlpha(tools.maskBitmap.getPixel(x, y)) > 0) expandedCount++
             }
         }
 
         assertTrue("Expanded mask pixel count ($expandedCount) must be significantly larger than unexpanded ($unexpandedCount)", expandedCount > unexpandedCount * 5)
 
         // Check pixel at radius ~4 from center (14, 14) is now selected
-        val pixelNearEdge = tools.maskBitmap.getPixel(10, 14) and 0xFF
+        val pixelNearEdge = getAlpha(tools.maskBitmap.getPixel(10, 14))
         assertEquals(255, pixelNearEdge)
 
         // Reset expandPixels back to 0 without re-tapping
@@ -174,7 +176,7 @@ class MaskSelectionToolsTest {
         var resetCount = 0
         for (y in 0 until 30) {
             for (x in 0 until 30) {
-                if ((tools.maskBitmap.getPixel(x, y) and 0xFF) > 0) resetCount++
+                if (getAlpha(tools.maskBitmap.getPixel(x, y)) > 0) resetCount++
             }
         }
         assertEquals(4, resetCount)
@@ -203,35 +205,35 @@ class MaskSelectionToolsTest {
         // 1. Select Object A with expand = 0
         tools.magicWandSelect(srcBitmap, Offset(15f, 15f), tolerance = 10f, expandPixels = 0)
 
-        assertEquals(255, tools.rawMaskBitmap.getPixel(15, 15) and 0xFF)
-        assertEquals(255, tools.maskBitmap.getPixel(15, 15) and 0xFF)
-        assertEquals(0, tools.maskBitmap.getPixel(75, 75) and 0xFF)
-        assertEquals(0, tools.maskBitmap.getPixel(50, 50) and 0xFF)
+        assertEquals(255, getAlpha(tools.rawMaskBitmap.getPixel(15, 15)))
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 15)))
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(75, 75)))
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(50, 50)))
 
         // 2. Expand Object A by 5px
         tools.applyExpand(expandPixels = 5)
-        assertEquals(255, tools.maskBitmap.getPixel(5, 15) and 0xFF)
-        assertEquals(0, tools.rawMaskBitmap.getPixel(5, 15) and 0xFF)
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(5, 15)))
+        assertEquals(0, getAlpha(tools.rawMaskBitmap.getPixel(5, 15)))
 
         // 3. Select Object B (different object) with expand = 5
         tools.magicWandSelect(srcBitmap, Offset(75f, 75f), tolerance = 10f, expandPixels = 5)
 
         // Verify Object A (expanded) and Object B (expanded) are both selected
-        assertEquals(255, tools.maskBitmap.getPixel(15, 15) and 0xFF)
-        assertEquals(255, tools.maskBitmap.getPixel(75, 75) and 0xFF)
-        assertEquals(255, tools.maskBitmap.getPixel(65, 75) and 0xFF)
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 15)))
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(75, 75)))
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(65, 75)))
 
         // CRITICAL CHECK: Background pixel at (50, 50) MUST NOT be selected
-        assertEquals(0, tools.maskBitmap.getPixel(50, 50) and 0xFF)
-        assertEquals(0, tools.rawMaskBitmap.getPixel(50, 50) and 0xFF)
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(50, 50)))
+        assertEquals(0, getAlpha(tools.rawMaskBitmap.getPixel(50, 50)))
 
         // 4. Reset expand back to 0
         tools.applyExpand(expandPixels = 0)
 
-        assertEquals(255, tools.maskBitmap.getPixel(15, 15) and 0xFF)
-        assertEquals(255, tools.maskBitmap.getPixel(75, 75) and 0xFF)
-        assertEquals(0, tools.maskBitmap.getPixel(5, 15) and 0xFF)
-        assertEquals(0, tools.maskBitmap.getPixel(65, 75) and 0xFF)
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 15)))
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(75, 75)))
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(5, 15)))
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(65, 75)))
     }
 
     @Test
