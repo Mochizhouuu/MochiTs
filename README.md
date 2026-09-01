@@ -20,7 +20,7 @@ menggantikan pendekatan Flutter dengan Kotlin native.
 
 1. **Build & Test** — Jalankan `./gradlew test` dan `./gradlew assembleDebug`. Wrapper jar (`gradle/wrapper/gradle-wrapper.jar`) sudah disertakan di repository.
 2. **Native NDK & OpenCV** — Modul `:core-imaging` menggunakan NDK LTS r26b (`26.1.10909125`) dan CMake `3.22.1`. OpenCV Android SDK versi native C++ (4.9.0) secara otomatis diunduh, diverifikasi via checksum SHA-256, dan dicache oleh workflow CI (`.github/workflows/android-build.yml`) sebelum kompilasi native.
-3. **Model LaMa** — Aplikasi akan mengunduh model LaMa TFLite otomatis dari GitHub Release saat dibutuhkan. Anda juga dapat menaruh `lama_int8.tflite` secara manual di folder storage aplikasi `models/` atau `core-inpaint-ml/src/main/assets/models/`.
+3. **Model LaMa Manga (ONNX)** — Aplikasi secara otomatis mengunduh model inpainting LaMa Manga (`lama_manga.onnx`, khusus komik/manga finetuned pada ~300.000 gambar) dari GitHub Releases repo MochiTs ke folder storage aplikasi `models/` untuk dijalankan via ONNX Runtime Mobile.
 4. **Keystore & GitHub Secrets** — Untuk build release bertanda tangan (signed release), tambahkan `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` ke GitHub Secrets repository. Jika secrets tidak tersedia (misal pada PR dari fork), CI akan otomatis melewati langkah signing dan tetap menjalankan test serta build debug.
 
 ## CI/CD

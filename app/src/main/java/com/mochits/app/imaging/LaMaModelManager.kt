@@ -11,12 +11,12 @@ import java.net.URL
 
 class LaMaModelManager(private val context: Context) {
 
-    private val modelFileName = "lama_fp16.tflite"
+    private val modelFileName = "lama_manga.onnx"
 
-    // Primary & Mirror URLs for LaMa TFLite model (~40MB)
+    // Primary & Mirror URLs for LaMa Manga ONNX model (~196MB) on MochiTs GitHub Releases
     private val modelUrls = listOf(
-        "https://huggingface.co/MochiTs/LaMa-TFLite/resolve/main/lama_fp16.tflite",
-        "https://raw.githubusercontent.com/Mochizhouuu/models/main/lama_fp16.tflite"
+        "https://github.com/Mochizhouuu/MochiTs/releases/download/v1.0.0-models/lama_manga.onnx",
+        "https://github.com/Mochizhouuu/models/releases/download/v1.0.0/lama_manga.onnx"
     )
 
     fun getModelFile(): File {
@@ -26,7 +26,7 @@ class LaMaModelManager(private val context: Context) {
 
     fun isModelDownloaded(): Boolean {
         val file = getModelFile()
-        return file.exists() && file.length() > 5_000_000L // Valid model is ~40MB
+        return file.exists() && file.length() > 50_000_000L // Valid model is ~196MB
     }
 
     suspend fun downloadModel(
@@ -48,10 +48,12 @@ class LaMaModelManager(private val context: Context) {
                 val url = URL(urlString)
                 connection = url.openConnection() as HttpURLConnection
                 connection.connectTimeout = 15000
-                connection.readTimeout = 30000
+                connection.readTimeout = 60000
+                connection.instanceFollowRedirects = true
                 connection.connect()
 
-                if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                val responseCode = connection.responseCode
+                if (responseCode != HttpURLConnection.HTTP_OK && responseCode != HttpURLConnection.HTTP_MOVED_TEMP && responseCode != HttpURLConnection.HTTP_MOVED_PERM) {
                     continue
                 }
 
@@ -59,7 +61,7 @@ class LaMaModelManager(private val context: Context) {
                 input = connection.inputStream
                 output = FileOutputStream(tempFile)
 
-                val data = ByteArray(8192)
+                val data = ByteArray(16384)
                 var total: Long = 0
                 var count: Int
                 while (input.read(data).also { count = it } != -1) {
@@ -75,7 +77,7 @@ class LaMaModelManager(private val context: Context) {
                 input.close()
                 connection.disconnect()
 
-                if (tempFile.length() > 1000L) { // Successfully downloaded
+                if (tempFile.length() > 50_000_000L) { // Successfully downloaded
                     if (targetFile.exists()) targetFile.delete()
                     val renamed = tempFile.renameTo(targetFile)
                     if (renamed || targetFile.exists()) {

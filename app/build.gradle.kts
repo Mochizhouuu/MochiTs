@@ -11,7 +11,7 @@ android {
 
     defaultConfig {
         applicationId = "com.mochits.app"
-        minSdk = 24
+        minSdk = 29
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
@@ -114,8 +114,9 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
 
     // TensorFlow Lite (LaMa ML Inpaint)
-    implementation("org.tensorflow:tensorflow-lite:2.14.0")
-    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
+    // ONNX Runtime Mobile
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.18.0")
+
 
     // Dependency Injection
     implementation("com.google.dagger:hilt-android:2.51.1")
