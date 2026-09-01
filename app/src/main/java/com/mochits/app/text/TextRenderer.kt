@@ -10,7 +10,6 @@ import com.mochits.app.model.Layer
 import com.mochits.app.model.TextAlignment
 import com.mochits.app.model.TextContainerShape
 import com.mochits.app.model.TextStyleConfig
-import java.util.regex.Pattern
 import kotlin.math.sqrt
 
 data class RenderedLine(
@@ -29,11 +28,46 @@ data class TextLayoutResult(
     val topOffset: Float = 0f
 )
 
+private data class TextLayoutKey(
+    val text: String,
+    val textSize: Float,
+    val typeface: Typeface?,
+    val shape: TextContainerShape,
+    val boxWidth: Float?,
+    val boxHeight: Float?,
+    val alignment: TextAlignment
+)
+
 class TextRenderer(private val context: Context) {
 
     companion object {
-        private val TOKEN_PATTERN: Pattern = Pattern.compile("\\s+|[^\\s]+")
         private val typefaceCache = java.util.concurrent.ConcurrentHashMap<String, Typeface>()
+
+        private val layoutCache = object : java.util.LinkedHashMap<TextLayoutKey, TextLayoutResult>(64, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<TextLayoutKey, TextLayoutResult>?): Boolean {
+                return size > 256
+            }
+        }
+
+        private fun tokenizeParagraph(para: String): List<String> {
+            if (para.isEmpty()) return emptyList()
+            val tokens = ArrayList<String>()
+            var start = 0
+            val len = para.length
+            var inWhitespace = para[0].isWhitespace()
+            for (i in 1 until len) {
+                val currentIsWhitespace = para[i].isWhitespace()
+                if (currentIsWhitespace != inWhitespace) {
+                    tokens.add(para.substring(start, i))
+                    start = i
+                    inWhitespace = currentIsWhitespace
+                }
+            }
+            if (start < len) {
+                tokens.add(para.substring(start, len))
+            }
+            return tokens
+        }
     }
 
     // Reusable paint instances to avoid frequent GC allocations during rapid drag gestures
@@ -56,11 +90,42 @@ class TextRenderer(private val context: Context) {
         boxHeight: Float? = null,
         alignment: TextAlignment = TextAlignment.CENTER
     ): TextLayoutResult {
+        val key = TextLayoutKey(
+            text = text,
+            textSize = paint.textSize,
+            typeface = paint.typeface,
+            shape = shape,
+            boxWidth = boxWidth,
+            boxHeight = boxHeight,
+            alignment = alignment
+        )
+
+        synchronized(layoutCache) {
+            layoutCache[key]?.let { return it }
+        }
+
+        val result = computeLayoutText(text, paint, shape, boxWidth, boxHeight, alignment)
+
+        synchronized(layoutCache) {
+            layoutCache[key] = result
+        }
+
+        return result
+    }
+
+    private fun computeLayoutText(
+        text: String,
+        paint: Paint,
+        shape: TextContainerShape,
+        boxWidth: Float?,
+        boxHeight: Float?,
+        alignment: TextAlignment
+    ): TextLayoutResult {
         val fontMetrics = paint.fontMetrics
         val lineHeight = (fontMetrics.bottom - fontMetrics.top).coerceAtLeast(10f)
 
         // Fast path for unconstrained BOX text
-        if (boxWidth == null && boxHeight == null && shape == TextContainerShape.BOX) {
+        if (boxWidth == null && shape == TextContainerShape.BOX) {
             val rawLines = if (text.isEmpty()) listOf("") else text.split("\n")
             val lineWidths = rawLines.map { line ->
                 paint.measureText(if (line.isEmpty()) " " else line)
@@ -75,10 +140,12 @@ class TextRenderer(private val context: Context) {
                 RenderedLine(text = line, width = w, xOffset = xOff)
             }
             val totalH = (lines.size * lineHeight).coerceAtLeast(lineHeight)
+            val finalH = boxHeight ?: totalH
+            val topOffset = if (boxHeight != null) ((finalH - totalH) / 2f).coerceAtLeast(0f) else 0f
             val nonEmptyLines = lines.filter { it.text.isNotEmpty() }
             val minX = if (nonEmptyLines.isEmpty()) 0f else (nonEmptyLines.minOfOrNull { it.xOffset } ?: 0f)
             val maxX = if (nonEmptyLines.isEmpty()) maxW else (nonEmptyLines.maxOfOrNull { it.xOffset + it.width }?.coerceAtLeast(minX + 20f) ?: maxW)
-            return TextLayoutResult(lines, maxW, totalH, lineHeight, minX, maxX, 0f)
+            return TextLayoutResult(lines, maxW, finalH, lineHeight, minX, maxX, topOffset)
         }
 
         // Determine container dimensions
@@ -94,18 +161,25 @@ class TextRenderer(private val context: Context) {
 
         val minLineWidth = paint.measureText("M-").coerceAtLeast(20f)
 
+        val ovalA = targetW / 2f
+        val ovalB = (effectiveBoxHeight ?: 20f).coerceAtLeast(20f) / 2f
+        val availableWidthCache = FloatArray(100) { -1f }
+
         // Function to calculate available width at line index
         fun getAvailableWidth(lineIdx: Int): Float {
             if (shape == TextContainerShape.BOX || effectiveBoxHeight == null) {
                 return targetW
             }
-            val targetH = effectiveBoxHeight.coerceAtLeast(20f)
-            val a = targetW / 2f
-            val b = targetH / 2f
-            val y = (lineIdx + 0.5f) * lineHeight - b
-            val ratio = (y / b).coerceIn(-0.98f, 0.98f)
-            val avail = 2f * a * sqrt(1f - ratio * ratio)
-            return avail.coerceAtLeast(minLineWidth)
+            if (lineIdx in availableWidthCache.indices && availableWidthCache[lineIdx] >= 0f) {
+                return availableWidthCache[lineIdx]
+            }
+            val y = (lineIdx + 0.5f) * lineHeight - ovalB
+            val ratio = (y / ovalB).coerceIn(-0.98f, 0.98f)
+            val avail = (2f * ovalA * sqrt(1f - ratio * ratio)).coerceAtLeast(minLineWidth)
+            if (lineIdx in availableWidthCache.indices) {
+                availableWidthCache[lineIdx] = avail
+            }
+            return avail
         }
 
         // Function to calculate line xOffset given available width and actual line width
@@ -132,11 +206,7 @@ class TextRenderer(private val context: Context) {
             }
 
             // Tokenize into words and whitespace spaces
-            val tokens = mutableListOf<String>()
-            val matcher = TOKEN_PATTERN.matcher(para)
-            while (matcher.find()) {
-                tokens.add(matcher.group())
-            }
+            val tokens = tokenizeParagraph(para).toMutableList()
 
             var currentLineStr = ""
             var tokenIdx = 0
@@ -375,14 +445,25 @@ class TextRenderer(private val context: Context) {
         }
         val layoutResult = layoutText(text, paint, shape, boxWidth, boxHeight, style.alignment)
 
-        // Exact visual bounding box wrapping the rendered text lines precisely
         val totalTextHeight = (layoutResult.lines.size * layoutResult.lineHeight).coerceAtLeast(layoutResult.lineHeight)
+
+        val top = if (shape == TextContainerShape.BOX && boxHeight != null) {
+            y
+        } else {
+            y + layoutResult.topOffset
+        }
+
+        val bottom = if (shape == TextContainerShape.BOX && boxHeight != null) {
+            y + layoutResult.containerHeight
+        } else {
+            y + layoutResult.topOffset + totalTextHeight
+        }
 
         return RectF(
             x + layoutResult.minX,
-            y + layoutResult.topOffset,
+            top,
             x + layoutResult.maxX,
-            y + layoutResult.topOffset + totalTextHeight
+            bottom
         )
     }
 

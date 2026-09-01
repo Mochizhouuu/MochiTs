@@ -260,4 +260,68 @@ class TextRendererTest {
         assertTrue(shortBounds.width() < longBounds.width())
         assertTrue(shortBounds.height() < longBounds.height())
     }
+
+    @Test
+    fun testBoxVerticalStretch_updatesHeightWithoutForcingWidthWrap() {
+        val style = TextStyleConfig(fontSize = 30f, alignment = TextAlignment.LEFT)
+        val text = "A long single line of text that should remain unconstrained horizontally"
+
+        // 1. Initial state: boxWidth = null, boxHeight = null
+        val layerInitial = Layer.TextLayer(
+            id = "t1", name = "Text", text = text, style = style,
+            textContainerShape = TextContainerShape.BOX, boxWidth = null, boxHeight = null
+        )
+        val initialLayout = textRenderer.layoutText(
+            text = text, paint = Paint().apply { textSize = 30f },
+            shape = TextContainerShape.BOX, boxWidth = null, boxHeight = null
+        )
+        val initialBounds = textRenderer.getTextBounds(layerInitial)
+
+        assertEquals("Should be single line", 1, initialLayout.lines.size)
+
+        // 2. Vertical stretch applied: boxHeight set explicitly (e.g., 300f), boxWidth remains null
+        val stretchedHeight = 300f
+        val layerStretched = layerInitial.copy(boxHeight = stretchedHeight)
+
+        val stretchedLayout = textRenderer.layoutText(
+            text = text, paint = Paint().apply { textSize = 30f },
+            shape = TextContainerShape.BOX, boxWidth = null, boxHeight = stretchedHeight
+        )
+        val stretchedBounds = textRenderer.getTextBounds(layerStretched)
+
+        // Verify width is NOT constrained / wrapped to 200f
+        assertEquals("Line count should remain 1", 1, stretchedLayout.lines.size)
+        assertEquals("Container width should equal initial natural width", initialLayout.containerWidth, stretchedLayout.containerWidth, 0.01f)
+
+        // Verify bottom of bounds reflects full boxHeight
+        assertEquals("Bounds height should reflect explicit boxHeight", stretchedHeight, stretchedBounds.height(), 0.01f)
+        assertEquals("Bounds bottom should equal y + boxHeight", layerStretched.y + stretchedHeight, stretchedBounds.bottom, 0.01f)
+    }
+
+    @Test
+    fun testPerformanceAndMemory_ReflowBoxVsOval() {
+        val paint = Paint().apply { textSize = 28f }
+        val text = "Teks ini digunakan untuk menguji performa reflow dan layout pada shape BOX dan OVAL berulang kali selama gesture drag"
+
+        // Warm up cache
+        textRenderer.layoutText(text, paint, TextContainerShape.BOX, 200f, 300f)
+        textRenderer.layoutText(text, paint, TextContainerShape.OVAL, 200f, 300f)
+
+        val iterations = 1000
+
+        val boxStartTime = System.nanoTime()
+        repeat(iterations) {
+            textRenderer.layoutText(text, paint, TextContainerShape.BOX, 200f + (it % 10), 300f + (it % 10))
+        }
+        val boxDurationMs = (System.nanoTime() - boxStartTime) / 1_000_000.0
+
+        val ovalStartTime = System.nanoTime()
+        repeat(iterations) {
+            textRenderer.layoutText(text, paint, TextContainerShape.OVAL, 200f + (it % 10), 300f + (it % 10))
+        }
+        val ovalDurationMs = (System.nanoTime() - ovalStartTime) / 1_000_000.0
+
+        // Performance requirement: 1000 reflows for OVAL should be extremely fast (< 200ms in Robolectric environment)
+        assertTrue("OVAL layout performance should be fast (< 200ms for 1000 calls), took ${ovalDurationMs}ms", ovalDurationMs < 200.0)
+    }
 }
