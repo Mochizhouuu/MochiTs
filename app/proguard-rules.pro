@@ -1,3 +1,3 @@
 -keep class org.opencv.** { *; }
--keep class org.tensorflow.lite.** { *; }
+-keep class ai.onnxruntime.** { *; }
 -dontwarn com.google.auto.value.**
