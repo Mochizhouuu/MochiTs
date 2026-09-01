@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.FolderOpen
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.filled.FontDownload
 import androidx.compose.material.icons.filled.Style
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -114,6 +116,11 @@ fun SettingsScreen(
                     }
                     1 -> {
                         val context = LocalContext.current
+                        val lamaManager = remember { com.mochits.app.imaging.LaMaModelManager.getInstance(context) }
+                        val modelStatus by lamaManager.modelStatus.collectAsState()
+                        val downloadProgress by lamaManager.downloadProgress.collectAsState()
+                        val coroutineScope = rememberCoroutineScope()
+
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(
                                 text = "Model Inpainting",
@@ -146,21 +153,79 @@ fun SettingsScreen(
                                 shape = RoundedCornerShape(12.dp),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                             ) {
-                                Row(
+                                Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(16.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                                        .padding(16.dp)
                                 ) {
-                                    Column {
-                                        Text("LaMa AI Neural Inpaint", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
-                                        Text("Model AI Kualitas Tinggi", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("LaMa AI Neural Inpaint", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                                            val statusText = when (modelStatus) {
+                                                com.mochits.app.imaging.LaMaModelStatus.DOWNLOADED -> "Model AI Kualitas Tinggi (~196MB) — Terpasang"
+                                                com.mochits.app.imaging.LaMaModelStatus.DOWNLOADING -> "Mengunduh... ${(downloadProgress * 100).toInt()}%"
+                                                com.mochits.app.imaging.LaMaModelStatus.CORRUPTED_ERROR -> "File model rusak / gagal diunduh"
+                                                com.mochits.app.imaging.LaMaModelStatus.NOT_DOWNLOADED -> "Model AI Kualitas Tinggi (~196MB)"
+                                            }
+                                            val statusColor = if (modelStatus == com.mochits.app.imaging.LaMaModelStatus.CORRUPTED_ERROR) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                                            Text(statusText, style = MaterialTheme.typography.bodySmall, color = statusColor)
+                                        }
+
+                                        when (modelStatus) {
+                                            com.mochits.app.imaging.LaMaModelStatus.DOWNLOADED -> {
+                                                Badge(containerColor = MaterialTheme.colorScheme.primary) {
+                                                    Text("Terpasang", modifier = Modifier.padding(4.dp))
+                                                }
+                                            }
+                                            com.mochits.app.imaging.LaMaModelStatus.DOWNLOADING -> {
+                                                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                            }
+                                            com.mochits.app.imaging.LaMaModelStatus.CORRUPTED_ERROR -> {
+                                                Button(
+                                                    onClick = {
+                                                        coroutineScope.launch {
+                                                            val success = lamaManager.downloadModel()
+                                                            if (success) {
+                                                                Toast.makeText(context, "Model LaMa berhasil diunduh!", Toast.LENGTH_SHORT).show()
+                                                            } else {
+                                                                Toast.makeText(context, "Gagal mengunduh model LaMa.", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        }
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                                                ) {
+                                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("Unduh Ulang")
+                                                }
+                                            }
+                                            com.mochits.app.imaging.LaMaModelStatus.NOT_DOWNLOADED -> {
+                                                IconButton(onClick = {
+                                                    coroutineScope.launch {
+                                                        val success = lamaManager.downloadModel()
+                                                        if (success) {
+                                                            Toast.makeText(context, "Model LaMa berhasil diunduh!", Toast.LENGTH_SHORT).show()
+                                                        } else {
+                                                            Toast.makeText(context, "Gagal mengunduh model LaMa.", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                }) {
+                                                    Icon(Icons.Default.Download, contentDescription = "Unduh Model")
+                                                }
+                                            }
+                                        }
                                     }
-                                    IconButton(onClick = {
-                                        Toast.makeText(context, "Model LaMa siap/sudah terintegrasi.", Toast.LENGTH_SHORT).show()
-                                    }) {
-                                        Icon(Icons.Default.Download, contentDescription = "Unduh Model")
+
+                                    if (modelStatus == com.mochits.app.imaging.LaMaModelStatus.DOWNLOADING) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        LinearProgressIndicator(
+                                            progress = { downloadProgress },
+                                            modifier = Modifier.fillMaxWidth().height(6.dp)
+                                        )
                                     }
                                 }
                             }
