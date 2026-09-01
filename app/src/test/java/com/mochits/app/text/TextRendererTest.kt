@@ -7,7 +7,7 @@ import com.mochits.app.model.TextAlignment
 import com.mochits.app.model.TextContainerShape
 import com.mochits.app.model.TextStyleConfig
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -61,13 +61,11 @@ class TextRendererTest {
     }
 
     @Test
-    fun testTextReflow_OvalWithNullBoxHeight() {
-        val paint = Paint().apply {
-            textSize = 30f
-        }
-        val text = "Paragraf pertama\nParagraf kedua yang sedikit lebih panjang untuk menguji oval"
+    fun testScenario1_NewLongTextInOvalWithNullDimensions() {
+        val paint = Paint().apply { textSize = 24f }
+        val text = "Ini adalah contoh teks baru yang lumayan panjang untuk ditaruh di dalam shape oval tanpa ukuran boxHeight eksplisit"
 
-        val ovalResultNullH = textRenderer.layoutText(
+        val result = textRenderer.layoutText(
             text = text,
             paint = paint,
             shape = TextContainerShape.OVAL,
@@ -75,20 +73,109 @@ class TextRendererTest {
             boxHeight = null
         )
 
-        assertTrue("Oval layout should generate rendered lines", ovalResultNullH.lines.isNotEmpty())
-        assertTrue("Container width should match requested boxWidth", ovalResultNullH.containerWidth >= 200f)
-        assertTrue("Container height should be calculated from estimated line height", ovalResultNullH.containerHeight > 0f)
+        assertTrue("Should have multiple rendered lines", result.lines.size > 1)
 
-        // Verify that xOffset centers text lines inside oval bounds
-        val firstLine = ovalResultNullH.lines.first()
-        assertTrue("First line in oval should have xOffset >= 0", firstLine.xOffset >= 0f)
+        // Verify that words fit comfortably on lines and average line length is reasonable (no per-character breaking)
+        val avgLineCharCount = result.lines.map { it.text.trim().length }.average()
+        assertTrue("Average line length should be reasonable (> 5 chars), got $avgLineCharCount", avgLineCharCount > 5)
+    }
+
+    @Test
+    fun testScenario2And3_StretchOvalLargerThenSmaller() {
+        val paint = Paint().apply { textSize = 28f }
+        val text = "Pertama kali teks dimasukkan ke dalam bentuk oval lalu di-stretch menjadi lebih besar dan dikembalikan lebih kecil."
+
+        // 1. Initial size
+        val initialResult = textRenderer.layoutText(
+            text = text, paint = paint, shape = TextContainerShape.OVAL, boxWidth = 200f, boxHeight = 150f
+        )
+
+        // 2. Stretch larger
+        val largerResult = textRenderer.layoutText(
+            text = text, paint = paint, shape = TextContainerShape.OVAL, boxWidth = 400f, boxHeight = 300f
+        )
+
+        // 3. Stretch smaller
+        val smallerResult = textRenderer.layoutText(
+            text = text, paint = paint, shape = TextContainerShape.OVAL, boxWidth = 120f, boxHeight = 90f
+        )
+
+        assertTrue("Larger box should have fewer or equal lines than initial", largerResult.lines.size <= initialResult.lines.size)
+        assertTrue("Smaller box should have more or equal lines than initial", smallerResult.lines.size >= initialResult.lines.size)
+
+        // Verify clean wrapping without single-char lines or wild per-char hyphens in smaller box
+        for (line in smallerResult.lines) {
+            val trimmed = line.text.trim()
+            if (trimmed.endsWith("-")) {
+                assertTrue("Hyphenated sub-word should contain valid text before hyphen", trimmed.length >= 2)
+            }
+        }
+    }
+
+    @Test
+    fun testScenario4_SwitchingShapeRepeatedly() {
+        val paint = Paint().apply { textSize = 30f }
+        val text = "Contoh paragraf dengan beberapa kata panjang untuk memicu pemenggalan atau reflow yang berbeda antara box dan oval"
+
+        val resultBox1 = textRenderer.layoutText(text, paint, TextContainerShape.BOX, 150f, 200f)
+        val resultOval1 = textRenderer.layoutText(text, paint, TextContainerShape.OVAL, 150f, 200f)
+        val resultBox2 = textRenderer.layoutText(text, paint, TextContainerShape.BOX, 150f, 200f)
+        val resultOval2 = textRenderer.layoutText(text, paint, TextContainerShape.OVAL, 150f, 200f)
+
+        assertEquals(resultBox1.lines, resultBox2.lines)
+        assertEquals(resultOval1.lines, resultOval2.lines)
+        assertFalse("Box and Oval line structures should differ due to ellipse width constraints", resultBox1.lines == resultOval1.lines)
+    }
+
+    @Test
+    fun testScenario5_VeryShortAndVeryLongTextInBothShapes() {
+        val paint = Paint().apply { textSize = 24f }
+        val shortText = "Halo"
+        val longText = "Kata1 Kata2 Kata3 Kata4 Kata5 Kata6 Kata7 Kata8 Kata9 Kata10 Kata11 Kata12 Kata13 Kata14 Kata15"
+
+        val shortBox = textRenderer.layoutText(shortText, paint, TextContainerShape.BOX, 200f, 200f)
+        val shortOval = textRenderer.layoutText(shortText, paint, TextContainerShape.OVAL, 200f, 200f)
+        assertEquals(1, shortBox.lines.size)
+        assertEquals(1, shortOval.lines.size)
+
+        val longBox = textRenderer.layoutText(longText, paint, TextContainerShape.BOX, 200f, 200f)
+        val longOval = textRenderer.layoutText(longText, paint, TextContainerShape.OVAL, 200f, 200f)
+        assertTrue(longBox.lines.size > 1)
+        assertTrue(longOval.lines.size > 1)
+    }
+
+    @Test
+    fun testScenario6_AlignmentInBothShapes() {
+        val paint = Paint().apply { textSize = 24f }
+        val text = "Short line text"
+
+        for (shape in listOf(TextContainerShape.BOX, TextContainerShape.OVAL)) {
+            val left = textRenderer.layoutText(text, paint, shape, 300f, 200f, TextAlignment.LEFT)
+            val center = textRenderer.layoutText(text, paint, shape, 300f, 200f, TextAlignment.CENTER)
+            val right = textRenderer.layoutText(text, paint, shape, 300f, 200f, TextAlignment.RIGHT)
+
+            assertTrue(left.lines[0].xOffset < center.lines[0].xOffset)
+            assertTrue(center.lines[0].xOffset < right.lines[0].xOffset)
+        }
+    }
+
+    @Test
+    fun testScenario7_PreciseVisualBoundingBox() {
+        val style = TextStyleConfig(fontSize = 36f, alignment = TextAlignment.CENTER)
+        val ovalLayer = Layer.TextLayer(
+            id = "oval1", name = "Oval Text", text = "Hi",
+            style = style, textContainerShape = TextContainerShape.OVAL, boxWidth = 300f, boxHeight = 200f
+        )
+
+        val bounds = textRenderer.getTextBounds(ovalLayer)
+        // Precise visual bounds wrap actual text lines, not the raw container boxWidth/boxHeight
+        assertTrue("Visual bounds width should wrap actual text ('Hi'), smaller than full 300px box width", bounds.width() < 300f)
+        assertTrue("Visual bounds height should wrap actual text line height, smaller than full 200px box height", bounds.height() < 200f)
     }
 
     @Test
     fun testHyphenation_OnLongWordExceedingWidth() {
-        val paint = Paint().apply {
-            textSize = 30f
-        }
+        val paint = Paint().apply { textSize = 30f }
         val longWord = "Supercalifragilisticexpialidocious"
 
         val result = textRenderer.layoutText(
@@ -128,7 +215,6 @@ class TextRendererTest {
 
         val angles = listOf(0f, 45f, 90f, 180f)
         for (angle in angles) {
-            // Rotate the top handle point around center
             val rad = Math.toRadians(angle.toDouble())
             val cosA = Math.cos(rad)
             val sinA = Math.sin(rad)
@@ -140,7 +226,6 @@ class TextRendererTest {
                 (textCenterY + dx * sinA + dy * cosA).toFloat()
             )
 
-            // Un-rotate touch point by -angle during hit testing
             val unRad = Math.toRadians(-angle.toDouble())
             val unCosA = Math.cos(unRad)
             val unSinA = Math.sin(unRad)
@@ -155,20 +240,6 @@ class TextRendererTest {
             assertEquals(topHandleUnrotated.x, unrotatedResultPt.x, 0.1f)
             assertEquals(topHandleUnrotated.y, unrotatedResultPt.y, 0.1f)
         }
-    }
-
-    @Test
-    fun testTextAlignment_LeftCenterRight() {
-        val paint = Paint().apply { textSize = 30f }
-        val text = "Short"
-
-        val leftResult = textRenderer.layoutText(text, paint, TextContainerShape.BOX, 200f, 100f, TextAlignment.LEFT)
-        val centerResult = textRenderer.layoutText(text, paint, TextContainerShape.BOX, 200f, 100f, TextAlignment.CENTER)
-        val rightResult = textRenderer.layoutText(text, paint, TextContainerShape.BOX, 200f, 100f, TextAlignment.RIGHT)
-
-        assertEquals(0f, leftResult.lines[0].xOffset, 0.01f)
-        assertTrue(centerResult.lines[0].xOffset > 0f)
-        assertTrue(rightResult.lines[0].xOffset > centerResult.lines[0].xOffset)
     }
 
     @Test
@@ -188,18 +259,5 @@ class TextRendererTest {
 
         assertTrue(shortBounds.width() < longBounds.width())
         assertTrue(shortBounds.height() < longBounds.height())
-    }
-
-    @Test
-    fun testGetTextBounds_ReturnsFullContainerBoundsWhenBoxDimensionsSpecified() {
-        val style = TextStyleConfig(fontSize = 36f, alignment = TextAlignment.CENTER)
-        val ovalLayer = Layer.TextLayer(
-            id = "oval1", name = "Oval Text", text = "Hi",
-            style = style, textContainerShape = TextContainerShape.OVAL, boxWidth = 300f, boxHeight = 200f
-        )
-
-        val bounds = textRenderer.getTextBounds(ovalLayer)
-        assertEquals(300f, bounds.width(), 0.01f)
-        assertEquals(200f, bounds.height(), 0.01f)
     }
 }

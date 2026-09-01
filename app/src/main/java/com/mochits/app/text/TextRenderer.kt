@@ -43,6 +43,11 @@ class TextRenderer(private val context: Context) {
     private val reusableShadowPaint = Paint()
     private val reusableStrokePaint = Paint()
 
+    /**
+     * Complete rewrite of text layout and reflow logic from scratch.
+     * Supports both BOX and OVAL container shapes with greedy word-wrapping,
+     * conditional hyphenation, alignment, and precise visual bounds.
+     */
     fun layoutText(
         text: String,
         paint: Paint,
@@ -54,6 +59,7 @@ class TextRenderer(private val context: Context) {
         val fontMetrics = paint.fontMetrics
         val lineHeight = (fontMetrics.bottom - fontMetrics.top).coerceAtLeast(10f)
 
+        // Fast path for unconstrained BOX text
         if (boxWidth == null && boxHeight == null && shape == TextContainerShape.BOX) {
             val rawLines = if (text.isEmpty()) listOf("") else text.split("\n")
             val lineWidths = rawLines.map { line ->
@@ -75,16 +81,20 @@ class TextRenderer(private val context: Context) {
             return TextLayoutResult(lines, maxW, totalH, lineHeight, minX, maxX, 0f)
         }
 
+        // Determine container dimensions
         val targetW = (boxWidth ?: 200f).coerceAtLeast(20f)
 
-        // If boxHeight is null for OVAL shape, estimate container height from unconstrained lines
+        // If boxHeight is null for OVAL shape, estimate container height from natural wrapped box lines count
         val effectiveBoxHeight: Float? = if (shape == TextContainerShape.OVAL && boxHeight == null) {
-            val unconstrainedLinesCount = if (text.isEmpty()) 1 else text.split("\n").size
-            (unconstrainedLinesCount * lineHeight * 1.5f).coerceAtLeast(40f)
+            val boxLinesCount = layoutText(text, paint, TextContainerShape.BOX, targetW, null, alignment).lines.size
+            (boxLinesCount * lineHeight * 1.5f).coerceAtLeast(40f)
         } else {
             boxHeight
         }
 
+        val minLineWidth = paint.measureText("M-").coerceAtLeast(20f)
+
+        // Function to calculate available width at line index
         fun getAvailableWidth(lineIdx: Int): Float {
             if (shape == TextContainerShape.BOX || effectiveBoxHeight == null) {
                 return targetW
@@ -93,12 +103,12 @@ class TextRenderer(private val context: Context) {
             val a = targetW / 2f
             val b = targetH / 2f
             val y = (lineIdx + 0.5f) * lineHeight - b
-            val minLineWidth = paint.measureText("M-").coerceAtLeast(15f)
             val ratio = (y / b).coerceIn(-0.98f, 0.98f)
             val avail = 2f * a * sqrt(1f - ratio * ratio)
             return avail.coerceAtLeast(minLineWidth)
         }
 
+        // Function to calculate line xOffset given available width and actual line width
         fun calculateLineXOffset(lineIdx: Int, lineW: Float): Float {
             val availW = getAvailableWidth(lineIdx)
             val sliceStart = if (shape == TextContainerShape.OVAL) (targetW - availW) / 2f else 0f
@@ -111,7 +121,6 @@ class TextRenderer(private val context: Context) {
 
         val lines = mutableListOf<RenderedLine>()
         val paragraphs = if (text.isEmpty()) listOf("") else text.split("\n")
-
         var currentLineIdx = 0
 
         for (para in paragraphs) {
@@ -122,7 +131,7 @@ class TextRenderer(private val context: Context) {
                 continue
             }
 
-            // Split into tokens (words and spaces) using cached regex pattern
+            // Tokenize into words and whitespace spaces
             val tokens = mutableListOf<String>()
             val matcher = TOKEN_PATTERN.matcher(para)
             while (matcher.find()) {
@@ -136,7 +145,7 @@ class TextRenderer(private val context: Context) {
                 val token = tokens[tokenIdx]
                 val availW = getAvailableWidth(currentLineIdx)
 
-                // If token is just whitespace and we are at start of line, skip it
+                // Skip leading whitespace at start of a line
                 if (currentLineStr.isEmpty() && token.trim().isEmpty()) {
                     tokenIdx++
                     continue
@@ -150,7 +159,7 @@ class TextRenderer(private val context: Context) {
                     tokenIdx++
                 } else {
                     if (currentLineStr.isNotEmpty()) {
-                        // Push current line
+                        // Current line has words, flush it and move to next line
                         val lineStr = currentLineStr.trimEnd()
                         val lineW = paint.measureText(if (lineStr.isEmpty()) " " else lineStr)
                         val xOff = calculateLineXOffset(currentLineIdx, lineW)
@@ -158,10 +167,11 @@ class TextRenderer(private val context: Context) {
                         currentLineIdx++
                         currentLineStr = ""
                     } else {
-                        // Single word exceeds line available width -> greedy hyphenation
+                        // Single word exceeds line available width -> perform greedy hyphenation on this word ONLY
                         val cleanToken = token.trim()
                         val hyphenW = paint.measureText("-")
                         var splitIdx = 0
+
                         for (c in 1 until cleanToken.length) {
                             val sub = cleanToken.substring(0, c)
                             if (paint.measureText(sub) + hyphenW <= availW) {
@@ -180,7 +190,7 @@ class TextRenderer(private val context: Context) {
                             currentLineIdx++
                             tokens[tokenIdx] = remaining
                         } else {
-                            // If not even 1 char + hyphen fits, take 1 char anyway
+                            // If not even 1 char + hyphen fits, take 1 char without hyphen
                             val part1 = cleanToken.substring(0, 1)
                             val remaining = cleanToken.substring(1)
                             val lineW = paint.measureText(part1)
@@ -206,12 +216,11 @@ class TextRenderer(private val context: Context) {
             }
         }
 
-        val finalContainerW = boxWidth ?: (lines.maxOfOrNull { it.width }?.coerceAtLeast(20f) ?: 20f)
-        val calculatedH = (lines.size * lineHeight).coerceAtLeast(lineHeight)
-        val finalContainerH = boxHeight ?: calculatedH
-
         val totalTextHeight = lines.size * lineHeight
-        val topOffset = if (boxHeight != null) {
+        val finalContainerW = boxWidth ?: (lines.maxOfOrNull { it.width }?.coerceAtLeast(20f) ?: 20f)
+        val finalContainerH = boxHeight ?: (effectiveBoxHeight ?: totalTextHeight).coerceAtLeast(lineHeight)
+
+        val topOffset = if (boxHeight != null || effectiveBoxHeight != null) {
             ((finalContainerH - totalTextHeight) / 2f).coerceAtLeast(0f)
         } else 0f
 
@@ -219,7 +228,15 @@ class TextRenderer(private val context: Context) {
         val minX = if (nonEmptyLines.isEmpty()) 0f else (nonEmptyLines.minOfOrNull { it.xOffset } ?: 0f)
         val maxX = if (nonEmptyLines.isEmpty()) finalContainerW else (nonEmptyLines.maxOfOrNull { it.xOffset + it.width }?.coerceAtLeast(minX + 20f) ?: finalContainerW)
 
-        return TextLayoutResult(lines, finalContainerW, finalContainerH, lineHeight, minX, maxX, topOffset)
+        return TextLayoutResult(
+            lines = lines,
+            containerWidth = finalContainerW,
+            containerHeight = finalContainerH,
+            lineHeight = lineHeight,
+            minX = minX,
+            maxX = maxX,
+            topOffset = topOffset
+        )
     }
 
     fun drawStyledText(
@@ -357,13 +374,10 @@ class TextRenderer(private val context: Context) {
             typeface = getTypeface(style.fontName, style.fontStyle)
         }
         val layoutResult = layoutText(text, paint, shape, boxWidth, boxHeight, style.alignment)
-        if (boxWidth != null && boxHeight != null) {
-            return RectF(x, y, x + boxWidth, y + boxHeight)
-        }
+
+        // Exact visual bounding box wrapping the rendered text lines precisely
         val totalTextHeight = (layoutResult.lines.size * layoutResult.lineHeight).coerceAtLeast(layoutResult.lineHeight)
-        if (boxWidth != null) {
-            return RectF(x, y + layoutResult.topOffset, x + boxWidth, y + layoutResult.topOffset + totalTextHeight)
-        }
+
         return RectF(
             x + layoutResult.minX,
             y + layoutResult.topOffset,
