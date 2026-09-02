@@ -47,6 +47,7 @@ import com.mochits.app.model.TextStyleConfig
 import androidx.documentfile.provider.DocumentFile
 import com.mochits.app.text.TextRenderer
 import com.mochits.app.ui.color.ColorPickerRow
+import com.mochits.app.settings.DownloadErrorDialog
 import java.io.File
 
 private enum class TextHandleType {
@@ -157,6 +158,14 @@ fun EditorScreen(
     val eyedropperCanvasPt by viewModel.eyedropperCanvasPt.collectAsState()
     val sampledColorPreview by viewModel.sampledColorPreview.collectAsState()
     val isLoadingImage by viewModel.isLoadingImage.collectAsState()
+    val lastDownloadError by viewModel.lamaModelManager.lastDownloadError.collectAsState()
+    var showDownloadErrorDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isDownloadingLaMaModel) {
+        if (!isDownloadingLaMaModel && lastDownloadError != null && !viewModel.lamaModelManager.isModelDownloaded()) {
+            showDownloadErrorDialog = true
+        }
+    }
 
     LaunchedEffect(userMessage) {
         userMessage?.let { msg ->
@@ -1459,6 +1468,12 @@ fun EditorScreen(
                         Text("Batal")
                     }
                 }
+            )
+        }
+        if (showDownloadErrorDialog && lastDownloadError != null) {
+            DownloadErrorDialog(
+                errorInfo = lastDownloadError!!,
+                onDismiss = { showDownloadErrorDialog = false }
             )
         }
     }

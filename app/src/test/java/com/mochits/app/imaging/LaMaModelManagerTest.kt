@@ -98,4 +98,28 @@ class LaMaModelManagerTest {
         assertEquals(LaMaModelStatus.NOT_DOWNLOADED, status)
         assertFalse(tempFile.exists())
     }
+
+    @Test
+    fun testLaMaDownloadErrorInfo_formatting() {
+        val errorInfo = LaMaDownloadErrorInfo(
+            stage = "Evaluasi Status HTTP Response",
+            httpCode = 403,
+            exceptionType = "IOException",
+            exceptionMessage = "Forbidden",
+            url = "https://huggingface.co/test"
+        )
+        val formatted = errorInfo.toFormattedString()
+        assertTrue(formatted.contains("Tahap Kegagalan: Evaluasi Status HTTP Response"))
+        assertTrue(formatted.contains("HTTP Response Code: 403"))
+        assertTrue(formatted.contains("Jenis Exception: IOException"))
+        assertTrue(formatted.contains("Pesan Exception: Forbidden"))
+        assertTrue(formatted.contains("URL Terakhir: https://huggingface.co/test"))
+    }
+
+    @Test
+    fun testClearLastDownloadError() {
+        val manager = managerSettings
+        manager.deleteModel()
+        assertEquals(null, manager.lastDownloadError.value)
+    }
 }
