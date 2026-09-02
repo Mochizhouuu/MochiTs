@@ -117,6 +117,18 @@ class LaMaModelManagerTest {
     }
 
     @Test
+    fun testDownloadModel_safeExecutionWithoutUncaughtCrash() = kotlinx.coroutines.runBlocking {
+        // Test that downloadModel executes safely without throwing uncaught exceptions/crashes
+        val result = managerSettings.downloadModel()
+        if (result) {
+            assertTrue(managerSettings.isModelDownloaded())
+        } else {
+            val errorInfo = managerSettings.lastDownloadError.value
+            org.junit.Assert.assertNotNull(errorInfo)
+        }
+    }
+
+    @Test
     fun testClearLastDownloadError() {
         val manager = managerSettings
         manager.deleteModel()

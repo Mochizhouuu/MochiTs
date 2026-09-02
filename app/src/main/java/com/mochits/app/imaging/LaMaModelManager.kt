@@ -306,9 +306,10 @@ class LaMaModelManager private constructor(context: Context) {
                     }
                 } catch (t: Throwable) {
                     Log.e(TAG, "Exception during download attempt ${retryCount + 1}/$maxRetries from $urlString: ${t.message}", t)
+                    val safeHttpCode = try { connection?.responseCode ?: -1 } catch (_: Throwable) { -1 }
                     _lastDownloadError.value = LaMaDownloadErrorInfo(
                         stage = "Proses Download / Stream Data (Percobaan ${retryCount + 1}/$maxRetries)",
-                        httpCode = connection?.responseCode ?: -1,
+                        httpCode = safeHttpCode,
                         exceptionType = t.javaClass.simpleName,
                         exceptionMessage = t.message ?: t.toString(),
                         url = urlString
