@@ -55,8 +55,7 @@ class LaMaModelManager private constructor(context: Context) {
 
     // HuggingFace primary and fallback URLs for LaMa Manga ONNX model (~196MB)
     private val modelUrls = listOf(
-        "https://huggingface.co/mayocream/lama-manga-onnx/resolve/main/lama-manga.onnx",
-        "https://huggingface.co/Liiesl/lama-manga-onnx-quant/resolve/main/lama-manga_fp16.onnx"
+        "https://huggingface.co/mayocream/lama-manga-onnx/resolve/main/lama-manga.onnx"
     )
 
     private val _modelStatus = MutableStateFlow(LaMaModelStatus.NOT_DOWNLOADED)
