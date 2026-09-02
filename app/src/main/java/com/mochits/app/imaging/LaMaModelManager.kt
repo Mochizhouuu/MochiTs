@@ -21,6 +21,32 @@ enum class LaMaModelStatus {
     CORRUPTED_ERROR
 }
 
+data class LaMaDownloadErrorInfo(
+    val stage: String,
+    val httpCode: Int = -1,
+    val exceptionType: String? = null,
+    val exceptionMessage: String? = null,
+    val url: String = ""
+) {
+    fun toFormattedString(): String {
+        val sb = StringBuilder()
+        sb.append("Tahap Kegagalan: ").append(stage).append("\n")
+        if (httpCode != -1) {
+            sb.append("HTTP Response Code: ").append(httpCode).append("\n")
+        }
+        if (!exceptionType.isNullOrEmpty()) {
+            sb.append("Jenis Exception: ").append(exceptionType).append("\n")
+        }
+        if (!exceptionMessage.isNullOrEmpty()) {
+            sb.append("Pesan Exception: ").append(exceptionMessage).append("\n")
+        }
+        if (url.isNotEmpty()) {
+            sb.append("URL Terakhir: ").append(url)
+        }
+        return sb.toString().trim()
+    }
+}
+
 class LaMaModelManager private constructor(context: Context) {
 
     private val appContext = context.applicationContext
@@ -38,6 +64,9 @@ class LaMaModelManager private constructor(context: Context) {
 
     private val _downloadProgress = MutableStateFlow(0f)
     val downloadProgress: StateFlow<Float> = _downloadProgress.asStateFlow()
+
+    private val _lastDownloadError = MutableStateFlow<LaMaDownloadErrorInfo?>(null)
+    val lastDownloadError: StateFlow<LaMaDownloadErrorInfo?> = _lastDownloadError.asStateFlow()
 
     init {
         checkModelStatus()
@@ -83,7 +112,12 @@ class LaMaModelManager private constructor(context: Context) {
         val deleted = if (targetFile.exists()) targetFile.delete() else true
         _modelStatus.value = LaMaModelStatus.NOT_DOWNLOADED
         _downloadProgress.value = 0f
+        _lastDownloadError.value = null
         return deleted
+    }
+
+    fun clearLastDownloadError() {
+        _lastDownloadError.value = null
     }
 
     suspend fun downloadModel(
@@ -92,11 +126,13 @@ class LaMaModelManager private constructor(context: Context) {
         if (isModelDownloaded()) {
             _downloadProgress.value = 1.0f
             onProgress(1.0f)
+            _lastDownloadError.value = null
             return@withContext true
         }
 
         _modelStatus.value = LaMaModelStatus.DOWNLOADING
         _downloadProgress.value = 0f
+        _lastDownloadError.value = null
 
         val targetFile = getModelFile()
         val tempFile = getTempFile()
@@ -126,6 +162,12 @@ class LaMaModelManager private constructor(context: Context) {
                         connection.readTimeout = 60000
                         connection.instanceFollowRedirects = false
 
+                        // Set standard User-Agent header to avoid HF/CDN blocking
+                        connection.setRequestProperty(
+                            "User-Agent",
+                            "Mozilla/5.0 (Android; Mobile; rv:109.0) Gecko/109.0 Firefox/119.0"
+                        )
+
                         if (requestRangeBytes > 0) {
                             connection.setRequestProperty("Range", "bytes=$requestRangeBytes-")
                         }
@@ -144,6 +186,12 @@ class LaMaModelManager private constructor(context: Context) {
                             connection.disconnect()
                             if (location.isNullOrEmpty()) {
                                 Log.w(TAG, "Redirect location header missing at $currentUrl")
+                                _lastDownloadError.value = LaMaDownloadErrorInfo(
+                                    stage = "Proses Redirect (Redirect #$redirectCount)",
+                                    httpCode = resCode,
+                                    exceptionMessage = "Header 'Location' hilang saat redirect",
+                                    url = currentUrl
+                                )
                                 break
                             }
                             currentUrl = URL(url, location).toString()
@@ -158,6 +206,11 @@ class LaMaModelManager private constructor(context: Context) {
                     if (responseCode == 416) { // HTTP 416 Range Not Satisfiable
                         Log.w(TAG, "HTTP 416 Range Not Satisfiable from $currentUrl. Deleting temp file and retrying from byte 0.")
                         if (tempFile.exists()) tempFile.delete()
+                        _lastDownloadError.value = LaMaDownloadErrorInfo(
+                            stage = "Evaluasi Header Range (416 Range Not Satisfiable)",
+                            httpCode = 416,
+                            url = currentUrl
+                        )
                         retryCount++
                         if (retryCount < maxRetries) delay(1000L * retryCount)
                         continue
@@ -168,6 +221,12 @@ class LaMaModelManager private constructor(context: Context) {
 
                     if (!isPartialContent && !isOK) {
                         Log.w(TAG, "Download failed with unexpected response code $responseCode from $currentUrl")
+                        _lastDownloadError.value = LaMaDownloadErrorInfo(
+                            stage = "Evaluasi Status HTTP Response",
+                            httpCode = responseCode,
+                            exceptionMessage = "Menerima HTTP $responseCode dari server CDN",
+                            url = currentUrl
+                        )
                         if (responseCode == HttpURLConnection.HTTP_NOT_FOUND) {
                             // Don't retry on 404, break retry loop to try next URL
                             break
@@ -184,6 +243,12 @@ class LaMaModelManager private constructor(context: Context) {
                     val stream = connection?.inputStream
                     if (stream == null) {
                         Log.w(TAG, "InputStream is null for $currentUrl")
+                        _lastDownloadError.value = LaMaDownloadErrorInfo(
+                            stage = "Membuka InputStream Koneksi",
+                            httpCode = responseCode,
+                            exceptionMessage = "InputStream bernilai null",
+                            url = currentUrl
+                        )
                         retryCount++
                         if (retryCount < maxRetries) delay(1000L * retryCount)
                         continue
@@ -220,16 +285,34 @@ class LaMaModelManager private constructor(context: Context) {
                             Log.i(TAG, "Model successfully downloaded and saved to ${targetFile.absolutePath}")
                             _downloadProgress.value = 1.0f
                             _modelStatus.value = LaMaModelStatus.DOWNLOADED
+                            _lastDownloadError.value = null
                             onProgress(1.0f)
                             return@withContext true
                         } else {
                             Log.e(TAG, "Failed to rename temp file ${tempFile.absolutePath} to ${targetFile.absolutePath}")
+                            _lastDownloadError.value = LaMaDownloadErrorInfo(
+                                stage = "Pemindahan File Sementara (.tmp -> .onnx)",
+                                exceptionMessage = "Gagal mengubah nama file sementara ke file tujuan",
+                                url = currentUrl
+                            )
                         }
                     } else {
                         Log.w(TAG, "Downloaded file size (${tempFile.length()}) is smaller than min valid size ($minValidSizeBytes)")
+                        _lastDownloadError.value = LaMaDownloadErrorInfo(
+                            stage = "Verifikasi Ukuran File Model",
+                            exceptionMessage = "Ukuran file (${tempFile.length()} bytes) kurang dari batas minimum ($minValidSizeBytes bytes)",
+                            url = currentUrl
+                        )
                     }
                 } catch (t: Throwable) {
                     Log.e(TAG, "Exception during download attempt ${retryCount + 1}/$maxRetries from $urlString: ${t.message}", t)
+                    _lastDownloadError.value = LaMaDownloadErrorInfo(
+                        stage = "Proses Download / Stream Data (Percobaan ${retryCount + 1}/$maxRetries)",
+                        httpCode = connection?.responseCode ?: -1,
+                        exceptionType = t.javaClass.simpleName,
+                        exceptionMessage = t.message ?: t.toString(),
+                        url = urlString
+                    )
                     retryCount++
                     if (retryCount < maxRetries) {
                         delay(1000L * retryCount)
@@ -247,6 +330,13 @@ class LaMaModelManager private constructor(context: Context) {
         if (tempFile.exists()) tempFile.delete()
         Log.e(TAG, "All download attempts failed across all configured URLs.")
         _modelStatus.value = LaMaModelStatus.CORRUPTED_ERROR
+        if (_lastDownloadError.value == null) {
+            _lastDownloadError.value = LaMaDownloadErrorInfo(
+                stage = "Semua URL Percobaan Gagal",
+                exceptionMessage = "Seluruh percobaan mengunduh dari semua URL mirror gagal",
+                url = modelUrls.last()
+            )
+        }
         false
     }
 
