@@ -24,7 +24,6 @@ enum class EditorPanel {
     INPAINT,
     ERASE,
     TEXT,
-    FONT,
     EFFECT,
     LAYERS,
     SETTINGS

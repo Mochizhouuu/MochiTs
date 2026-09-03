@@ -49,15 +49,6 @@ import com.mochits.app.text.TextRenderer
 import com.mochits.app.ui.color.ColorPickerRow
 import com.mochits.app.settings.DownloadErrorDialog
 import java.io.File
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import android.provider.OpenableColumns
-import androidx.compose.material.icons.filled.FontDownload
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Slider
-
 
 private enum class TextHandleType {
     RESIZE, ROTATE, DELETE, STRETCH_V, STRETCH_H, BODY_MOVE
@@ -1705,251 +1696,310 @@ fun EraseToolPanel(
 @Composable
 fun TextToolPanel(
     selectedLayer: Layer.TextLayer?,
-    onAddTextLayer: (String) -> Unit,
-    onUpdateTextLayer: (String, TextContainerShape, TextAlignment) -> Unit,
-    onClose: () -> Unit
+    defaultStyle: TextStyleConfig,
+    onAddText: (String) -> Unit,
+    onUpdateTextContent: ((String) -> Unit)? = null,
+    onUpdateStyle: (TextStyleConfig, Boolean) -> Unit,
+    onUpdateContainerShape: ((com.mochits.app.model.TextContainerShape) -> Unit)? = null,
+    onCapitalizationTransform: ((String) -> Unit)? = null,
+    onSliderDragStart: () -> Unit = {},
+    onSliderDragEnd: () -> Unit = {}
 ) {
-    var textInput by remember(selectedLayer) { mutableStateOf(selectedLayer?.text ?: "") }
-    var selectedShape by remember(selectedLayer) { mutableStateOf(selectedLayer?.textContainerShape ?: TextContainerShape.BOX) }
-    var selectedAlignment by remember(selectedLayer) { mutableStateOf(selectedLayer?.style?.alignment ?: TextAlignment.CENTER) }
+    var textInput by remember { mutableStateOf(selectedLayer?.text ?: "") }
+    var isFontOptionsExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(selectedLayer?.id, selectedLayer?.text) {
+        textInput = selectedLayer?.text ?: ""
+    }
+
+    val currentStyle = selectedLayer?.style ?: defaultStyle
 
     Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 8.dp
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        tonalElevation = 6.dp,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(14.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = if (selectedLayer != null) "Edit Teks" else "Tambah Teks Baru",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Default.Close, contentDescription = "Tutup")
-                }
-            }
-
-            OutlinedTextField(
-                value = textInput,
-                onValueChange = { textInput = it },
-                label = { Text("Teks") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = false,
-                maxLines = 4
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Align:", style = MaterialTheme.typography.bodyMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    FilterChip(
-                        selected = selectedAlignment == TextAlignment.LEFT,
-                        onClick = { selectedAlignment = TextAlignment.LEFT },
-                        label = { Text("Kiri") }
-                    )
-                    FilterChip(
-                        selected = selectedAlignment == TextAlignment.CENTER,
-                        onClick = { selectedAlignment = TextAlignment.CENTER },
-                        label = { Text("Tengah") }
-                    )
-                    FilterChip(
-                        selected = selectedAlignment == TextAlignment.RIGHT,
-                        onClick = { selectedAlignment = TextAlignment.RIGHT },
-                        label = { Text("Kanan") }
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Bentuk Container:", style = MaterialTheme.typography.bodyMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = selectedShape == TextContainerShape.BOX,
-                        onClick = { selectedShape = TextContainerShape.BOX },
-                        label = { Text("Box (Kotak)") }
-                    )
-                    FilterChip(
-                        selected = selectedShape == TextContainerShape.OVAL,
-                        onClick = { selectedShape = TextContainerShape.OVAL },
-                        label = { Text("Oval (Elips)") }
-                    )
-                }
-            }
-
-            Button(
-                onClick = {
-                    if (selectedLayer != null) {
-                        onUpdateTextLayer(textInput, selectedShape, selectedAlignment)
-                    } else {
-                        if (textInput.isNotBlank()) {
-                            onAddTextLayer(textInput)
-                        }
-                    }
-                    onClose()
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(if (selectedLayer != null) "Simpan Perubahan Teks" else "Tambah Teks")
-            }
-        }
-    }
-}
-
-@Composable
-fun FontToolPanel(
-    selectedLayer: Layer.TextLayer?,
-    onUpdateStyle: (TextStyleConfig) -> Unit,
-    onClose: () -> Unit,
-    fontRepository: FontRepository
-) {
-    val currentStyle = selectedLayer?.style ?: TextStyleConfig()
-    val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-
-    var searchQuery by remember { mutableStateOf("") }
-    val fontList by fontRepository.getAllFontsFlow().collectAsState(initial = emptyList())
-
-    val filteredFonts = remember(fontList, searchQuery) {
-        if (searchQuery.isBlank()) fontList
-        else fontList.filter { it.name.contains(searchQuery, ignoreCase = true) }
-    }
-
-    val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        uri?.let { fontUri ->
-            coroutineScope.launch {
-                val fileName = context.contentResolver.query(fontUri, null, null, null, null)?.use { cursor ->
-                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (cursor.moveToFirst() && nameIndex != -1) cursor.getString(nameIndex) else null
-                }
-                fontRepository.importCustomFont(fontUri, fileName)
-            }
-        }
-    }
-
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 8.dp
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Tool Font & Style", style = MaterialTheme.typography.titleMedium)
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Default.Close, contentDescription = "Tutup")
-                }
-            }
-
-            // Search and Import Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    label = { Text("Cari Font...") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true
+                    value = textInput,
+                    onValueChange = { textInput = it },
+                    label = { Text(if (selectedLayer != null) "Edit Teks" else "Teks Baru") },
+                    maxLines = 3,
+                    modifier = Modifier.weight(1f)
                 )
-                Button(onClick = { launcher.launch("*/*") }) {
-                    Text("Import Font")
+                Button(
+                    onClick = {
+                        if (textInput.isNotBlank()) {
+                            if (selectedLayer != null) {
+                                onUpdateTextContent?.invoke(textInput)
+                            } else {
+                                onAddText(textInput)
+                                textInput = ""
+                            }
+                        }
+                    }
+                ) {
+                    Text(if (selectedLayer != null) "Simpan" else "Tambah")
                 }
             }
 
-            // Font Family selection
-            Text("Pilih Font:", style = MaterialTheme.typography.bodyMedium)
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
+            // Collapsible section for Font Family & Style
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isFontOptionsExpanded = !isFontOptionsExpanded }
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                items(filteredFonts) { fontItem ->
-                    val isSelected = fontItem.name.equals(currentStyle.fontName, ignoreCase = true) ||
-                            (fontItem.filePath != null && fontItem.filePath == currentStyle.fontName)
+                Text(
+                    text = "Font (${currentStyle.fontName}, ${if (currentStyle.fontStyle == "BoldItalic") "Bold+Italic" else currentStyle.fontStyle})",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Icon(
+                    imageVector = if (isFontOptionsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (isFontOptionsExpanded) "Tutup Opsi Font" else "Buka Opsi Font"
+                )
+            }
+
+            Text("Alignment Teks:", style = MaterialTheme.typography.bodyMedium)
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = currentStyle.alignment == com.mochits.app.model.TextAlignment.LEFT,
+                    onClick = { onUpdateStyle(currentStyle.copy(alignment = com.mochits.app.model.TextAlignment.LEFT), true) },
+                    label = { Text("Rata Kiri") },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.FormatAlignLeft, contentDescription = "Rata Kiri", modifier = Modifier.size(18.dp)) }
+                )
+                FilterChip(
+                    selected = currentStyle.alignment == com.mochits.app.model.TextAlignment.CENTER,
+                    onClick = { onUpdateStyle(currentStyle.copy(alignment = com.mochits.app.model.TextAlignment.CENTER), true) },
+                    label = { Text("Rata Tengah") },
+                    leadingIcon = { Icon(Icons.Default.FormatAlignCenter, contentDescription = "Rata Tengah", modifier = Modifier.size(18.dp)) }
+                )
+                FilterChip(
+                    selected = currentStyle.alignment == com.mochits.app.model.TextAlignment.RIGHT,
+                    onClick = { onUpdateStyle(currentStyle.copy(alignment = com.mochits.app.model.TextAlignment.RIGHT), true) },
+                    label = { Text("Rata Kanan") },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.FormatAlignRight, contentDescription = "Rata Kanan", modifier = Modifier.size(18.dp)) }
+                )
+            }
+
+            if (selectedLayer != null) {
+                Text("Bentuk Kontainer Teks:", style = MaterialTheme.typography.bodyMedium)
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     FilterChip(
-                        selected = isSelected,
+                        selected = selectedLayer.textContainerShape == com.mochits.app.model.TextContainerShape.BOX,
+                        onClick = { onUpdateContainerShape?.invoke(com.mochits.app.model.TextContainerShape.BOX) },
+                        label = { Text("Kotak") }
+                    )
+                    FilterChip(
+                        selected = selectedLayer.textContainerShape == com.mochits.app.model.TextContainerShape.OVAL,
+                        onClick = { onUpdateContainerShape?.invoke(com.mochits.app.model.TextContainerShape.OVAL) },
+                        label = { Text("Oval") }
+                    )
+                }
+            }
+
+            if (isFontOptionsExpanded) {
+                Text("Font Family:", style = MaterialTheme.typography.bodyMedium)
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("Default", "Sans", "Serif", "Monospace").forEach { font ->
+                        FilterChip(
+                            selected = currentStyle.fontName.equals(font, ignoreCase = true),
+                            onClick = { onUpdateStyle(currentStyle.copy(fontName = font), true) },
+                            label = { Text(font) }
+                        )
+                    }
+                }
+
+                Text("Font Style:", style = MaterialTheme.typography.bodyMedium)
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("Regular", "Bold", "Italic", "BoldItalic").forEach { st ->
+                        val displayLabel = if (st == "BoldItalic") "Bold+Italic" else st
+                        FilterChip(
+                            selected = currentStyle.fontStyle.equals(st, ignoreCase = true),
+                            onClick = { onUpdateStyle(currentStyle.copy(fontStyle = st), true) },
+                            label = { Text(displayLabel) }
+                        )
+                    }
+                }
+            }
+
+            if (selectedLayer != null) {
+                Text("Kapitalisasi Teks:", style = MaterialTheme.typography.bodyMedium)
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = false,
                         onClick = {
-                            val targetFontName = fontItem.filePath ?: fontItem.name
-                            onUpdateStyle(currentStyle.copy(fontName = targetFontName))
+                            val upper = selectedLayer.text.uppercase()
+                            onCapitalizationTransform?.invoke(upper)
                         },
-                        label = { Text(fontItem.name) }
+                        label = { Text("UPPERCASE") }
                     )
-                }
-            }
-
-            // Font Style selection
-            Text("Gaya Font:", style = MaterialTheme.typography.bodyMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("Regular", "Bold", "Italic", "BoldItalic").forEach { style ->
                     FilterChip(
-                        selected = currentStyle.fontStyle.equals(style, ignoreCase = true),
-                        onClick = { onUpdateStyle(currentStyle.copy(fontStyle = style)) },
-                        label = { Text(style) }
+                        selected = false,
+                        onClick = {
+                            val lower = selectedLayer.text.lowercase()
+                            onCapitalizationTransform?.invoke(lower)
+                        },
+                        label = { Text("lowercase") }
+                    )
+                    FilterChip(
+                        selected = false,
+                        onClick = {
+                            val capitalized = selectedLayer.text.split(" ").joinToString(" ") { word ->
+                                word.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString() }
+                            }
+                            onCapitalizationTransform?.invoke(capitalized)
+                        },
+                        label = { Text("Capitalize") }
                     )
                 }
             }
 
-            // Capitalization transform
-            Text("Kapitalisasi:", style = MaterialTheme.typography.bodyMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = false,
-                    onClick = {
-                        selectedLayer?.let { layer ->
-                            onUpdateStyle(currentStyle)
-                        }
-                    },
-                    label = { Text("UPPERCASE") }
-                )
-                FilterChip(
-                    selected = false,
-                    onClick = {
-                        selectedLayer?.let { layer ->
-                            onUpdateStyle(currentStyle)
-                        }
-                    },
-                    label = { Text("lowercase") }
-                )
-            }
-
-            // Font Size slider
-            Text("Ukuran Font: ${currentStyle.fontSize.toInt()} sp", style = MaterialTheme.typography.bodyMedium)
+            Text("Ukuran Font: ${currentStyle.fontSize.toInt()} px", style = MaterialTheme.typography.bodyMedium)
             Slider(
                 value = currentStyle.fontSize,
-                onValueChange = { newSize ->
-                    onUpdateStyle(currentStyle.copy(fontSize = newSize))
+                onValueChange = {
+                    onSliderDragStart()
+                    onUpdateStyle(currentStyle.copy(fontSize = it), false)
+                },
+                onValueChangeFinished = {
+                    onSliderDragEnd()
                 },
                 valueRange = 12f..120f
             )
         }
     }
+}
+
+@Composable
+fun SimpleColorPickerRow(
+    selectedColor: Int,
+    onColorSelected: (Int) -> Unit
+) {
+    var showCustomHexDialog by remember { mutableStateOf(false) }
+    var hexInput by remember { mutableStateOf("") }
+
+    val colors = listOf(
+        AndroidColor.BLACK,
+        AndroidColor.WHITE,
+        AndroidColor.RED,
+        AndroidColor.BLUE,
+        AndroidColor.GREEN,
+        AndroidColor.YELLOW,
+        AndroidColor.MAGENTA,
+        AndroidColor.CYAN
+    )
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        colors.forEach { c ->
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .background(Color(c), shape = androidx.compose.foundation.shape.CircleShape)
+                    .padding(2.dp)
+            ) {
+                IconButton(
+                    onClick = { onColorSelected(c) },
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    if (selectedColor == c) {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = null,
+                            tint = if (c == AndroidColor.WHITE || c == AndroidColor.YELLOW || c == AndroidColor.CYAN) Color.Black else Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        IconButton(
+            onClick = {
+                hexInput = String.format("#%06X", 0xFFFFFF and selectedColor)
+                showCustomHexDialog = true
+            },
+            modifier = Modifier.size(28.dp)
+        ) {
+            Icon(
+                Icons.Default.Palette,
+                contentDescription = "Custom Hex",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+
+    if (showCustomHexDialog) {
+        AlertDialog(
+            onDismissRequest = { showCustomHexDialog = false },
+            title = { Text("Pilih Warna Custom (Hex)", style = MaterialTheme.typography.titleMedium) },
+            text = {
+                OutlinedTextField(
+                    value = hexInput,
+                    onValueChange = { hexInput = it },
+                    label = { Text("Hex Color (contoh: #FF5722)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        try {
+                            val parsed = AndroidColor.parseColor(hexInput)
+                            onColorSelected(parsed)
+                            showCustomHexDialog = false
+                        } catch (_: Throwable) {
+                        }
+                    }
+                ) {
+                    Text("Terapkan")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCustomHexDialog = false }) {
+                    Text("Batal")
+                }
+            }
+        )
+    }
+}
+
+private enum class EffectType {
+    OPACITY,
+    TEXT_COLOR,
+    STROKE,
+    DROP_SHADOW
 }
 
 @Composable

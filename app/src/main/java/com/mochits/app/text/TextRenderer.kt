@@ -43,9 +43,6 @@ class TextRenderer(private val context: Context) {
     companion object {
         private val typefaceCache = java.util.concurrent.ConcurrentHashMap<String, Typeface>()
 
-        private val assetFontMapCache = java.util.concurrent.ConcurrentHashMap<String, String>()
-
-
         private val layoutCache = object : java.util.LinkedHashMap<TextLayoutKey, TextLayoutResult>(64, 0.75f, true) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<TextLayoutKey, TextLayoutResult>?): Boolean {
                 return size > 256
@@ -487,72 +484,19 @@ class TextRenderer(private val context: Context) {
     private fun getTypeface(fontName: String, fontStyle: String = "Regular"): Typeface {
         val key = "${fontName.lowercase().trim()}_${fontStyle.lowercase().trim()}"
         return typefaceCache.getOrPut(key) {
-            val styleInt = when (fontStyle.lowercase().trim()) {
-                "bold" -> Typeface.BOLD
-                "italic" -> Typeface.ITALIC
-                "bolditalic", "bold+italic" -> Typeface.BOLD_ITALIC
-                else -> Typeface.NORMAL
-            }
-
-            // Check if fontName is a direct file path (custom font)
-            val fontFile = java.io.File(fontName)
-            if (fontFile.exists() && fontFile.isFile) {
-                try {
-                    val tf = Typeface.createFromFile(fontFile)
-                    if (tf != null) return@getOrPut Typeface.create(tf, styleInt)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-
-            // Check if matching font exists in assets/fonts
-            val assetMap = getAssetFontMap()
-            val cleanKey = fontName.lowercase().trim().replace(" ", "")
-            val assetPath = assetMap[cleanKey] ?: assetMap.entries.find {
-                it.key.contains(cleanKey) || cleanKey.contains(it.key)
-            }?.value
-
-            if (assetPath != null) {
-                try {
-                    val tf = Typeface.createFromAsset(context.assets, assetPath)
-                    if (tf != null) return@getOrPut Typeface.create(tf, styleInt)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-
             val baseTypeface = when (fontName.lowercase().trim()) {
                 "serif" -> Typeface.SERIF
                 "sans", "sans-serif" -> Typeface.SANS_SERIF
                 "monospace", "mono" -> Typeface.MONOSPACE
                 else -> Typeface.DEFAULT
             }
+            val styleInt = when (fontStyle.lowercase().trim()) {
+                "bold" -> Typeface.BOLD
+                "italic" -> Typeface.ITALIC
+                "bolditalic", "bold+italic" -> Typeface.BOLD_ITALIC
+                else -> Typeface.NORMAL
+            }
             Typeface.create(baseTypeface, styleInt)
-        }
-    }
-
-    private fun getAssetFontMap(): Map<String, String> {
-        synchronized(assetFontMapCache) {
-            if (assetFontMapCache.isNotEmpty()) return assetFontMapCache
-            try {
-                scanAssetFonts("fonts")
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            return assetFontMapCache
-        }
-    }
-
-    private fun scanAssetFonts(path: String) {
-        val list = context.assets.list(path) ?: return
-        for (item in list) {
-            val subPath = if (path.isEmpty()) item else "$path/$item"
-            if (item.lowercase().endsWith(".ttf") || item.lowercase().endsWith(".otf")) {
-                val cleanName = item.substringBeforeLast(".").lowercase().replace("_", "").replace(" ", "")
-                assetFontMapCache[cleanName] = subPath
-            } else {
-                scanAssetFonts(subPath)
-            }
         }
     }
 }
