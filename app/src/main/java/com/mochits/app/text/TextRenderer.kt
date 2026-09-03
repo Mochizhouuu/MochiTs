@@ -547,7 +547,4 @@ class TextRenderer(private val context: Context) {
             }
 
             Typeface.create(baseTypeface, styleInt)
-        }
-    }
-}
 }
