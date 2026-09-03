@@ -35,6 +35,7 @@ class EditorViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val repository: ProjectRepository,
     val exportSettingsRepository: ExportSettingsRepository,
+    val fontRepository: com.mochits.app.font.FontRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 

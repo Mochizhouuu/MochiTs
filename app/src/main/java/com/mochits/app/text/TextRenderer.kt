@@ -481,22 +481,73 @@ class TextRenderer(private val context: Context) {
         return RectF(left, top, right, bottom)
     }
 
+        private val assetFontMap: Map<String, String> by lazy {
+        val map = HashMap<String, String>()
+        try {
+            val list = context.assets.list("fonts") ?: emptyArray()
+            for (file in list) {
+                val fullPath = "fonts/$file"
+                map[file.lowercase()] = fullPath
+                val nameWithoutExt = file.substringBeforeLast(".").lowercase()
+                map[nameWithoutExt] = fullPath
+                val cleanName = nameWithoutExt.replace("_", " ").lowercase()
+                map[cleanName] = fullPath
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        map
+    }
+
     private fun getTypeface(fontName: String, fontStyle: String = "Regular"): Typeface {
         val key = "${fontName.lowercase().trim()}_${fontStyle.lowercase().trim()}"
         return typefaceCache.getOrPut(key) {
-            val baseTypeface = when (fontName.lowercase().trim()) {
-                "serif" -> Typeface.SERIF
-                "sans", "sans-serif" -> Typeface.SANS_SERIF
-                "monospace", "mono" -> Typeface.MONOSPACE
-                else -> Typeface.DEFAULT
-            }
             val styleInt = when (fontStyle.lowercase().trim()) {
                 "bold" -> Typeface.BOLD
                 "italic" -> Typeface.ITALIC
                 "bolditalic", "bold+italic" -> Typeface.BOLD_ITALIC
                 else -> Typeface.NORMAL
             }
+
+            val baseTypeface: Typeface = when (val nameLower = fontName.lowercase().trim()) {
+                "serif" -> Typeface.SERIF
+                "sans", "sans-serif" -> Typeface.SANS_SERIF
+                "monospace", "mono" -> Typeface.MONOSPACE
+                "default" -> Typeface.DEFAULT
+                else -> {
+                    val file = java.io.File(fontName)
+                    if (file.exists() && file.isFile) {
+                        try {
+                            Typeface.createFromFile(file)
+                        } catch (e: Exception) {
+                            null
+                        }
+                    } else {
+                        val customDirFile = java.io.File(context.filesDir, "custom_fonts/$fontName")
+                        if (customDirFile.exists() && customDirFile.isFile) {
+                            try {
+                                Typeface.createFromFile(customDirFile)
+                            } catch (e: Exception) {
+                                null
+                            }
+                        } else {
+                            val assetPath = assetFontMap[nameLower]
+                            if (assetPath != null) {
+                                try {
+                                    Typeface.createFromAsset(context.assets, assetPath)
+                                } catch (e: Exception) {
+                                    null
+                                }
+                            } else {
+                                null
+                            }
+                        }
+                    } ?: Typeface.DEFAULT
+                }
+            }
+
             Typeface.create(baseTypeface, styleInt)
         }
     }
+}
 }

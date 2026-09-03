@@ -46,6 +46,8 @@ import com.mochits.app.model.MaskToolMode
 import com.mochits.app.model.TextStyleConfig
 import androidx.documentfile.provider.DocumentFile
 import com.mochits.app.text.TextRenderer
+import com.mochits.app.font.FontRepository
+import com.mochits.app.font.FontItem
 import com.mochits.app.ui.color.ColorPickerRow
 import com.mochits.app.settings.DownloadErrorDialog
 import java.io.File
@@ -307,6 +309,20 @@ fun EditorScreen(
                     IconButton(onClick = { viewModel.setActivePanel(EditorPanel.ERASE) }) {
                         Icon(Icons.Default.CleaningServices, contentDescription = "Hapus / Seleksi Objek")
                     }
+                    // Layers Menu Button
+                    IconButton(onClick = {
+                        if (activePanel == EditorPanel.LAYERS) {
+                            viewModel.setActivePanel(EditorPanel.NONE)
+                        } else {
+                            viewModel.setActivePanel(EditorPanel.LAYERS)
+                        }
+                    }) {
+                        Icon(
+                            Icons.Default.Layers,
+                            contentDescription = "Layers",
+                            tint = if (activePanel == EditorPanel.LAYERS) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                        )
+                    }
                     // Save As / Rename Menu
                     IconButton(onClick = { showExportDialog = true }) {
                         Icon(Icons.Default.Save, contentDescription = "Simpan / Save As")
@@ -358,6 +374,15 @@ fun EditorScreen(
                         onUpdateTextContent = { text -> viewModel.updateSelectedTextContent(text) },
                         onUpdateStyle = { style, saveUndo -> viewModel.updateSelectedTextLayerStyle(style, saveUndo = saveUndo) },
                         onUpdateContainerShape = { shape -> viewModel.updateSelectedTextLayerContainerShape(shape) },
+                        onCapitalizationTransform = { newText -> viewModel.updateSelectedTextContent(newText) },
+                        onSliderDragStart = { viewModel.onSliderDragStart() },
+                        onSliderDragEnd = { viewModel.onSliderDragEnd() }
+                    )
+                    EditorPanel.FONT -> FontToolPanel(
+                        selectedLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer,
+                        defaultStyle = defaultTextStyle,
+                        fontRepository = viewModel.fontRepository,
+                        onUpdateStyle = { style, saveUndo -> viewModel.updateSelectedTextLayerStyle(style, saveUndo = saveUndo) },
                         onCapitalizationTransform = { newText -> viewModel.updateSelectedTextContent(newText) },
                         onSliderDragStart = { viewModel.onSliderDragStart() },
                         onSliderDragEnd = { viewModel.onSliderDragEnd() }
@@ -1504,10 +1529,10 @@ fun EditorBottomBar(
             label = { Text("Effect") }
         )
         NavigationBarItem(
-            selected = activePanel == EditorPanel.LAYERS,
-            onClick = { onPanelSelect(EditorPanel.LAYERS) },
-            icon = { Icon(Icons.Default.Layers, contentDescription = "Layers") },
-            label = { Text("Layers") }
+            selected = activePanel == EditorPanel.FONT,
+            onClick = { onPanelSelect(EditorPanel.FONT) },
+            icon = { Icon(Icons.Default.FontDownload, contentDescription = "Font") },
+            label = { Text("Font") }
         )
     }
 }
@@ -1706,7 +1731,6 @@ fun TextToolPanel(
     onSliderDragEnd: () -> Unit = {}
 ) {
     var textInput by remember { mutableStateOf(selectedLayer?.text ?: "") }
-    var isFontOptionsExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(selectedLayer?.id, selectedLayer?.text) {
         textInput = selectedLayer?.text ?: ""
@@ -1753,25 +1777,6 @@ fun TextToolPanel(
                 }
             }
 
-            // Collapsible section for Font Family & Style
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { isFontOptionsExpanded = !isFontOptionsExpanded }
-                    .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Font (${currentStyle.fontName}, ${if (currentStyle.fontStyle == "BoldItalic") "Bold+Italic" else currentStyle.fontStyle})",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Icon(
-                    imageVector = if (isFontOptionsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = if (isFontOptionsExpanded) "Tutup Opsi Font" else "Buka Opsi Font"
-                )
-            }
-
             Text("Alignment Teks:", style = MaterialTheme.typography.bodyMedium)
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -1815,35 +1820,138 @@ fun TextToolPanel(
                     )
                 }
             }
+        }
+    }
+}
 
-            if (isFontOptionsExpanded) {
-                Text("Font Family:", style = MaterialTheme.typography.bodyMedium)
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    listOf("Default", "Sans", "Serif", "Monospace").forEach { font ->
-                        FilterChip(
-                            selected = currentStyle.fontName.equals(font, ignoreCase = true),
-                            onClick = { onUpdateStyle(currentStyle.copy(fontName = font), true) },
-                            label = { Text(font) }
-                        )
-                    }
+@Composable
+fun FontToolPanel(
+    selectedLayer: Layer.TextLayer?,
+    defaultStyle: TextStyleConfig,
+    fontRepository: FontRepository,
+    onUpdateStyle: (TextStyleConfig, Boolean) -> Unit,
+    onCapitalizationTransform: ((String) -> Unit)? = null,
+    onSliderDragStart: () -> Unit = {},
+    onSliderDragEnd: () -> Unit = {}
+) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val currentStyle = selectedLayer?.style ?: defaultStyle
+
+    var searchQuery by remember { mutableStateOf("") }
+    val allFonts by fontRepository.getAllFontsFlow().collectAsState(initial = emptyList())
+
+    val fontPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let { fontUri ->
+            val contentResolver = context.contentResolver
+            var rawFileName: String? = null
+            contentResolver.query(fontUri, null, null, null, null)?.use { cursor ->
+                val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (nameIndex != -1 && cursor.moveToFirst()) {
+                    rawFileName = cursor.getString(nameIndex)
                 }
-
-                Text("Font Style:", style = MaterialTheme.typography.bodyMedium)
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    listOf("Regular", "Bold", "Italic", "BoldItalic").forEach { st ->
-                        val displayLabel = if (st == "BoldItalic") "Bold+Italic" else st
-                        FilterChip(
-                            selected = currentStyle.fontStyle.equals(st, ignoreCase = true),
-                            onClick = { onUpdateStyle(currentStyle.copy(fontStyle = st), true) },
-                            label = { Text(displayLabel) }
-                        )
+            }
+            coroutineScope.launch {
+                val result = fontRepository.importCustomFont(fontUri, rawFileName)
+                result.onSuccess { importedFont ->
+                    android.widget.Toast.makeText(context, "Font kustom berhasil diimpor: ${importedFont.name}", android.widget.Toast.LENGTH_SHORT).show()
+                    if (selectedLayer != null) {
+                        onUpdateStyle(currentStyle.copy(fontName = importedFont.name), true)
                     }
+                }.onFailure { e ->
+                    android.widget.Toast.makeText(context, "Gagal mengimpor font: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    val filteredFonts = remember(allFonts, searchQuery) {
+        if (searchQuery.isBlank()) {
+            allFonts
+        } else {
+            allFonts.filter { it.name.contains(searchQuery, ignoreCase = true) }
+        }
+    }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        tonalElevation = 6.dp,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(14.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Pengaturan Font", style = MaterialTheme.typography.titleMedium)
+                Button(
+                    onClick = { fontPickerLauncher.launch("*/*") },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.height(36.dp)
+                ) {
+                    Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Import Font", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                label = { Text("Cari Font...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Clear, contentDescription = "Clear")
+                        }
+                    }
+                },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Text("Daftar Font (${filteredFonts.size}):", style = MaterialTheme.typography.bodySmall)
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(filteredFonts) { fontItem ->
+                    val isSelected = currentStyle.fontName.equals(fontItem.name, ignoreCase = true) ||
+                            currentStyle.fontName.equals(fontItem.fontNameKey, ignoreCase = true)
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = {
+                            onUpdateStyle(currentStyle.copy(fontName = fontItem.name), true)
+                        },
+                        label = {
+                            Text(if (fontItem.isCustom) "${fontItem.name} ★" else fontItem.name)
+                        }
+                    )
+                }
+            }
+
+            Text("Font Style:", style = MaterialTheme.typography.bodyMedium)
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf("Regular", "Bold", "Italic", "BoldItalic").forEach { st ->
+                    val displayLabel = if (st == "BoldItalic") "Bold+Italic" else st
+                    FilterChip(
+                        selected = currentStyle.fontStyle.equals(st, ignoreCase = true),
+                        onClick = { onUpdateStyle(currentStyle.copy(fontStyle = st), true) },
+                        label = { Text(displayLabel) }
+                    )
                 }
             }
 
