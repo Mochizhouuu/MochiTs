@@ -25,6 +25,7 @@ enum class EditorPanel {
     ERASE,
     TEXT,
     EFFECT,
+    FONT,
     LAYERS,
     SETTINGS
 }
