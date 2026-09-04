@@ -470,6 +470,8 @@ fun EditorScreen(
             var initialTouchCanvasPt by remember { mutableStateOf(Offset.Zero) }
             var initialBoxW by remember { mutableFloatStateOf(0f) }
             var initialBoxH by remember { mutableFloatStateOf(0f) }
+            var initialBoundsLeft by remember { mutableFloatStateOf(0f) }
+            var initialBoundsTop by remember { mutableFloatStateOf(0f) }
 
             var lastTapTimestamp by remember { mutableLongStateOf(0L) }
             var lastTapLayerId by remember { mutableStateOf<String?>(null) }
@@ -666,7 +668,7 @@ fun EditorScreen(
                                 val firstChange = changes.first()
                                 val touchCanvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
                                 val handleHitRadius = (36f / viewModel.canvasState.scale)
-                                val stretchHitRadius = (28f / viewModel.canvasState.scale)
+                                val stretchHitRadius = (38f / viewModel.canvasState.scale)
 
                                 val isJustDown = !firstChange.previousPressed && firstChange.pressed
                                 if (isJustDown) {
@@ -708,70 +710,109 @@ fun EditorScreen(
                                         val rSq = handleHitRadius * handleHitRadius
                                         val stretchRSq = stretchHitRadius * stretchHitRadius
 
+                                        var chosenHandle: TextHandleType? = null
+                                        var minRatio = Float.MAX_VALUE
+
                                         if (distDeleteSq <= rSq) {
-                                            activeHandleType = TextHandleType.DELETE
-                                            viewModel.deleteLayer(selectedTextLayer.id)
-                                            viewModel.selectLayer(null)
-                                            activeHandleType = null
-                                            hitHandle = true
-                                            firstChange.consume()
-                                            triggerRedraw++
-                                            continue
-                                        } else if (distRotateSq <= rSq) {
-                                            activeHandleType = TextHandleType.ROTATE
-                                            viewModel.saveUndoSnapshot()
-                                            initialTextCenterX = textCenterX
-                                            initialTextCenterY = textCenterY
-                                            initialTouchAngle = Math.toDegrees(kotlin.math.atan2((touchCanvasPt.y - textCenterY).toDouble(), (touchCanvasPt.x - textCenterX).toDouble())).toFloat()
-                                            initialTextRotation = selectedTextLayer.rotation
-                                            hitHandle = true
-                                            firstChange.consume()
-                                            continue
-                                        } else if (distResizeSq <= rSq) {
-                                            activeHandleType = TextHandleType.RESIZE
-                                            viewModel.saveUndoSnapshot()
-                                            initialTextCenterX = textCenterX
-                                            initialTextCenterY = textCenterY
-                                            initialDragDist = kotlin.math.hypot(touchCanvasPt.x - textCenterX, touchCanvasPt.y - textCenterY)
-                                            initialFontSize = selectedTextLayer.style.fontSize
-                                            initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
-                                            initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
-                                            hitHandle = true
-                                            firstChange.consume()
-                                            continue
-                                        } else if (distStretchVSq <= stretchRSq) {
-                                            activeHandleType = TextHandleType.STRETCH_V
-                                            viewModel.saveUndoSnapshot()
-                                            initialTextX = selectedTextLayer.x
-                                            initialTextY = selectedTextLayer.y
-                                            initialTextCenterX = textCenterX
-                                            initialTextCenterY = textCenterY
-                                            initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
-                                            initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
-                                            hitHandle = true
-                                            firstChange.consume()
-                                            continue
-                                        } else if (distStretchHSq <= stretchRSq) {
-                                            activeHandleType = TextHandleType.STRETCH_H
-                                            viewModel.saveUndoSnapshot()
-                                            initialTextX = selectedTextLayer.x
-                                            initialTextY = selectedTextLayer.y
-                                            initialTextCenterX = textCenterX
-                                            initialTextCenterY = textCenterY
-                                            initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
-                                            initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
-                                            hitHandle = true
-                                            firstChange.consume()
-                                            continue
-                                        } else if (isPointInsideTextLayer(selectedTextLayer, touchCanvasPt, textRenderer)) {
-                                            activeHandleType = TextHandleType.BODY_MOVE
-                                            viewModel.saveUndoSnapshot()
-                                            initialTextX = selectedTextLayer.x
-                                            initialTextY = selectedTextLayer.y
-                                            initialTouchCanvasPt = touchCanvasPt
-                                            hitHandle = true
-                                            firstChange.consume()
-                                            continue
+                                            val ratio = distDeleteSq / rSq
+                                            if (ratio < minRatio) { minRatio = ratio; chosenHandle = TextHandleType.DELETE }
+                                        }
+                                        if (distRotateSq <= rSq) {
+                                            val ratio = distRotateSq / rSq
+                                            if (ratio < minRatio) { minRatio = ratio; chosenHandle = TextHandleType.ROTATE }
+                                        }
+                                        if (distResizeSq <= rSq) {
+                                            val ratio = distResizeSq / rSq
+                                            if (ratio < minRatio) { minRatio = ratio; chosenHandle = TextHandleType.RESIZE }
+                                        }
+                                        if (distStretchVSq <= stretchRSq) {
+                                            val ratio = distStretchVSq / stretchRSq
+                                            if (ratio < minRatio) { minRatio = ratio; chosenHandle = TextHandleType.STRETCH_V }
+                                        }
+                                        if (distStretchHSq <= stretchRSq) {
+                                            val ratio = distStretchHSq / stretchRSq
+                                            if (ratio < minRatio) { minRatio = ratio; chosenHandle = TextHandleType.STRETCH_H }
+                                        }
+
+                                        when (chosenHandle) {
+                                            TextHandleType.DELETE -> {
+                                                activeHandleType = TextHandleType.DELETE
+                                                viewModel.deleteLayer(selectedTextLayer.id)
+                                                viewModel.selectLayer(null)
+                                                activeHandleType = null
+                                                hitHandle = true
+                                                firstChange.consume()
+                                                triggerRedraw++
+                                                continue
+                                            }
+                                            TextHandleType.ROTATE -> {
+                                                activeHandleType = TextHandleType.ROTATE
+                                                viewModel.saveUndoSnapshot()
+                                                initialTextCenterX = textCenterX
+                                                initialTextCenterY = textCenterY
+                                                initialTouchAngle = Math.toDegrees(kotlin.math.atan2((touchCanvasPt.y - textCenterY).toDouble(), (touchCanvasPt.x - textCenterX).toDouble())).toFloat()
+                                                initialTextRotation = selectedTextLayer.rotation
+                                                hitHandle = true
+                                                firstChange.consume()
+                                                continue
+                                            }
+                                            TextHandleType.RESIZE -> {
+                                                activeHandleType = TextHandleType.RESIZE
+                                                viewModel.saveUndoSnapshot()
+                                                initialTextCenterX = textCenterX
+                                                initialTextCenterY = textCenterY
+                                                initialDragDist = kotlin.math.hypot(touchCanvasPt.x - textCenterX, touchCanvasPt.y - textCenterY)
+                                                initialFontSize = selectedTextLayer.style.fontSize
+                                                initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
+                                                initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
+                                                initialBoundsLeft = bounds.left
+                                                initialBoundsTop = bounds.top
+                                                hitHandle = true
+                                                firstChange.consume()
+                                                continue
+                                            }
+                                            TextHandleType.STRETCH_V -> {
+                                                activeHandleType = TextHandleType.STRETCH_V
+                                                viewModel.saveUndoSnapshot()
+                                                initialTextX = selectedTextLayer.x
+                                                initialTextY = selectedTextLayer.y
+                                                initialTextCenterX = textCenterX
+                                                initialTextCenterY = textCenterY
+                                                initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
+                                                initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
+                                                initialBoundsLeft = bounds.left
+                                                initialBoundsTop = bounds.top
+                                                hitHandle = true
+                                                firstChange.consume()
+                                                continue
+                                            }
+                                            TextHandleType.STRETCH_H -> {
+                                                activeHandleType = TextHandleType.STRETCH_H
+                                                viewModel.saveUndoSnapshot()
+                                                initialTextX = selectedTextLayer.x
+                                                initialTextY = selectedTextLayer.y
+                                                initialTextCenterX = textCenterX
+                                                initialTextCenterY = textCenterY
+                                                initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
+                                                initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
+                                                initialBoundsLeft = bounds.left
+                                                initialBoundsTop = bounds.top
+                                                hitHandle = true
+                                                firstChange.consume()
+                                                continue
+                                            }
+                                            else -> {
+                                                if (isPointInsideTextLayer(selectedTextLayer, touchCanvasPt, textRenderer)) {
+                                                    activeHandleType = TextHandleType.BODY_MOVE
+                                                    viewModel.saveUndoSnapshot()
+                                                    initialTextX = selectedTextLayer.x
+                                                    initialTextY = selectedTextLayer.y
+                                                    initialTouchCanvasPt = touchCanvasPt
+                                                    hitHandle = true
+                                                    firstChange.consume()
+                                                    continue
+                                                }
+                                            }
                                         }
                                     }
                                     if (!hitHandle) {
@@ -831,12 +872,12 @@ fun EditorScreen(
                                                     touchCanvasPt
                                                 }
                                                 val currentBoxW = selectedTextLayer.boxWidth
-                                                val newBoxH = (unrotatedPt.y - initialTextY).coerceAtLeast(20f)
+                                                val newBoxH = (unrotatedPt.y - initialBoundsTop).coerceAtLeast(20f)
                                                 viewModel.updateSelectedTextLayerStretch(
                                                     boxWidth = currentBoxW,
                                                     boxHeight = newBoxH,
-                                                    newX = initialTextX,
-                                                    newY = initialTextY,
+                                                    newX = initialBoundsLeft,
+                                                    newY = initialBoundsTop,
                                                     saveUndo = false
                                                 )
                                                 triggerRedraw++
@@ -858,12 +899,12 @@ fun EditorScreen(
                                                     touchCanvasPt
                                                 }
                                                 val currentBoxH = selectedTextLayer.boxHeight
-                                                val newBoxW = (unrotatedPt.x - initialTextX).coerceAtLeast(30f)
+                                                val newBoxW = (unrotatedPt.x - initialBoundsLeft).coerceAtLeast(30f)
                                                 viewModel.updateSelectedTextLayerStretch(
                                                     boxWidth = newBoxW,
                                                     boxHeight = currentBoxH,
-                                                    newX = initialTextX,
-                                                    newY = initialTextY,
+                                                    newX = initialBoundsLeft,
+                                                    newY = initialBoundsTop,
                                                     saveUndo = false
                                                 )
                                                 triggerRedraw++

@@ -39,6 +39,93 @@ private data class TextLayoutKey(
     val alignment: TextAlignment
 )
 
+private object SyllableSplitter {
+    private val indonesianDigraphs = setOf("ng", "ny", "sy", "kh")
+
+    fun getSyllables(word: String): List<String> {
+        val clean = word.trim()
+        if (clean.length <= 3) return listOf(clean)
+
+        val breakpoints = findBreakpoints(clean)
+        if (breakpoints.isEmpty()) return listOf(clean)
+
+        val syllables = mutableListOf<String>()
+        var lastIdx = 0
+        for (bp in breakpoints) {
+            syllables.add(clean.substring(lastIdx, bp))
+            lastIdx = bp
+        }
+        if (lastIdx < clean.length) {
+            syllables.add(clean.substring(lastIdx))
+        }
+        return syllables
+    }
+
+    private fun isVowel(c: Char): Boolean {
+        return c.lowercaseChar() in setOf('a', 'e', 'i', 'o', 'u', 'y')
+    }
+
+    private fun findBreakpoints(word: String): List<Int> {
+        val len = word.length
+        val breaks = mutableListOf<Int>()
+        var i = 0
+
+        while (i < len - 1) {
+            val c1 = word[i]
+            val c2 = word[i + 1]
+
+            if (isVowel(c1)) {
+                var cCount = 0
+                var j = i + 1
+                while (j < len && !isVowel(word[j])) {
+                    cCount++
+                    j++
+                }
+
+                if (j < len) {
+                    if (cCount == 0) {
+                        val pair = "${c1}${c2}".lowercase()
+                        if (pair !in setOf("ai", "au", "oi", "ei", "ou")) {
+                            if (i + 1 >= 2 && len - (i + 1) >= 2) {
+                                breaks.add(i + 1)
+                            }
+                        }
+                    } else if (cCount == 1) {
+                        if (i + 1 >= 2 && len - (i + 1) >= 2) {
+                            breaks.add(i + 1)
+                        }
+                    } else if (cCount == 2) {
+                        val pair = word.substring(i + 1, i + 3).lowercase()
+                        if (pair in indonesianDigraphs || pair in setOf("th", "sh", "ch", "ph", "wh", "ck")) {
+                            if (i + 1 >= 2 && len - (i + 1) >= 2) {
+                                breaks.add(i + 1)
+                            }
+                        } else {
+                            if (i + 2 >= 2 && len - (i + 2) >= 2) {
+                                breaks.add(i + 2)
+                            }
+                        }
+                    } else if (cCount >= 3) {
+                        val pair2 = if (i + 3 <= len) word.substring(i + 2, i + 4.coerceAtMost(len)).lowercase() else ""
+                        if (pair2 in indonesianDigraphs) {
+                            if (i + 2 >= 2 && len - (i + 2) >= 2) {
+                                breaks.add(i + 2)
+                            }
+                        } else {
+                            if (i + 3 >= 2 && len - (i + 3) >= 2) {
+                                breaks.add(i + 3)
+                            }
+                        }
+                    }
+                    i = j - 1
+                }
+            }
+            i++
+        }
+        return breaks.distinct().sorted()
+    }
+}
+
 class TextRenderer(private val context: Context) {
 
     companion object {
@@ -241,37 +328,56 @@ class TextRenderer(private val context: Context) {
                             currentLineStr = ""
                         } else {
                             val cleanToken = token.trim()
-                            val hyphenW = paint.measureText("-")
-                            var splitIdx = 0
+                            val syllables = SyllableSplitter.getSyllables(cleanToken)
 
-                            for (c in 1 until cleanToken.length) {
-                                val sub = cleanToken.substring(0, c)
-                                if (paint.measureText(sub) + hyphenW <= availW) {
-                                    splitIdx = c
-                                } else {
+                            var bestSyllableCount = 0
+                            for (k in (syllables.size - 1) downTo 1) {
+                                val part1Candidate = syllables.take(k).joinToString("") + "-"
+                                if (paint.measureText(part1Candidate) <= availW) {
+                                    bestSyllableCount = k
                                     break
                                 }
                             }
 
-                            if (splitIdx > 0) {
-                                val part1 = cleanToken.substring(0, splitIdx) + "-"
-                                val remaining = cleanToken.substring(splitIdx)
+                            if (bestSyllableCount > 0) {
+                                val part1 = syllables.take(bestSyllableCount).joinToString("") + "-"
+                                val remaining = syllables.drop(bestSyllableCount).joinToString("")
                                 val lineW = paint.measureText(part1)
                                 val xOff = calculateLineXOffset(currentLineIdx, lineW)
                                 lines.add(RenderedLine(part1, lineW, xOff))
                                 currentLineIdx++
                                 tokens[tokenIdx] = remaining
                             } else {
-                                val part1 = cleanToken.substring(0, 1)
-                                val remaining = cleanToken.substring(1)
-                                val lineW = paint.measureText(part1)
-                                val xOff = calculateLineXOffset(currentLineIdx, lineW)
-                                lines.add(RenderedLine(part1, lineW, xOff))
-                                currentLineIdx++
-                                if (remaining.isNotEmpty()) {
+                                var splitIdx = 0
+                                for (c in 2..(cleanToken.length - 2)) {
+                                    val sub = cleanToken.substring(0, c) + "-"
+                                    if (paint.measureText(sub) <= availW) {
+                                        splitIdx = c
+                                    } else {
+                                        break
+                                    }
+                                }
+
+                                if (splitIdx >= 2) {
+                                    val part1 = cleanToken.substring(0, splitIdx) + "-"
+                                    val remaining = cleanToken.substring(splitIdx)
+                                    val lineW = paint.measureText(part1)
+                                    val xOff = calculateLineXOffset(currentLineIdx, lineW)
+                                    lines.add(RenderedLine(part1, lineW, xOff))
+                                    currentLineIdx++
                                     tokens[tokenIdx] = remaining
                                 } else {
-                                    tokenIdx++
+                                    val part1 = cleanToken.substring(0, 1)
+                                    val remaining = cleanToken.substring(1)
+                                    val lineW = paint.measureText(part1)
+                                    val xOff = calculateLineXOffset(currentLineIdx, lineW)
+                                    lines.add(RenderedLine(part1, lineW, xOff))
+                                    currentLineIdx++
+                                    if (remaining.isNotEmpty()) {
+                                        tokens[tokenIdx] = remaining
+                                    } else {
+                                        tokenIdx++
+                                    }
                                 }
                             }
                         }

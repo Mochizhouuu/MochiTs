@@ -558,7 +558,7 @@ val defaultTextStyle = MutableStateFlow(TextStyleConfig())
         val canvasW = baseBitmap.value?.width ?: project.value?.width ?: 1080
         val canvasH = baseBitmap.value?.height ?: project.value?.height ?: 1920
 
-        val proportionalFontSize = (canvasH * 0.035f).coerceIn(24f, 200f)
+        val proportionalFontSize = (canvasW * 0.035f).coerceIn(24f, 48f)
         val effectiveStyle = if (style.fontSize == 36f) style.copy(fontSize = proportionalFontSize) else style
 
         val (posX, posY) = if (viewportWidth > 0f && viewportHeight > 0f) {
@@ -699,18 +699,14 @@ val defaultTextStyle = MutableStateFlow(TextStyleConfig())
         val renderer = com.mochits.app.text.TextRenderer(context)
         layers.value = layers.value.map { layer ->
             if (layer.id == selectedId && layer is Layer.TextLayer) {
-                if (shape == com.mochits.app.model.TextContainerShape.OVAL && (layer.boxWidth == null || layer.boxHeight == null)) {
-                    val bounds = renderer.getTextBounds(layer)
-                    val w = layer.boxWidth ?: bounds.width().coerceAtLeast(30f)
-                    val h = layer.boxHeight ?: bounds.height().coerceAtLeast(20f)
-                    layer.copy(
-                        textContainerShape = shape,
-                        boxWidth = w,
-                        boxHeight = h
-                    )
-                } else {
-                    layer.copy(textContainerShape = shape)
-                }
+                val bounds = renderer.getTextBounds(layer)
+                val w = layer.boxWidth ?: bounds.width().coerceAtLeast(30f)
+                val h = layer.boxHeight ?: bounds.height().coerceAtLeast(20f)
+                layer.copy(
+                    textContainerShape = shape,
+                    boxWidth = w,
+                    boxHeight = h
+                )
             } else {
                 layer
             }
