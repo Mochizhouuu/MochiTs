@@ -484,19 +484,80 @@ class TextRenderer(private val context: Context) {
     private fun getTypeface(fontName: String, fontStyle: String = "Regular"): Typeface {
         val key = "${fontName.lowercase().trim()}_${fontStyle.lowercase().trim()}"
         return typefaceCache.getOrPut(key) {
-            val baseTypeface = when (fontName.lowercase().trim()) {
-                "serif" -> Typeface.SERIF
-                "sans", "sans-serif" -> Typeface.SANS_SERIF
-                "monospace", "mono" -> Typeface.MONOSPACE
-                else -> Typeface.DEFAULT
-            }
+            val trimmedName = fontName.trim()
             val styleInt = when (fontStyle.lowercase().trim()) {
                 "bold" -> Typeface.BOLD
                 "italic" -> Typeface.ITALIC
                 "bolditalic", "bold+italic" -> Typeface.BOLD_ITALIC
                 else -> Typeface.NORMAL
             }
+
+            val baseTypeface = resolveTypeface(trimmedName) ?: Typeface.DEFAULT
             Typeface.create(baseTypeface, styleInt)
         }
+    }
+
+    private fun resolveTypeface(fontName: String): Typeface? {
+        val lower = fontName.lowercase().trim()
+        when (lower) {
+            "serif" -> return Typeface.SERIF
+            "sans", "sans-serif" -> return Typeface.SANS_SERIF
+            "monospace", "mono" -> return Typeface.MONOSPACE
+            "default" -> return Typeface.DEFAULT
+        }
+
+        // Check if fontName is a direct file path that exists
+        val directFile = java.io.File(fontName)
+        if (directFile.exists() && directFile.isFile) {
+            try {
+                val tf = Typeface.createFromFile(directFile)
+                if (tf != null) return tf
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // Check in context.filesDir/custom_fonts/
+        val customFontsDir = java.io.File(context.filesDir, "custom_fonts")
+        if (customFontsDir.exists() && customFontsDir.isDirectory) {
+            val customFiles = customFontsDir.listFiles()
+            if (customFiles != null) {
+                for (file in customFiles) {
+                    if (file.name.equals(fontName, ignoreCase = true) ||
+                        file.nameWithoutExtension.equals(fontName, ignoreCase = true) ||
+                        file.nameWithoutExtension.replace("_", " ").equals(fontName, ignoreCase = true)
+                    ) {
+                        try {
+                            val tf = Typeface.createFromFile(file)
+                            if (tf != null) return tf
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check in assets/fonts/
+        try {
+            val assetFonts = context.assets.list("fonts") ?: emptyArray()
+            for (assetFile in assetFonts) {
+                val cleanName = assetFile.substringBeforeLast(".").replace("_", " ")
+                if (assetFile.equals(fontName, ignoreCase = true) ||
+                    assetFile.substringBeforeLast(".").equals(fontName, ignoreCase = true) ||
+                    cleanName.equals(fontName, ignoreCase = true)
+                ) {
+                    try {
+                        return Typeface.createFromAsset(context.assets, "fonts/$assetFile")
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        return null
     }
 }
