@@ -347,4 +347,45 @@ class TextRendererTest {
         assertTrue("Long text should automatically reflow into multiple lines", longResult.lines.size > 1)
         assertEquals(200f, longResult.containerWidth, 0.01f)
     }
+
+    @Test
+    fun testOvalReflow_ShortPhraseNotBrutallySplit() {
+        val paint = Paint().apply { textSize = 28f }
+        val text = "Halo, apa kabar?"
+
+        val result = textRenderer.layoutText(
+            text = text,
+            paint = paint,
+            shape = TextContainerShape.OVAL,
+            boxWidth = 250f,
+            boxHeight = 200f
+        )
+
+        for (line in result.lines) {
+            assertFalse("Lines in Oval layout should not be single-char splits like ka- ba- r?",
+                line.text.matches(Regex("^[a-zA-Z]-$")))
+        }
+        val fullJoined = result.lines.joinToString(" ") { it.text }
+        assertTrue("Layout should retain full words", fullJoined.contains("kabar?"))
+    }
+
+    @Test
+    fun testEnglishSyllableBasedHyphenation() {
+        val paint = Paint().apply { textSize = 30f }
+        val word = "internationalization"
+
+        val result = textRenderer.layoutText(
+            text = word,
+            paint = paint,
+            shape = TextContainerShape.BOX,
+            boxWidth = 180f,
+            boxHeight = 300f
+        )
+
+        assertTrue("Long English word should break into multiple lines", result.lines.size > 1)
+        val line1 = result.lines[0].text
+        assertTrue("First line should end with hyphen -", line1.endsWith("-"))
+        val prefix = line1.removeSuffix("-").lowercase()
+        assertTrue("Prefix should be at least 2 chars long and valid syllable", prefix.length >= 2)
+    }
 }
