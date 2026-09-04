@@ -310,4 +310,41 @@ class TextRendererTest {
 
         assertTrue("OVAL layout performance should be fast (< 200ms for 1000 calls), took ${ovalDurationMs}ms", ovalDurationMs < 200.0)
     }
+
+    @Test
+    fun testSyllableBasedHyphenation_IndonesianLongWord() {
+        val paint = Paint().apply { textSize = 30f }
+        val longWord = "pertanggungjawaban"
+
+        // Force a narrow box where the full word cannot fit on line 1
+        val result = textRenderer.layoutText(
+            text = longWord,
+            paint = paint,
+            shape = TextContainerShape.BOX,
+            boxWidth = 180f,
+            boxHeight = 300f
+        )
+
+        assertTrue("Long word should be broken into multiple lines", result.lines.size > 1)
+        val line1 = result.lines[0].text
+        assertTrue("First line should end with hyphen -", line1.endsWith("-"))
+
+        val prefix = line1.removeSuffix("-")
+        val validSyllablePrefixes = listOf("per", "pertang", "pertanggung", "pertanggungja", "pertanggungjawa")
+        assertTrue("Hyphenation prefix should be a valid Indonesian syllable boundary, was '$prefix'", prefix.lowercase() in validSyllablePrefixes)
+    }
+
+    @Test
+    fun testAutoReflow_WhenTextContentChangesWithBoxWidth() {
+        val paint = Paint().apply { textSize = 24f }
+        val initialText = "Short text"
+        val longText = "This is a much longer text sequence that should automatically wrap into multiple lines when boxWidth is specified"
+
+        val initialResult = textRenderer.layoutText(initialText, paint, TextContainerShape.BOX, 200f, 300f)
+        val longResult = textRenderer.layoutText(longText, paint, TextContainerShape.BOX, 200f, 300f)
+
+        assertEquals("Initial short text should fit in 1 line", 1, initialResult.lines.size)
+        assertTrue("Long text should automatically reflow into multiple lines", longResult.lines.size > 1)
+        assertEquals(200f, longResult.containerWidth, 0.01f)
+    }
 }

@@ -583,4 +583,30 @@ class EditorViewModelTest {
         assertTrue(bounds.width() > 0f)
         assertTrue(bounds.height() > 0f)
     }
+
+    @Test
+    fun testAddTextLayer_DefaultFontSize_ClampedToWidthProportional() {
+        // Add text layer on a tall canvas
+        viewModel.addTextLayer("Tall Canvas Text Test")
+        val layerId = viewModel.selectedLayerId.value
+        assertNotNull(layerId)
+
+        val layer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        val fontSize = layer.style.fontSize
+        assertTrue("Font size on default canvas width should be between 24f and 48f, was $fontSize", fontSize in 24f..48f)
+    }
+
+    @Test
+    fun testUpdateSelectedTextLayerContainerShape_BoxInitializesDimensions() {
+        viewModel.addTextLayer("Container Box Initializer Test")
+        val layerId = viewModel.selectedLayerId.value
+        assertNotNull(layerId)
+
+        viewModel.updateSelectedTextLayerContainerShape(com.mochits.app.model.TextContainerShape.BOX)
+
+        val updatedLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        assertEquals(com.mochits.app.model.TextContainerShape.BOX, updatedLayer.textContainerShape)
+        assertNotNull("Box width should be initialized when explicitly set to BOX shape", updatedLayer.boxWidth)
+        assertNotNull("Box height should be initialized when explicitly set to BOX shape", updatedLayer.boxHeight)
+    }
 }
