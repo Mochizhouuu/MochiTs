@@ -51,8 +51,6 @@ class EditorViewModel @Inject constructor(
     val layers = MutableStateFlow<List<Layer>>(emptyList())
     val selectedLayerId = MutableStateFlow<String?>(null)
     val activePanel = MutableStateFlow(EditorPanel.NONE)
-    var defaultTextStyle = TextStyleConfig()
-        private set
 
     enum class InpaintModel { TELEA, LAMA }
 
