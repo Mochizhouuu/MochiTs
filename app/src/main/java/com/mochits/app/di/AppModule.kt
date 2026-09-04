@@ -2,6 +2,8 @@ package com.mochits.app.di
 
 import android.content.Context
 import androidx.room.Room
+import com.mochits.app.font.CustomFontDao
+import com.mochits.app.font.FontRepository
 import com.mochits.app.project.MochiTsDatabase
 import com.mochits.app.project.ProjectDao
 import dagger.Module
@@ -28,5 +30,19 @@ object AppModule {
     @Provides
     fun provideProjectDao(database: MochiTsDatabase): ProjectDao {
         return database.projectDao()
+    }
+
+    @Provides
+    fun provideCustomFontDao(database: MochiTsDatabase): CustomFontDao {
+        return database.customFontDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideFontRepository(
+        @ApplicationContext context: Context,
+        customFontDao: CustomFontDao
+    ): FontRepository {
+        return FontRepository(context, customFontDao)
     }
 }

@@ -1,5 +1,9 @@
 package com.mochits.app.editor
 
+import com.mochits.app.font.FontRepository
+import com.mochits.app.font.FontItem
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
@@ -35,8 +39,16 @@ class EditorViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val repository: ProjectRepository,
     val exportSettingsRepository: ExportSettingsRepository,
+    val fontRepository: FontRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
+
+    val allFonts: StateFlow<List<FontItem>> = fontRepository.getAllFontsFlow()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
 
     val projectId: String = checkNotNull(savedStateHandle["projectId"])
 
@@ -128,6 +140,40 @@ class EditorViewModel @Inject constructor(
             if (!it.isRecycled) it.recycle()
         }
         compositeBitmap = null
+    }
+
+
+    fun updateSelectedTextContent(newText: String, saveUndo: Boolean = true) {
+        val selectedId = selectedLayerId.value
+        if (selectedId != null) {
+            if (saveUndo) {
+                saveUndoSnapshot()
+            }
+            layers.value = layers.value.map { layer ->
+                if (layer.id == selectedId && layer is Layer.TextLayer) {
+                    layer.copy(text = newText)
+                } else {
+                    layer
+                }
+            }
+            if (saveUndo) {
+                autoSave()
+            }
+        }
+    }
+
+    fun applyCapitalizationTransform(transformType: String) {
+        val selectedId = selectedLayerId.value ?: return
+        val layer = layers.value.find { it.id == selectedId } as? Layer.TextLayer ?: return
+        val newText = when (transformType.lowercase()) {
+            "uppercase" -> layer.text.uppercase()
+            "lowercase" -> layer.text.lowercase()
+            "titlecase" -> layer.text.split(" ").joinToString(" ") { word ->
+                word.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+            }
+            else -> layer.text
+        }
+        updateSelectedTextContent(newText)
     }
 
 val defaultTextStyle = MutableStateFlow(TextStyleConfig())

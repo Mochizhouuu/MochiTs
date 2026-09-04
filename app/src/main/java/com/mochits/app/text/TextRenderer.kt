@@ -1,5 +1,6 @@
 package com.mochits.app.text
 
+import java.io.File
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
@@ -482,21 +483,65 @@ class TextRenderer(private val context: Context) {
     }
 
     private fun getTypeface(fontName: String, fontStyle: String = "Regular"): Typeface {
-        val key = "${fontName.lowercase().trim()}_${fontStyle.lowercase().trim()}"
+        val trimmedFont = fontName.trim()
+        val trimmedStyle = fontStyle.trim()
+        val key = "${trimmedFont.lowercase()}_${trimmedStyle.lowercase()}"
+
         return typefaceCache.getOrPut(key) {
-            val baseTypeface = when (fontName.lowercase().trim()) {
-                "serif" -> Typeface.SERIF
-                "sans", "sans-serif" -> Typeface.SANS_SERIF
-                "monospace", "mono" -> Typeface.MONOSPACE
-                else -> Typeface.DEFAULT
-            }
-            val styleInt = when (fontStyle.lowercase().trim()) {
+            val styleInt = when (trimmedStyle.lowercase()) {
                 "bold" -> Typeface.BOLD
                 "italic" -> Typeface.ITALIC
                 "bolditalic", "bold+italic" -> Typeface.BOLD_ITALIC
                 else -> Typeface.NORMAL
             }
-            Typeface.create(baseTypeface, styleInt)
+
+            when (trimmedFont.lowercase()) {
+                "serif" -> return@getOrPut Typeface.create(Typeface.SERIF, styleInt)
+                "sans", "sans-serif" -> return@getOrPut Typeface.create(Typeface.SANS_SERIF, styleInt)
+                "monospace", "mono" -> return@getOrPut Typeface.create(Typeface.MONOSPACE, styleInt)
+                "default" -> return@getOrPut Typeface.create(Typeface.DEFAULT, styleInt)
+            }
+
+            val loadedTypeface = findFontFileAndCreateTypeface(trimmedFont)
+            if (loadedTypeface != null) {
+                try {
+                    Typeface.create(loadedTypeface, styleInt)
+                } catch (e: Exception) {
+                    loadedTypeface
+                }
+            } else {
+                Typeface.create(Typeface.DEFAULT, styleInt)
+            }
         }
+    }
+
+    private fun findFontFileAndCreateTypeface(fontName: String): Typeface? {
+        val normalizedFont = fontName.lowercase().replace("_", " ").trim()
+
+        val fontDirs = listOf(
+            File(context.filesDir, "fonts"),
+            File(context.filesDir, "custom_fonts")
+        )
+
+        for (dir in fontDirs) {
+            if (!dir.exists()) continue
+            val files = dir.listFiles() ?: continue
+            for (file in files) {
+                if (!file.isFile) continue
+                val nameLower = file.name.lowercase()
+                if (!nameLower.endsWith(".ttf") && !nameLower.endsWith(".otf")) continue
+
+                val baseName = file.nameWithoutExtension.lowercase().replace("_", " ").trim()
+                if (baseName == normalizedFont || baseName.substringBeforeLast(".") == normalizedFont) {
+                    try {
+                        val tf = Typeface.createFromFile(file)
+                        if (tf != null) return tf
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+        }
+        return null
     }
 }

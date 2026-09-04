@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
+import java.util.zip.ZipInputStream
 
 class FontRepository(
     private val context: Context,
@@ -21,10 +22,58 @@ class FontRepository(
         }
     }
 
+    private val builtInFontsDir: File by lazy {
+        File(context.filesDir, "fonts").apply {
+            if (!exists()) mkdirs()
+        }
+    }
+
     private val builtInFontsCache = mutableListOf<FontItem>()
+
+    private fun extractBuiltInFontsIfNeeded() {
+        val existingFontFiles = builtInFontsDir.listFiles()?.filter {
+            it.isFile && (it.name.lowercase().endsWith(".ttf") || it.name.lowercase().endsWith(".otf"))
+        }
+        if (!existingFontFiles.isNullOrEmpty()) {
+            return
+        }
+
+        builtInFontsDir.mkdirs()
+        try {
+            context.assets.open("fonts.zip").use { inputStream ->
+                ZipInputStream(inputStream).use { zipStream ->
+                    var entry = zipStream.nextEntry
+                    val buffer = ByteArray(8192)
+                    while (entry != null) {
+                        if (!entry.isDirectory) {
+                            val lowerName = entry.name.lowercase()
+                            if (lowerName.endsWith(".ttf") || lowerName.endsWith(".otf")) {
+                                val fileName = entry.name.substringAfterLast('/')
+                                if (fileName.isNotEmpty()) {
+                                    val outFile = File(builtInFontsDir, fileName)
+                                    FileOutputStream(outFile).use { output ->
+                                        var len: Int
+                                        while (zipStream.read(buffer).also { len = it } > 0) {
+                                            output.write(buffer, 0, len)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        zipStream.closeEntry()
+                        entry = zipStream.nextEntry
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 
     suspend fun getBuiltInFonts(): List<FontItem> = withContext(Dispatchers.IO) {
         if (builtInFontsCache.isNotEmpty()) return@withContext builtInFontsCache
+
+        extractBuiltInFontsIfNeeded()
 
         val defaultFonts = listOf(
             FontItem(name = "Default", fontNameKey = "Default"),
@@ -33,38 +82,24 @@ class FontRepository(
             FontItem(name = "Monospace", fontNameKey = "Monospace")
         )
 
-        val assetFonts = mutableListOf<FontItem>()
-        val assets = context.assets
-        try {
-            scanAssetDirectory(assets, "fonts", assetFonts)
-        } catch (e: Exception) {
-            e.printStackTrace()
+        val fontFiles = builtInFontsDir.listFiles()?.filter {
+            it.isFile && (it.name.lowercase().endsWith(".ttf") || it.name.lowercase().endsWith(".otf"))
+        } ?: emptyList()
+
+        val extractedFonts = fontFiles.map { file ->
+            val cleanName = cleanFontName(file.name)
+            FontItem(
+                name = cleanName,
+                fontNameKey = cleanName,
+                isCustom = false,
+                filePath = file.absolutePath
+            )
         }
 
-        val allBuiltIn = defaultFonts + assetFonts.sortedBy { it.name }
+        val allBuiltIn = defaultFonts + extractedFonts.sortedBy { it.name }
         builtInFontsCache.clear()
         builtInFontsCache.addAll(allBuiltIn)
         allBuiltIn
-    }
-
-    private fun scanAssetDirectory(assets: android.content.res.AssetManager, dirPath: String, result: MutableList<FontItem>) {
-        val list = assets.list(dirPath) ?: return
-        for (item in list) {
-            val subPath = if (dirPath.isEmpty()) item else "$dirPath/$item"
-            if (item.lowercase().endsWith(".ttf") || item.lowercase().endsWith(".otf")) {
-                val cleanName = cleanFontName(item)
-                result.add(
-                    FontItem(
-                        name = cleanName,
-                        fontNameKey = cleanName,
-                        isCustom = false,
-                        assetPath = subPath
-                    )
-                )
-            } else {
-                scanAssetDirectory(assets, subPath, result)
-            }
-        }
     }
 
     private fun cleanFontName(filename: String): String {

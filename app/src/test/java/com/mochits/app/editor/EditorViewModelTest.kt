@@ -46,7 +46,8 @@ class EditorViewModelTest {
 
         val savedStateHandle = androidx.lifecycle.SavedStateHandle(mapOf("projectId" to project.id))
         val exportSettingsRepository = com.mochits.app.settings.ExportSettingsRepository(context)
-        viewModel = EditorViewModel(context, repository, exportSettingsRepository, savedStateHandle)
+        val fontRepository = com.mochits.app.font.FontRepository(context, db.customFontDao())
+        viewModel = EditorViewModel(context, repository, exportSettingsRepository, fontRepository, savedStateHandle)
     }
 
     @After
