@@ -609,4 +609,16 @@ class EditorViewModelTest {
         assertNotNull("Box width should be initialized when explicitly set to BOX shape", updatedLayer.boxWidth)
         assertNotNull("Box height should be initialized when explicitly set to BOX shape", updatedLayer.boxHeight)
     }
+
+    @Test
+    fun testTextPositionClamping_PreventsDraggingFarOutOfBounds() {
+        viewModel.addTextLayer("Clamped Text")
+        val layerId = viewModel.selectedLayerId.value!!
+
+        viewModel.updateSelectedTextLayerPosition(-5000f, -5000f, saveUndo = false)
+
+        val layer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        assertTrue("X coordinate should be clamped within canvas boundary margin", layer.x > -2000f)
+        assertTrue("Y coordinate should be clamped within canvas boundary margin", layer.y > -2000f)
+    }
 }

@@ -1,5 +1,8 @@
 package com.mochits.app.editor
 
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+
 import kotlinx.coroutines.launch
 import android.provider.OpenableColumns
 import android.widget.Toast
@@ -276,6 +279,8 @@ fun EditorScreen(
         }
     }
 
+    var shouldFocusTextField by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -385,7 +390,9 @@ fun EditorScreen(
                         onAddText = { text -> viewModel.addTextLayer(text, viewportWidth = currentViewportW, viewportHeight = currentViewportH) },
                         onUpdateTextContent = { text -> viewModel.updateSelectedTextContent(text) },
                         onUpdateStyle = { style, saveUndo -> viewModel.updateSelectedTextLayerStyle(style, saveUndo = saveUndo) },
-                        onUpdateContainerShape = { shape -> viewModel.updateSelectedTextLayerContainerShape(shape) }
+                        onUpdateContainerShape = { shape -> viewModel.updateSelectedTextLayerContainerShape(shape) },
+                        autoFocus = shouldFocusTextField,
+                        onFocused = { shouldFocusTextField = false }
                     )
                     EditorPanel.FONT -> FontToolPanel(
                         allFonts = allFonts,
@@ -459,7 +466,7 @@ fun EditorScreen(
             }
 
             var activeHandleType by remember { mutableStateOf<TextHandleType?>(null) }
-            var initialDragDist by remember { mutableFloatStateOf(0f) }
+                var initialDragDist by remember { mutableFloatStateOf(0f) }
             var initialFontSize by remember { mutableFloatStateOf(36f) }
             var initialTextRotation by remember { mutableFloatStateOf(0f) }
             var initialTouchAngle by remember { mutableFloatStateOf(0f) }
@@ -977,11 +984,12 @@ fun EditorScreen(
                                                 val hitTextLayer = layers.reversed().filterIsInstance<Layer.TextLayer>().firstOrNull { layer ->
                                                     layer.isVisible && isPointInsideTextLayer(layer, releaseCanvasPt, textRenderer)
                                                 }
+                                                val now = System.currentTimeMillis()
                                                 if (hitTextLayer != null) {
-                                                    val now = System.currentTimeMillis()
                                                     val isDoubleTap = (lastTapLayerId == hitTextLayer.id) && (now - lastTapTimestamp < 400L)
                                                     viewModel.selectLayer(hitTextLayer.id)
                                                     if (isDoubleTap) {
+                                                        shouldFocusTextField = true
                                                         viewModel.setActivePanel(EditorPanel.TEXT)
                                                         lastTapTimestamp = 0L
                                                         lastTapLayerId = null
@@ -991,9 +999,18 @@ fun EditorScreen(
                                                     }
                                                     triggerRedraw++
                                                 } else {
+                                                    val isDoubleTapCanvas = (lastTapLayerId == "CANVAS_BACKGROUND") && (now - lastTapTimestamp < 400L)
                                                     viewModel.selectLayer(null)
-                                                    lastTapTimestamp = 0L
-                                                    lastTapLayerId = null
+                                                    if (isDoubleTapCanvas) {
+                                                        baseBitmap?.let { bmp ->
+                                                            viewModel.canvasState.fitToWidth(size.width.toFloat(), size.height.toFloat(), bmp.width.toFloat(), bmp.height.toFloat())
+                                                        }
+                                                        lastTapTimestamp = 0L
+                                                        lastTapLayerId = null
+                                                    } else {
+                                                        lastTapTimestamp = now
+                                                        lastTapLayerId = "CANVAS_BACKGROUND"
+                                                    }
                                                     triggerRedraw++
                                                 }
                                             }
@@ -1776,12 +1793,22 @@ fun TextToolPanel(
     onAddText: (String) -> Unit,
     onUpdateTextContent: ((String) -> Unit)? = null,
     onUpdateStyle: (TextStyleConfig, Boolean) -> Unit,
-    onUpdateContainerShape: ((com.mochits.app.model.TextContainerShape) -> Unit)? = null
+    onUpdateContainerShape: ((com.mochits.app.model.TextContainerShape) -> Unit)? = null,
+    autoFocus: Boolean = false,
+    onFocused: (() -> Unit)? = null
 ) {
     var textInput by remember { mutableStateOf(selectedLayer?.text ?: "") }
+    val focusRequester = remember { FocusRequester() }
 
     LaunchedEffect(selectedLayer?.id, selectedLayer?.text) {
         textInput = selectedLayer?.text ?: ""
+    }
+
+    LaunchedEffect(autoFocus) {
+        if (autoFocus) {
+            focusRequester.requestFocus()
+            onFocused?.invoke()
+        }
     }
 
     val currentStyle = selectedLayer?.style ?: defaultStyle
@@ -1807,7 +1834,9 @@ fun TextToolPanel(
                     onValueChange = { textInput = it },
                     label = { Text(if (selectedLayer != null) "Edit Teks" else "Teks Baru") },
                     maxLines = 3,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(focusRequester)
                 )
                 Button(
                     onClick = {

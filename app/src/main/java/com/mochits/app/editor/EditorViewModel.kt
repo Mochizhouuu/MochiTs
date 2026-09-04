@@ -663,9 +663,24 @@ val defaultTextStyle = MutableStateFlow(TextStyleConfig())
             saveUndoSnapshot()
         }
         val selectedId = selectedLayerId.value ?: return
+        val canvasW = baseBitmap.value?.width?.toFloat() ?: project.value?.width?.toFloat() ?: 1080f
+        val canvasH = baseBitmap.value?.height?.toFloat() ?: project.value?.height?.toFloat() ?: 1920f
+
         layers.value = layers.value.map { layer ->
             if (layer.id == selectedId && layer is Layer.TextLayer) {
-                layer.copy(x = newX, y = newY)
+                val bounds = textRenderer.getTextBounds(layer)
+                val bw = bounds.width().coerceAtLeast(20f)
+                val bh = bounds.height().coerceAtLeast(20f)
+
+                val minX = -bw + 20f
+                val maxX = canvasW - 20f
+                val minY = -bh + 20f
+                val maxY = canvasH - 20f
+
+                val clampedX = newX.coerceIn(minX, maxX)
+                val clampedY = newY.coerceIn(minY, maxY)
+
+                layer.copy(x = clampedX, y = clampedY)
             } else {
                 layer
             }
@@ -696,12 +711,16 @@ val defaultTextStyle = MutableStateFlow(TextStyleConfig())
     fun updateSelectedTextLayerContainerShape(shape: com.mochits.app.model.TextContainerShape) {
         val selectedId = selectedLayerId.value ?: return
         saveUndoSnapshot()
-        val renderer = com.mochits.app.text.TextRenderer(context)
         layers.value = layers.value.map { layer ->
             if (layer.id == selectedId && layer is Layer.TextLayer) {
-                val bounds = renderer.getTextBounds(layer)
-                val w = layer.boxWidth ?: bounds.width().coerceAtLeast(30f)
-                val h = layer.boxHeight ?: bounds.height().coerceAtLeast(20f)
+                val bounds = textRenderer.getTextBounds(layer)
+                val rawW = layer.boxWidth ?: bounds.width().coerceAtLeast(30f)
+                val rawH = layer.boxHeight ?: bounds.height().coerceAtLeast(20f)
+
+                val isConvertingToOval = shape == com.mochits.app.model.TextContainerShape.OVAL && layer.textContainerShape != com.mochits.app.model.TextContainerShape.OVAL
+                val w = if (isConvertingToOval) (rawW * 1.35f).coerceAtLeast(40f) else rawW
+                val h = if (isConvertingToOval) (rawH * 1.35f).coerceAtLeast(30f) else rawH
+
                 layer.copy(
                     textContainerShape = shape,
                     boxWidth = w,

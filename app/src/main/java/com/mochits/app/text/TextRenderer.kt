@@ -41,23 +41,38 @@ private data class TextLayoutKey(
 
 private object SyllableSplitter {
     private val indonesianDigraphs = setOf("ng", "ny", "sy", "kh")
+    private val englishDigraphs = setOf("th", "sh", "ch", "ph", "wh", "ck", "gh", "ng")
 
     fun getSyllables(word: String): List<String> {
-        val clean = word.trim()
-        if (clean.length <= 3) return listOf(clean)
+        val trimmed = word.trim()
+        if (trimmed.length <= 3) return listOf(trimmed)
 
-        val breakpoints = findBreakpoints(clean)
-        if (breakpoints.isEmpty()) return listOf(clean)
+        val punctuationIndex = trimmed.indexOfLast { it.isLetterOrDigit() } + 1
+        val cleanWord = if (punctuationIndex > 0) trimmed.substring(0, punctuationIndex) else trimmed
+        val trailingPunct = if (punctuationIndex > 0) trimmed.substring(punctuationIndex) else ""
+
+        if (cleanWord.length <= 3) {
+            return listOf(cleanWord + trailingPunct)
+        }
+
+        val breakpoints = findBreakpoints(cleanWord)
+        if (breakpoints.isEmpty()) return listOf(cleanWord + trailingPunct)
 
         val syllables = mutableListOf<String>()
         var lastIdx = 0
         for (bp in breakpoints) {
-            syllables.add(clean.substring(lastIdx, bp))
+            syllables.add(cleanWord.substring(lastIdx, bp))
             lastIdx = bp
         }
-        if (lastIdx < clean.length) {
-            syllables.add(clean.substring(lastIdx))
+        if (lastIdx < cleanWord.length) {
+            syllables.add(cleanWord.substring(lastIdx))
         }
+
+        if (trailingPunct.isNotEmpty() && syllables.isNotEmpty()) {
+            val lastIdxSyllable = syllables.size - 1
+            syllables[lastIdxSyllable] = syllables[lastIdxSyllable] + trailingPunct
+        }
+
         return syllables
     }
 
@@ -95,8 +110,8 @@ private object SyllableSplitter {
                             breaks.add(i + 1)
                         }
                     } else if (cCount == 2) {
-                        val pair = word.substring(i + 1, i + 3).lowercase()
-                        if (pair in indonesianDigraphs || pair in setOf("th", "sh", "ch", "ph", "wh", "ck")) {
+                        val pair = word.substring(i + 1, (i + 3).coerceAtMost(len)).lowercase()
+                        if (pair in indonesianDigraphs || pair in englishDigraphs) {
                             if (i + 1 >= 2 && len - (i + 1) >= 2) {
                                 breaks.add(i + 1)
                             }
@@ -106,8 +121,8 @@ private object SyllableSplitter {
                             }
                         }
                     } else if (cCount >= 3) {
-                        val pair2 = if (i + 3 <= len) word.substring(i + 2, i + 4.coerceAtMost(len)).lowercase() else ""
-                        if (pair2 in indonesianDigraphs) {
+                        val pair2 = if (i + 3 <= len) word.substring(i + 2, (i + 4).coerceAtMost(len)).lowercase() else ""
+                        if (pair2 in indonesianDigraphs || pair2 in englishDigraphs) {
                             if (i + 2 >= 2 && len - (i + 2) >= 2) {
                                 breaks.add(i + 2)
                             }
@@ -328,6 +343,13 @@ class TextRenderer(private val context: Context) {
                             currentLineStr = ""
                         } else {
                             val cleanToken = token.trim()
+                            if (shape == TextContainerShape.OVAL && effectiveBoxHeight != null) {
+                                val yRelativeToTop = computedTopOffset + (currentLineIdx + 0.5f) * lineHeight
+                                if (yRelativeToTop < ovalB && availW < targetW * 0.45f && paint.measureText(cleanToken) > availW) {
+                                    currentLineIdx++
+                                    continue
+                                }
+                            }
                             val syllables = SyllableSplitter.getSyllables(cleanToken)
 
                             var bestSyllableCount = 0
@@ -396,8 +418,21 @@ class TextRenderer(private val context: Context) {
             return lines
         }
 
-        // Pass 1: Build lines assuming zero topOffset to discover lines count
-        val pass1Lines = buildLinesForOffset(0f)
+        // Pass 1: Build lines with estimated topOffset to discover lines count and center text vertically
+        val initialTopOffsetForOval: Float = if (shape == TextContainerShape.OVAL && effectiveBoxHeight != null) {
+            val rawParas = if (text.isEmpty()) listOf("") else text.split("\n")
+            var estLinesCount = 0
+            val estAvailW = (targetW * 0.8f).coerceAtLeast(20f)
+            for (p in rawParas) {
+                val w = paint.measureText(if (p.isEmpty()) " " else p)
+                estLinesCount += (w / estAvailW).toInt() + 1
+            }
+            val estTextH = estLinesCount.coerceAtLeast(1) * lineHeight
+            ((effectiveBoxHeight - estTextH) / 2f).coerceAtLeast(0f)
+        } else {
+            0f
+        }
+        val pass1Lines = buildLinesForOffset(initialTopOffsetForOval)
 
         val lines = if (shape == TextContainerShape.OVAL && effectiveBoxHeight != null) {
             val totalTextH1 = pass1Lines.size * lineHeight
@@ -485,9 +520,11 @@ class TextRenderer(private val context: Context) {
         val fontMetrics = paint.fontMetrics
 
         if (style.isGradientEnabled) {
-            val (x0, y0, x1, y1) = style.calculateGradientPoints(
-                x, y, layoutResult.containerWidth, layoutResult.containerHeight
-            )
+            val gradX = x + layoutResult.minX
+            val gradW = (layoutResult.maxX - layoutResult.minX).coerceAtLeast(10f)
+            val gradY = y + layoutResult.topOffset
+            val gradH = (layoutResult.lines.size * layoutResult.lineHeight).coerceAtLeast(10f)
+            val (x0, y0, x1, y1) = style.calculateGradientPoints(gradX, gradY, gradW, gradH)
             val stops = style.getEffectiveGradientStops()
             val colors = IntArray(stops.size)
             val positions = FloatArray(stops.size)
