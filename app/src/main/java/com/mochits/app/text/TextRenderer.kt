@@ -687,4 +687,75 @@ class TextRenderer(private val context: Context) {
         }
         return null
     }
+    fun getMinBoxHeight(layer: Layer.TextLayer): Float {
+        return getMinBoxHeight(
+            text = layer.text,
+            style = layer.style,
+            shape = layer.textContainerShape,
+            boxWidth = layer.boxWidth
+        )
+    }
+
+    fun getMinBoxHeight(
+        text: String,
+        style: TextStyleConfig,
+        shape: TextContainerShape = TextContainerShape.BOX,
+        boxWidth: Float? = null
+    ): Float {
+        if (text.isEmpty()) return 20f
+        val paint = reusableLayoutPaint.apply {
+            reset()
+            isAntiAlias = true
+            textSize = style.fontSize
+            typeface = getTypeface(style.fontName, style.fontStyle)
+        }
+        val layoutResult = layoutText(text, paint, shape, boxWidth, boxHeight = null, style.alignment)
+        val reqHeight = layoutResult.lines.size * layoutResult.lineHeight
+        return if (shape == TextContainerShape.OVAL) {
+            (reqHeight * 1.15f).coerceAtLeast(30f)
+        } else {
+            reqHeight.coerceAtLeast(20f)
+        }
+    }
+
+    fun getMinBoxWidth(layer: Layer.TextLayer): Float {
+        return getMinBoxWidth(
+            text = layer.text,
+            style = layer.style,
+            shape = layer.textContainerShape
+        )
+    }
+
+    fun getMinBoxWidth(
+        text: String,
+        style: TextStyleConfig,
+        shape: TextContainerShape = TextContainerShape.BOX
+    ): Float {
+        if (text.isEmpty()) return 30f
+        val paint = reusableLayoutPaint.apply {
+            reset()
+            isAntiAlias = true
+            textSize = style.fontSize
+            typeface = getTypeface(style.fontName, style.fontStyle)
+        }
+        var maxChunkW = 0f
+        val words = text.split(Regex("\\s+"))
+        for (word in words) {
+            if (word.isEmpty()) continue
+            val wordW = paint.measureText(word)
+            if (wordW > maxChunkW) maxChunkW = wordW
+            val syllables = SyllableSplitter.getSyllables(word)
+            for (syl in syllables) {
+                val sylW = paint.measureText("$syl-")
+                if (sylW > maxChunkW) maxChunkW = sylW
+            }
+        }
+        val minW = maxChunkW + 12f
+        return if (shape == TextContainerShape.OVAL) {
+            (minW * 1.35f).coerceAtLeast(40f)
+        } else {
+            minW.coerceAtLeast(30f)
+        }
+    }
+
 }

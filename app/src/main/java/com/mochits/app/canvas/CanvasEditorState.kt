@@ -49,11 +49,31 @@ class CanvasEditorState {
         isTransformInitialized = true
     }
 
-    fun fitToWidth(viewportWidth: Float, viewportHeight: Float, imageWidth: Float, imageHeight: Float) {
+    fun fitToWidth(
+        viewportWidth: Float,
+        viewportHeight: Float,
+        imageWidth: Float,
+        imageHeight: Float,
+        focusCanvasY: Float? = null
+    ) {
         if (imageWidth <= 0f || imageHeight <= 0f || viewportWidth <= 0f || viewportHeight <= 0f) return
         val targetScale = (viewportWidth / imageWidth).coerceIn(minScale, maxScale)
         val initialX = (viewportWidth - imageWidth * targetScale) / 2f
-        val initialY = (viewportHeight - imageHeight * targetScale) / 2f
+
+        val scaledImageHeight = imageHeight * targetScale
+        val initialY = if (focusCanvasY != null) {
+            val targetY = (viewportHeight / 2f) - (focusCanvasY * targetScale)
+            if (scaledImageHeight <= viewportHeight) {
+                (viewportHeight - scaledImageHeight) / 2f
+            } else {
+                val minY = viewportHeight - scaledImageHeight
+                val maxY = 0f
+                targetY.coerceIn(minY, maxY)
+            }
+        } else {
+            (viewportHeight - scaledImageHeight) / 2f
+        }
+
         updateTransform(targetScale, initialX, initialY)
     }
 
