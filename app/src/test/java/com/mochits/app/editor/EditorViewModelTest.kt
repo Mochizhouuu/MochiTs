@@ -611,6 +611,25 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun testRepeatedShapeTransitions_OvalToBoxAndBack_DoesNotCrashOrInflateUnboundedly() {
+        viewModel.addTextLayer("Testing Oval Box Transition Multiple Times")
+        val layerId = viewModel.selectedLayerId.value!!
+
+        for (i in 1..10) {
+            viewModel.updateSelectedTextLayerContainerShape(com.mochits.app.model.TextContainerShape.OVAL)
+            val ovalLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+            assertEquals(com.mochits.app.model.TextContainerShape.OVAL, ovalLayer.textContainerShape)
+            assertTrue("Oval boxWidth should be finite and positive", ovalLayer.boxWidth != null && ovalLayer.boxWidth!!.isFinite() && ovalLayer.boxWidth!! > 0f)
+
+            viewModel.updateSelectedTextLayerContainerShape(com.mochits.app.model.TextContainerShape.BOX)
+            val boxLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+            assertEquals(com.mochits.app.model.TextContainerShape.BOX, boxLayer.textContainerShape)
+            assertTrue("Box boxWidth should be finite and positive", boxLayer.boxWidth != null && boxLayer.boxWidth!!.isFinite() && boxLayer.boxWidth!! > 0f)
+            assertTrue("Box width should not balloon infinitely across iterations", boxLayer.boxWidth!! < 2000f)
+        }
+    }
+
+    @Test
     fun testTextPositionClamping_PreventsDraggingFarOutOfBounds() {
         viewModel.addTextLayer("Clamped Text")
         val layerId = viewModel.selectedLayerId.value!!

@@ -173,4 +173,34 @@ class LayerSerializerTest {
         val layer = deserialized[0] as Layer.TextLayer
         assertEquals(90f, layer.style.gradientAngle, 0.001f)
     }
+
+    @Test
+    fun testDeserialize_InvalidOrInfiniteDimensions_SanitizesToNull() {
+        val invalidJson = """
+            [
+              {
+                "id": "text_invalid",
+                "type": "TEXT",
+                "name": "Invalid Dims",
+                "x": 0.0,
+                "y": 0.0,
+                "rotation": 0.0,
+                "scaleX": 1.0,
+                "scaleY": 1.0,
+                "opacity": 1.0,
+                "isVisible": true,
+                "isLocked": false,
+                "text": "Corrupted Text",
+                "boxWidth": -100.0,
+                "boxHeight": 0.0
+              }
+            ]
+        """.trimIndent()
+
+        val deserialized = serializer.deserialize(invalidJson)
+        assertEquals(1, deserialized.size)
+        val layer = deserialized[0] as Layer.TextLayer
+        assertNull("Negative boxWidth should be sanitized to null", layer.boxWidth)
+        assertNull("Zero boxHeight should be sanitized to null", layer.boxHeight)
+    }
 }

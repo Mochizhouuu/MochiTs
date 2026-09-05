@@ -105,8 +105,8 @@ class LayerSerializer {
                     text = dto.text ?: "",
                     style = migratedStyle,
                     textContainerShape = dto.textContainerShape ?: TextContainerShape.BOX,
-                    boxWidth = dto.boxWidth,
-                    boxHeight = dto.boxHeight
+                    boxWidth = dto.boxWidth?.takeIf { it.isFinite() && it > 0f },
+                    boxHeight = dto.boxHeight?.takeIf { it.isFinite() && it > 0f }
                 )
             } else {
                 Layer.ImageLayer(

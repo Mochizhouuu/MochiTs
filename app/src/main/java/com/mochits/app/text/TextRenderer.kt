@@ -711,11 +711,7 @@ class TextRenderer(private val context: Context) {
         }
         val layoutResult = layoutText(text, paint, shape, boxWidth, boxHeight = null, style.alignment)
         val reqHeight = layoutResult.lines.size * layoutResult.lineHeight
-        return if (shape == TextContainerShape.OVAL) {
-            (reqHeight * 1.15f).coerceAtLeast(30f)
-        } else {
-            reqHeight.coerceAtLeast(20f)
-        }
+        return reqHeight.coerceAtLeast(if (shape == TextContainerShape.OVAL) 30f else 20f)
     }
 
     fun getMinBoxWidth(layer: Layer.TextLayer): Float {
@@ -750,9 +746,9 @@ class TextRenderer(private val context: Context) {
                 if (sylW > maxChunkW) maxChunkW = sylW
             }
         }
-        val minW = maxChunkW + 12f
+        val minW = maxChunkW + 4f
         return if (shape == TextContainerShape.OVAL) {
-            (minW * 1.35f).coerceAtLeast(40f)
+            (minW * 1.15f).coerceAtLeast(40f)
         } else {
             minW.coerceAtLeast(30f)
         }

@@ -388,4 +388,21 @@ class TextRendererTest {
         val prefix = line1.removeSuffix("-").lowercase()
         assertTrue("Prefix should be at least 2 chars long and valid syllable", prefix.length >= 2)
     }
+
+    @Test
+    fun testAccurateMinBoxDimensions_BoxAndOvalShapes() {
+        val style = TextStyleConfig(fontSize = 30f)
+        val sampleText = "MochiTs Text Layout Test"
+
+        val minBoxW = textRenderer.getMinBoxWidth(sampleText, style, TextContainerShape.BOX)
+        val minOvalW = textRenderer.getMinBoxWidth(sampleText, style, TextContainerShape.OVAL)
+
+        val minBoxH = textRenderer.getMinBoxHeight(sampleText, style, TextContainerShape.BOX, minBoxW)
+        val minOvalH = textRenderer.getMinBoxHeight(sampleText, style, TextContainerShape.OVAL, minOvalW)
+
+        assertTrue("Box minWidth should be positive and reasonable", minBoxW >= 30f && minBoxW < 300f)
+        assertTrue("Oval minWidth should allow fitting words inside oval curve", minOvalW >= minBoxW)
+        assertTrue("Box minHeight should fit actual reflow lines", minBoxH >= 30f)
+        assertTrue("Oval minHeight should fit actual reflow lines", minOvalH >= 30f)
+    }
 }
