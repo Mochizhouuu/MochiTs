@@ -896,19 +896,25 @@ if (validName != null) referencedFiles.add(validName)
         saveUndoSnapshot()
         layers.value = layers.value.map { layer ->
             if (layer.id == selectedId && layer is Layer.TextLayer) {
-                val bounds = textRenderer.getTextBounds(layer)
-                val rawW = layer.boxWidth ?: bounds.width().coerceAtLeast(30f)
-                val rawH = layer.boxHeight ?: bounds.height().coerceAtLeast(20f)
-
-                val isConvertingToOval = shape == com.mochits.app.model.TextContainerShape.OVAL && layer.textContainerShape != com.mochits.app.model.TextContainerShape.OVAL
-                val w = if (isConvertingToOval) (rawW * 1.35f).coerceAtLeast(40f) else rawW
-                val h = if (isConvertingToOval) (rawH * 1.35f).coerceAtLeast(30f) else rawH
-
-                layer.copy(
-                    textContainerShape = shape,
-                    boxWidth = w,
-                    boxHeight = h
-                )
+                if (shape == com.mochits.app.model.TextContainerShape.OVAL) {
+                    val tempBoxLayer = layer.copy(textContainerShape = com.mochits.app.model.TextContainerShape.BOX, boxWidth = null, boxHeight = null)
+                    val boxBounds = textRenderer.getTextBounds(tempBoxLayer)
+                    val w = (boxBounds.width() * 1.35f).coerceAtLeast(40f)
+                    val h = (boxBounds.height() * 1.35f).coerceAtLeast(30f)
+                    layer.copy(
+                        textContainerShape = shape,
+                        boxWidth = w,
+                        boxHeight = h
+                    )
+                } else { // BOX
+                    val tempBoxLayer = layer.copy(textContainerShape = com.mochits.app.model.TextContainerShape.BOX, boxWidth = null, boxHeight = null)
+                    val boxBounds = textRenderer.getTextBounds(tempBoxLayer)
+                    layer.copy(
+                        textContainerShape = shape,
+                        boxWidth = boxBounds.width().coerceAtLeast(30f),
+                        boxHeight = boxBounds.height().coerceAtLeast(20f)
+                    )
+                }
             } else {
                 layer
             }
