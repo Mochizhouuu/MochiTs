@@ -809,15 +809,16 @@ fun EditorScreen(
                                                 continue
                                             }
                                             else -> {
-                                                if (isPointInsideTextLayer(selectedTextLayer, touchCanvasPt, textRenderer)) {
+                                                val hitTextLayer = layers.reversed().filterIsInstance<Layer.TextLayer>().firstOrNull { layer ->
+                                                    layer.isVisible && isPointInsideTextLayer(layer, touchCanvasPt, textRenderer)
+                                                }
+                                                if (hitTextLayer != null && hitTextLayer.id == selectedTextLayer.id) {
                                                     activeHandleType = TextHandleType.BODY_MOVE
                                                     viewModel.saveUndoSnapshot()
                                                     initialTextX = selectedTextLayer.x
                                                     initialTextY = selectedTextLayer.y
                                                     initialTouchCanvasPt = touchCanvasPt
                                                     hitHandle = true
-                                                    firstChange.consume()
-                                                    continue
                                                 }
                                             }
                                         }
@@ -879,7 +880,8 @@ fun EditorScreen(
                                                     touchCanvasPt
                                                 }
                                                 val currentBoxW = selectedTextLayer.boxWidth
-                                                val newBoxH = (unrotatedPt.y - initialBoundsTop).coerceAtLeast(20f)
+                                                val minH = textRenderer.getMinBoxHeight(selectedTextLayer)
+                                                val newBoxH = (unrotatedPt.y - initialBoundsTop).coerceAtLeast(minH)
                                                 viewModel.updateSelectedTextLayerStretch(
                                                     boxWidth = currentBoxW,
                                                     boxHeight = newBoxH,
@@ -906,11 +908,14 @@ fun EditorScreen(
                                                     touchCanvasPt
                                                 }
                                                 val currentBoxH = selectedTextLayer.boxHeight
-                                                val newBoxW = (unrotatedPt.x - initialBoundsLeft).coerceAtLeast(30f)
+                                                val distFromCenter = kotlin.math.abs(unrotatedPt.x - initialTextCenterX)
+                                                val minW = textRenderer.getMinBoxWidth(selectedTextLayer)
+                                                val newBoxW = (distFromCenter * 2f).coerceAtLeast(minW)
+                                                val newX = initialTextCenterX - (newBoxW / 2f)
                                                 viewModel.updateSelectedTextLayerStretch(
                                                     boxWidth = newBoxW,
                                                     boxHeight = currentBoxH,
-                                                    newX = initialBoundsLeft,
+                                                    newX = newX,
                                                     newY = initialBoundsTop,
                                                     saveUndo = false
                                                 )
@@ -1003,7 +1008,13 @@ fun EditorScreen(
                                                     viewModel.selectLayer(null)
                                                     if (isDoubleTapCanvas) {
                                                         baseBitmap?.let { bmp ->
-                                                            viewModel.canvasState.fitToWidth(size.width.toFloat(), size.height.toFloat(), bmp.width.toFloat(), bmp.height.toFloat())
+                                                            viewModel.canvasState.fitToWidth(
+                                                                viewportWidth = size.width.toFloat(),
+                                                                viewportHeight = size.height.toFloat(),
+                                                                imageWidth = bmp.width.toFloat(),
+                                                                imageHeight = bmp.height.toFloat(),
+                                                                focusCanvasY = releaseCanvasPt.y
+                                                            )
                                                         }
                                                         lastTapTimestamp = 0L
                                                         lastTapLayerId = null

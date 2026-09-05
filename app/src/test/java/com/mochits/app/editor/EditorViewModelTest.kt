@@ -621,4 +621,65 @@ class EditorViewModelTest {
         assertTrue("X coordinate should be clamped within canvas boundary margin", layer.x > -2000f)
         assertTrue("Y coordinate should be clamped within canvas boundary margin", layer.y > -2000f)
     }
+
+    @Test
+    fun testTwoWayCenterAnchoredHorizontalStretch_updatesSymmetrically() {
+        viewModel.addTextLayer("Center Stretch Test")
+        val layerId = viewModel.selectedLayerId.value!!
+
+        val initialLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        val initialBounds = viewModel.textRenderer.getTextBounds(initialLayer)
+        val initialCenterX = initialBounds.centerX()
+
+        // Drag horizontal stretch handle to widen box
+        val newWidth = 500f
+        val newX = initialCenterX - (newWidth / 2f)
+
+        viewModel.updateSelectedTextLayerStretch(
+            boxWidth = newWidth,
+            boxHeight = initialLayer.boxHeight,
+            newX = newX,
+            newY = initialLayer.y,
+            saveUndo = true
+        )
+
+        val updatedLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        val updatedBounds = viewModel.textRenderer.getTextBounds(updatedLayer)
+
+        assertEquals(newWidth, updatedLayer.boxWidth ?: 0f, 0.01f)
+        assertEquals("Center X coordinate must remain unchanged during 2-way horizontal stretch", initialCenterX, updatedBounds.centerX(), 0.01f)
+    }
+
+    @Test
+    fun testDynamicMinimumStretchDimensions_preventsTextOverflow() {
+        viewModel.addTextLayer("Multiline Text For Dynamic Min Stretch Test")
+        val layerId = viewModel.selectedLayerId.value!!
+
+        val layer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        val minWidth = viewModel.textRenderer.getMinBoxWidth(layer)
+        val minHeight = viewModel.textRenderer.getMinBoxHeight(layer)
+
+        assertTrue("Dynamic min width should be > 30px", minWidth > 30f)
+        assertTrue("Dynamic min height should be > 20px", minHeight > 20f)
+
+        // Attempt to stretch smaller than dynamic min dimensions
+        val attemptedSmallW = 5f
+        val attemptedSmallH = 5f
+
+        val clampedW = attemptedSmallW.coerceAtLeast(minWidth)
+        val clampedH = attemptedSmallH.coerceAtLeast(minHeight)
+
+        viewModel.updateSelectedTextLayerStretch(
+            boxWidth = clampedW,
+            boxHeight = clampedH,
+            newX = layer.x,
+            newY = layer.y,
+            saveUndo = true
+        )
+
+        val updatedLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        assertEquals(minWidth, updatedLayer.boxWidth ?: 0f, 0.01f)
+        assertEquals(minHeight, updatedLayer.boxHeight ?: 0f, 0.01f)
+    }
+
 }
