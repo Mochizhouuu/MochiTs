@@ -682,4 +682,49 @@ class EditorViewModelTest {
         assertEquals(minHeight, updatedLayer.boxHeight ?: 0f, 0.01f)
     }
 
+
+    @Test
+    fun testPersistentCanvasStateAndUndoRedoAcrossSessions() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+
+        val origBmp = android.graphics.Bitmap.createBitmap(100, 100, android.graphics.Bitmap.Config.ARGB_8888)
+        origBmp.eraseColor(android.graphics.Color.RED)
+        viewModel.baseBitmap.value = origBmp
+
+        // Save initial state snapshot
+        viewModel.saveUndoSnapshot()
+
+        // Modify bitmap (simulate Erase/Inpaint)
+        val erasedBmp = android.graphics.Bitmap.createBitmap(100, 100, android.graphics.Bitmap.Config.ARGB_8888)
+        erasedBmp.eraseColor(android.graphics.Color.BLUE)
+        viewModel.baseBitmap.value = erasedBmp
+
+        // Flush state and persistent history to disk
+        viewModel.flushToDisk()
+        kotlinx.coroutines.yield()
+        kotlinx.coroutines.delay(500)
+
+        val currentProjId = viewModel.project.value?.id ?: return@runBlocking
+        val savedStateHandle = androidx.lifecycle.SavedStateHandle(mapOf("projectId" to currentProjId))
+        val exportSettingsRepository = com.mochits.app.settings.ExportSettingsRepository(context)
+        val fontRepository = com.mochits.app.font.FontRepository(context, db.customFontDao())
+        val newViewModel = EditorViewModel(context, repository, exportSettingsRepository, fontRepository, savedStateHandle)
+
+        kotlinx.coroutines.yield()
+        kotlinx.coroutines.delay(500)
+
+        val restoredBmp = newViewModel.baseBitmap.value
+        assertNotNull("Restored bitmap should not be null", restoredBmp)
+        assertEquals(android.graphics.Color.BLUE, restoredBmp!!.getPixel(50, 50))
+        assertTrue("Undo stack should be restored from disk across sessions", newViewModel.canUndo.value)
+
+        // Perform undo across sessions
+        newViewModel.undo()
+        kotlinx.coroutines.yield()
+        kotlinx.coroutines.delay(500)
+
+        val undoneBmp = newViewModel.baseBitmap.value
+        assertNotNull("Undone bitmap should not be null", undoneBmp)
+        assertEquals("Undone bitmap should revert to previous red color", android.graphics.Color.RED, undoneBmp!!.getPixel(50, 50))
+    }
 }

@@ -1,5 +1,9 @@
 package com.mochits.app.editor
 
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
+
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 
@@ -175,6 +179,19 @@ fun EditorScreen(
     LaunchedEffect(isDownloadingLaMaModel) {
         if (!isDownloadingLaMaModel && lastDownloadError != null && !viewModel.lamaModelManager.isModelDownloaded()) {
             showDownloadErrorDialog = true
+        }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
+                viewModel.flushToDisk()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 
@@ -483,6 +500,10 @@ fun EditorScreen(
             var lastTapTimestamp by remember { mutableLongStateOf(0L) }
             var lastTapLayerId by remember { mutableStateOf<String?>(null) }
 
+            var pendingBodyMoveLayer by remember { mutableStateOf<Layer.TextLayer?>(null) }
+            var initialTouchScreenPt by remember { mutableStateOf(Offset.Zero) }
+            var isBodyMoveDragging by remember { mutableStateOf(false) }
+
             // Handle positions in unrotated text bounds space
             val deleteHandleCanvasCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text) {
                 if (selectedTextLayer != null) {
@@ -498,17 +519,19 @@ fun EditorScreen(
                 } else Offset.Zero
             }
 
-            val stretchVBottomCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text, selectedTextLayer?.boxWidth, selectedTextLayer?.boxHeight) {
+            val stretchVBottomCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text, selectedTextLayer?.boxWidth, selectedTextLayer?.boxHeight, viewModel.canvasState.scale) {
                 if (selectedTextLayer != null) {
                     val bounds = textRenderer.getTextBounds(selectedTextLayer)
-                    Offset(bounds.centerX(), bounds.bottom)
+                    val floatOffset = (14f / viewModel.canvasState.scale) * 0.75f
+                    Offset(bounds.centerX(), bounds.bottom + floatOffset)
                 } else Offset.Zero
             }
 
-            val stretchHRightCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text, selectedTextLayer?.boxWidth, selectedTextLayer?.boxHeight) {
+            val stretchHRightCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text, selectedTextLayer?.boxWidth, selectedTextLayer?.boxHeight, viewModel.canvasState.scale) {
                 if (selectedTextLayer != null) {
                     val bounds = textRenderer.getTextBounds(selectedTextLayer)
-                    Offset(bounds.right, bounds.centerY())
+                    val floatOffset = (14f / viewModel.canvasState.scale) * 0.75f
+                    Offset(bounds.right + floatOffset, bounds.centerY())
                 } else Offset.Zero
             }
 
@@ -812,12 +835,13 @@ fun EditorScreen(
                                                 val hitTextLayer = layers.reversed().filterIsInstance<Layer.TextLayer>().firstOrNull { layer ->
                                                     layer.isVisible && isPointInsideTextLayer(layer, touchCanvasPt, textRenderer)
                                                 }
-                                                if (hitTextLayer != null && hitTextLayer.id == selectedTextLayer.id) {
-                                                    activeHandleType = TextHandleType.BODY_MOVE
-                                                    viewModel.saveUndoSnapshot()
-                                                    initialTextX = selectedTextLayer.x
-                                                    initialTextY = selectedTextLayer.y
+                                                if (hitTextLayer != null) {
+                                                    pendingBodyMoveLayer = hitTextLayer
+                                                    initialTouchScreenPt = firstChange.position
                                                     initialTouchCanvasPt = touchCanvasPt
+                                                    initialTextX = hitTextLayer.x
+                                                    initialTextY = hitTextLayer.y
+                                                    isBodyMoveDragging = false
                                                     hitHandle = true
                                                 }
                                             }
@@ -825,6 +849,19 @@ fun EditorScreen(
                                     }
                                     if (!hitHandle) {
                                         activeHandleType = null
+                                    }
+                                }
+
+                                // Check pending body move drag threshold
+                                if (pendingBodyMoveLayer != null && firstChange.pressed && activeHandleType == null) {
+                                    val moveDist = (firstChange.position - initialTouchScreenPt).getDistance()
+                                    if (moveDist > 8f || isBodyMoveDragging) {
+                                        if (!isBodyMoveDragging) {
+                                            isBodyMoveDragging = true
+                                            activeHandleType = TextHandleType.BODY_MOVE
+                                            viewModel.selectLayer(pendingBodyMoveLayer!!.id)
+                                            viewModel.saveUndoSnapshot()
+                                        }
                                     }
                                 }
 
@@ -940,9 +977,28 @@ fun EditorScreen(
                                 }
 
                                 if (changes.none { it.pressed }) {
-                                    if (activeHandleType != null) {
+                                    if (activeHandleType != null || isBodyMoveDragging) {
                                         viewModel.finalizeTextTransform()
                                         activeHandleType = null
+                                        isBodyMoveDragging = false
+                                        pendingBodyMoveLayer = null
+                                        continue
+                                    } else if (pendingBodyMoveLayer != null) {
+                                        val targetLayer = pendingBodyMoveLayer!!
+                                        pendingBodyMoveLayer = null
+                                        val now = System.currentTimeMillis()
+                                        val isDoubleTap = (lastTapLayerId == targetLayer.id) && (now - lastTapTimestamp < 400L)
+                                        viewModel.selectLayer(targetLayer.id)
+                                        if (isDoubleTap) {
+                                            shouldFocusTextField = true
+                                            viewModel.setActivePanel(EditorPanel.TEXT)
+                                            lastTapTimestamp = 0L
+                                            lastTapLayerId = null
+                                        } else {
+                                            lastTapTimestamp = now
+                                            lastTapLayerId = targetLayer.id
+                                        }
+                                        triggerRedraw++
                                         continue
                                     }
                                 }
@@ -1275,7 +1331,8 @@ fun EditorScreen(
                                             drawContext.canvas.nativeCanvas.drawLine(cx, cy + arrowLen, cx + 3f / currentScale, cy + arrowLen - 3f / currentScale, vArrowPaint)
                                         }
 
-                                        drawVStretchHandle(bounds.centerX(), bounds.bottom)
+                                        val floatOffset = handleRadius * 0.75f
+                                        drawVStretchHandle(bounds.centerX(), bounds.bottom + floatOffset)
 
                                         // 5. Horizontal Stretch Handle (Right Center - Pill + ↔ Arrow Icon)
                                         val pillHW = handleRadius * 0.9f
@@ -1295,7 +1352,7 @@ fun EditorScreen(
                                             drawContext.canvas.nativeCanvas.drawLine(cx + arrowLen, cy, cx + arrowLen - 3f / currentScale, cy + 3f / currentScale, hArrowPaint)
                                         }
 
-                                        drawHStretchHandle(bounds.right, bounds.centerY())
+                                        drawHStretchHandle(bounds.right + floatOffset, bounds.centerY())
                                     }
 
                                     drawContext.canvas.nativeCanvas.restore()
