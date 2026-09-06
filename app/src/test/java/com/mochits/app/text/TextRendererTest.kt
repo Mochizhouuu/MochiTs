@@ -432,4 +432,25 @@ class TextRendererTest {
                 reconstructedText.contains(word))
         }
     }
+
+    @Test
+    fun testOvalHorizontalStretch_DynamicHeight_PreventsBrutalHyphenation() {
+        val paint = Paint().apply { textSize = 28f }
+        val text = "Apa yang terjadi padamu"
+
+        // Simulate dragging STRETCH_H on OVAL: boxWidth shrinks while initial boxHeight was fixed at 150f
+        val resultNarrow = textRenderer.layoutText(
+            text = text,
+            paint = paint,
+            shape = TextContainerShape.OVAL,
+            boxWidth = 140f,
+            boxHeight = 150f
+        )
+
+        // Verify that even with fixed initial boxHeight=150f during narrow drag,
+        // layoutText expands effectiveBoxHeight so words like "padamu" are not brutalised into "PA-DA-M"
+        val joinedText = resultNarrow.lines.joinToString(" ") { it.text }
+        assertFalse("Narrow oval drag preview should not break padamu into PA- DA- M-",
+            joinedText.contains("PA- DA-") || joinedText.contains("PA-DA-M"))
+    }
 }
