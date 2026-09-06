@@ -254,15 +254,20 @@ class TextRenderer(private val context: Context) {
         // Determine container dimensions
         val targetW = (boxWidth ?: 200f).coerceAtLeast(20f)
 
-        // Fast non-recursive estimation of container height for OVAL when boxHeight is null
-        val effectiveBoxHeight: Float? = if (shape == TextContainerShape.OVAL && boxHeight == null) {
+        // Fast non-recursive estimation of container height for OVAL
+        val effectiveBoxHeight: Float? = if (shape == TextContainerShape.OVAL) {
             var estimatedLinesCount = 0
             val rawParas = if (text.isEmpty()) listOf("") else text.split("\n")
             for (p in rawParas) {
                 val w = paint.measureText(if (p.isEmpty()) " " else p)
                 estimatedLinesCount += (w / (targetW * 0.7f)).toInt() + 1
             }
-            (estimatedLinesCount.coerceAtLeast(1) * lineHeight * 1.5f).coerceAtLeast(40f)
+            if (boxHeight == null) {
+                (estimatedLinesCount.coerceAtLeast(1) * lineHeight * 1.5f).coerceAtLeast(40f)
+            } else {
+                val minReqH = (estimatedLinesCount.coerceAtLeast(1) * lineHeight * 1.35f).coerceAtLeast(30f)
+                maxOf(boxHeight, minReqH)
+            }
         } else {
             boxHeight
         }

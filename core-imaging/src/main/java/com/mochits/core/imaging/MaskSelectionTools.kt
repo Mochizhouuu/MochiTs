@@ -21,6 +21,16 @@ class MaskSelectionTools(
     var currentExpandPixels: Int = 0
         private set
 
+    private var cachedMaskBytes: ByteArray? = null
+    private var cachedRawMaskBytes: ByteArray? = null
+    private var isMaskDirty: Boolean = true
+
+    fun invalidateCache() {
+        isMaskDirty = true
+        cachedMaskBytes = null
+        cachedRawMaskBytes = null
+    }
+
     companion object {
         private fun createSafeMaskBitmap(w: Int, h: Int): Bitmap {
             return try {
@@ -57,9 +67,11 @@ class MaskSelectionTools(
         rawMaskBitmap = newRawMask
         width = newWidth
         height = newHeight
+        invalidateCache()
     }
 
     fun startStroke(point: Offset, mode: MaskToolMode, brushSize: Float) {
+        invalidateCache()
         val radius = brushSize / 2f
         val draw = mode != MaskToolMode.ERASER
 
@@ -83,6 +95,7 @@ class MaskSelectionTools(
     }
 
     fun updateStroke(point: Offset, mode: MaskToolMode, brushSize: Float) {
+        invalidateCache()
         val radius = brushSize / 2f
         val draw = mode != MaskToolMode.ERASER
 
@@ -104,6 +117,7 @@ class MaskSelectionTools(
     }
 
     fun endStroke(point: Offset, mode: MaskToolMode, brushSize: Float = 0f) {
+        invalidateCache()
         when (mode) {
             MaskToolMode.LASSO -> {
                 lassoPathX.add(point.x)
@@ -123,6 +137,7 @@ class MaskSelectionTools(
     }
 
     fun magicWandSelect(srcBitmap: Bitmap?, point: Offset, tolerance: Float, expandPixels: Int = currentExpandPixels) {
+        invalidateCache()
         if (srcBitmap == null || srcBitmap.isRecycled) return
         val startX = point.x.toInt()
         val startY = point.y.toInt()
@@ -134,11 +149,13 @@ class MaskSelectionTools(
     }
 
     fun applyExpand(expandPixels: Int) {
+        invalidateCache()
         currentExpandPixels = expandPixels.coerceIn(0, 30)
         applyExpandInternal()
     }
 
     private fun applyExpandInternal() {
+        invalidateCache()
         if (currentExpandPixels <= 0) {
             NativeBridge.dilateMaskSafe(rawMaskBitmap, maskBitmap, 0)
         } else {
@@ -149,10 +166,15 @@ class MaskSelectionTools(
     fun getRawMaskByteArray(): ByteArray? {
         val bmp = rawMaskBitmap
         if (bmp.isRecycled) return null
+        if (!isMaskDirty && cachedRawMaskBytes != null) {
+            return cachedRawMaskBytes?.clone()
+        }
         return try {
             val buffer = java.nio.ByteBuffer.allocate(bmp.byteCount)
             bmp.copyPixelsToBuffer(buffer)
-            buffer.array()
+            val bytes = buffer.array().clone()
+            cachedRawMaskBytes = bytes
+            bytes.clone()
         } catch (t: Throwable) {
             t.printStackTrace()
             null
@@ -162,10 +184,15 @@ class MaskSelectionTools(
     fun getMaskByteArray(): ByteArray? {
         val bmp = maskBitmap
         if (bmp.isRecycled) return null
+        if (!isMaskDirty && cachedMaskBytes != null) {
+            return cachedMaskBytes?.clone()
+        }
         return try {
             val buffer = java.nio.ByteBuffer.allocate(bmp.byteCount)
             bmp.copyPixelsToBuffer(buffer)
-            buffer.array()
+            val bytes = buffer.array().clone()
+            cachedMaskBytes = bytes
+            bytes.clone()
         } catch (t: Throwable) {
             t.printStackTrace()
             null
@@ -175,9 +202,11 @@ class MaskSelectionTools(
     fun restoreRawMaskByteArray(bytes: ByteArray) {
         val bmp = rawMaskBitmap
         if (bmp.isRecycled) return
+        invalidateCache()
         try {
             val buffer = java.nio.ByteBuffer.wrap(bytes)
             bmp.copyPixelsFromBuffer(buffer)
+            cachedRawMaskBytes = bytes.clone()
         } catch (t: Throwable) {
             t.printStackTrace()
         }
@@ -186,20 +215,24 @@ class MaskSelectionTools(
     fun restoreMaskByteArray(bytes: ByteArray) {
         val bmp = maskBitmap
         if (bmp.isRecycled) return
+        invalidateCache()
         try {
             val buffer = java.nio.ByteBuffer.wrap(bytes)
             bmp.copyPixelsFromBuffer(buffer)
+            cachedMaskBytes = bytes.clone()
         } catch (t: Throwable) {
             t.printStackTrace()
         }
     }
 
     fun clearMask() {
+        invalidateCache()
         NativeBridge.clearMaskSafe(rawMaskBitmap)
         NativeBridge.clearMaskSafe(maskBitmap)
     }
 
     fun invertMask() {
+        invalidateCache()
         try {
             NativeBridge.nativeInvertMask(rawMaskBitmap)
             applyExpandInternal()

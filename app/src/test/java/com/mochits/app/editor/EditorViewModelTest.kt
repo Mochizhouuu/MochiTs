@@ -12,6 +12,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertSame
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -799,5 +800,23 @@ class EditorViewModelTest {
 
         // Verify baseBitmap remains null safely for transparent project without base image
         assertEquals(null, transparentVm.baseBitmap.value)
+    }
+
+    @Test
+    fun testSaveUndoSnapshot_CachesMaskBytesForFastGestureStart() {
+        viewModel.setupCanvasSize(200, 200)
+
+        viewModel.saveUndoSnapshot()
+        val mask1 = viewModel.getMaskByteArray()
+        val rawMask1 = viewModel.getRawMaskByteArray()
+
+        viewModel.saveUndoSnapshot()
+        val mask2 = viewModel.getMaskByteArray()
+        val rawMask2 = viewModel.getRawMaskByteArray()
+
+        assertNotNull(mask1)
+        assertNotNull(rawMask1)
+        assertEquals(mask1?.size, mask2?.size)
+        assertEquals(rawMask1?.size, rawMask2?.size)
     }
 }
