@@ -746,4 +746,58 @@ class EditorViewModelTest {
         assertNotNull("Undone bitmap should not be null", undoneBmp)
         assertEquals("Undone bitmap should revert to previous red color", android.graphics.Color.RED, undoneBmp!!.getPixel(50, 50))
     }
+    @Test
+    fun testEnsureBaseBitmapLoaded_reloadsBitmapFromDiskWhenNull() = runBlocking {
+        val bmp = android.graphics.Bitmap.createBitmap(100, 100, android.graphics.Bitmap.Config.ARGB_8888)
+        bmp.eraseColor(android.graphics.Color.GREEN)
+        viewModel.setBaseImage(bmp)
+        kotlinx.coroutines.delay(300)
+
+        assertNotNull(viewModel.baseBitmap.value)
+
+        // Simulate bitmap loss/reclamation on background resume
+        viewModel.baseBitmap.value = null
+
+        // Trigger resume reload
+        viewModel.ensureBaseBitmapLoaded()
+        kotlinx.coroutines.delay(500)
+
+        // Verify baseBitmap was reloaded from disk and is valid
+        val reloadedBmp = viewModel.baseBitmap.value
+        assertNotNull(reloadedBmp)
+        assertFalse(reloadedBmp!!.isRecycled)
+        assertEquals(android.graphics.Color.GREEN, reloadedBmp.getPixel(50, 50))
+    }
+
+    @Test
+    fun testEnsureBaseBitmapLoaded_transparentProject_remainsNullWithoutError() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val project = repository.createProject(
+            title = "Transparent Project Unique",
+            width = 1080,
+            height = 1920,
+            imageUri = null,
+            isTransparent = true
+        )
+
+        val savedStateHandle = androidx.lifecycle.SavedStateHandle(mapOf("projectId" to project.id))
+        val exportSettingsRepository = com.mochits.app.settings.ExportSettingsRepository(context)
+        val fontRepository = com.mochits.app.font.FontRepository(context, db.customFontDao())
+        val transparentVm = EditorViewModel(context, repository, exportSettingsRepository, fontRepository, savedStateHandle)
+
+        kotlinx.coroutines.delay(300)
+
+        // Ensure no base_image.png exists for this new transparent project
+        val baseFile = java.io.File(context.filesDir, "projects/${project.id}/base_image.png")
+        if (baseFile.exists()) baseFile.delete()
+
+        // Set baseBitmap to null
+        transparentVm.baseBitmap.value = null
+
+        transparentVm.ensureBaseBitmapLoaded()
+        kotlinx.coroutines.delay(300)
+
+        // Verify baseBitmap remains null safely for transparent project without base image
+        assertEquals(null, transparentVm.baseBitmap.value)
+    }
 }

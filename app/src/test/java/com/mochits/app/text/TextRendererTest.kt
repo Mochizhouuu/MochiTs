@@ -405,4 +405,31 @@ class TextRendererTest {
         assertTrue("Box minHeight should fit actual reflow lines", minBoxH >= 30f)
         assertTrue("Oval minHeight should fit actual reflow lines", minOvalH >= 30f)
     }
+
+    @Test
+    fun testOvalReflow_ApaYangTelahTerjadiDiSana_DoesNotHyphenateWordsIntoShortSyllables() {
+        val paint = Paint().apply { textSize = 28f }
+        val text = "Apa yang telah terjadi di sana?"
+
+        val resultOval = textRenderer.layoutText(
+            text = text,
+            paint = paint,
+            shape = TextContainerShape.OVAL,
+            boxWidth = 250f,
+            boxHeight = 200f
+        )
+
+        // Check each line: no line should be a single short hyphenated fragment like "TER-", "JADI", "SA-"
+        for (line in resultOval.lines) {
+            assertFalse("Oval lines should not contain brutal single syllable splits like TER- or SA-",
+                line.text.trim().matches(Regex("^(?i)(TER|SA|JA|DI)-?$")))
+        }
+
+        val allWords = text.replace("?", "").split(" ")
+        val reconstructedText = resultOval.lines.joinToString(" ") { it.text }
+        for (word in allWords) {
+            assertTrue("Reconstructed text should contain whole word '$word'",
+                reconstructedText.contains(word))
+        }
+    }
 }

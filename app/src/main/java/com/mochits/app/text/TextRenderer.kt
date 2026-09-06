@@ -344,8 +344,9 @@ class TextRenderer(private val context: Context) {
                         } else {
                             val cleanToken = token.trim()
                             if (shape == TextContainerShape.OVAL && effectiveBoxHeight != null) {
+                                val tokenW = paint.measureText(cleanToken)
                                 val yRelativeToTop = computedTopOffset + (currentLineIdx + 0.5f) * lineHeight
-                                if (yRelativeToTop < ovalB && availW < targetW * 0.45f && paint.measureText(cleanToken) > availW) {
+                                if (yRelativeToTop < ovalB && tokenW <= targetW * 0.95f && availW < tokenW) {
                                     currentLineIdx++
                                     continue
                                 }

@@ -536,6 +536,42 @@ if (validName != null) referencedFiles.add(validName)
         }
     }
 
+    fun ensureBaseBitmapLoaded() {
+        val currentBmp = baseBitmap.value
+        if (currentBmp != null && !currentBmp.isRecycled) {
+            return
+        }
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val currentProj = project.value ?: repository.getProject(projectId)
+                if (currentProj != null) {
+                    val baseFile = currentProj.thumbnailPath?.let { File(it) }?.takeIf { it.exists() }
+                        ?: File(context.filesDir, "projects/${currentProj.id}/base_image.png").takeIf { it.exists() }
+
+                    if (baseFile != null) {
+                        val options = android.graphics.BitmapFactory.Options().apply {
+                            inMutable = true
+                        }
+                        val decoded = android.graphics.BitmapFactory.decodeFile(baseFile.absolutePath, options)
+                        if (decoded != null) {
+                            val loadedBmp = if (decoded.isMutable && decoded.config == Bitmap.Config.ARGB_8888) {
+                                decoded
+                            } else {
+                                val copy = decoded.copy(Bitmap.Config.ARGB_8888, true)
+                                decoded.recycle()
+                                copy
+                            }
+                            baseBitmap.value = loadedBmp
+                            setupCanvasSize(loadedBmp.width, loadedBmp.height)
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                t.printStackTrace()
+            }
+        }
+    }
+
     fun setupCanvasSize(width: Int, height: Int) {
         val safeW = width.coerceIn(1, 32768)
         val safeH = height.coerceIn(1, 32768)
@@ -543,7 +579,7 @@ if (validName != null) referencedFiles.add(validName)
             maskSelectionTools = MaskSelectionTools(safeW, safeH)
         }
         val currentBmp = baseBitmap.value
-        if (currentBmp == null || currentBmp.width != safeW || currentBmp.height != safeH) {
+        if (currentBmp == null || currentBmp.isRecycled || currentBmp.width != safeW || currentBmp.height != safeH) {
             try {
                 val bmp = Bitmap.createBitmap(safeW, safeH, Bitmap.Config.ARGB_8888)
                 bmp.eraseColor(android.graphics.Color.WHITE)
@@ -896,25 +932,50 @@ if (validName != null) referencedFiles.add(validName)
         saveUndoSnapshot()
         layers.value = layers.value.map { layer ->
             if (layer.id == selectedId && layer is Layer.TextLayer) {
-                if (shape == com.mochits.app.model.TextContainerShape.OVAL) {
-                    val tempBoxLayer = layer.copy(textContainerShape = com.mochits.app.model.TextContainerShape.BOX, boxWidth = null, boxHeight = null)
-                    val boxBounds = textRenderer.getTextBounds(tempBoxLayer)
-                    val w = (boxBounds.width() * 1.35f).coerceAtLeast(40f)
-                    val h = (boxBounds.height() * 1.35f).coerceAtLeast(30f)
-                    layer.copy(
-                        textContainerShape = shape,
-                        boxWidth = w,
-                        boxHeight = h
-                    )
-                } else { // BOX
-                    val tempBoxLayer = layer.copy(textContainerShape = com.mochits.app.model.TextContainerShape.BOX, boxWidth = null, boxHeight = null)
-                    val boxBounds = textRenderer.getTextBounds(tempBoxLayer)
-                    layer.copy(
-                        textContainerShape = shape,
-                        boxWidth = boxBounds.width().coerceAtLeast(30f),
-                        boxHeight = boxBounds.height().coerceAtLeast(20f)
-                    )
+                if (layer.textContainerShape == shape && layer.boxWidth != null && layer.boxHeight != null) {
+                    return@map layer
                 }
+
+                val boxW = layer.boxWidth
+                val boxH = layer.boxHeight
+
+                val (currW, currH) = if (boxW != null && boxH != null) {
+                    Pair(boxW, boxH)
+                } else {
+                    val bounds = textRenderer.getTextBounds(layer)
+                    Pair(bounds.width().coerceAtLeast(30f), bounds.height().coerceAtLeast(20f))
+                }
+
+                val currCenterX = layer.x + (currW / 2f)
+                val currCenterY = layer.y + (currH / 2f)
+
+                val scaleW = 1.18f
+                val scaleH = 1.15f
+
+                val (newW, newH) = if (shape == com.mochits.app.model.TextContainerShape.OVAL) {
+                    if (layer.textContainerShape == com.mochits.app.model.TextContainerShape.BOX && (boxW == null || boxH == null)) {
+                        Pair((currW * 1.35f).coerceAtLeast(40f), (currH * 1.35f).coerceAtLeast(30f))
+                    } else {
+                        Pair((currW * scaleW).coerceAtLeast(40f), (currH * scaleH).coerceAtLeast(30f))
+                    }
+                } else {
+                    if (layer.textContainerShape == com.mochits.app.model.TextContainerShape.OVAL) {
+                        Pair((currW / scaleW).coerceAtLeast(30f), (currH / scaleH).coerceAtLeast(20f))
+                    } else {
+                        Pair(currW, currH)
+                    }
+                }
+
+                val newX = currCenterX - (newW / 2f)
+                val newY = currCenterY - (newH / 2f)
+
+                layer.copy(
+                    textContainerShape = shape,
+                    boxWidth = newW,
+                    boxHeight = newH,
+                    x = newX,
+                    y = newY
+                )
             } else {
                 layer
             }
