@@ -187,6 +187,8 @@ fun EditorScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
                 viewModel.flushToDisk()
+            } else if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.ensureBaseBitmapLoaded()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -1064,13 +1066,15 @@ fun EditorScreen(
                                                     viewModel.selectLayer(null)
                                                     if (isDoubleTapCanvas) {
                                                         baseBitmap?.let { bmp ->
-                                                            viewModel.canvasState.fitToWidth(
-                                                                viewportWidth = size.width.toFloat(),
-                                                                viewportHeight = size.height.toFloat(),
-                                                                imageWidth = bmp.width.toFloat(),
-                                                                imageHeight = bmp.height.toFloat(),
-                                                                focusCanvasY = releaseCanvasPt.y
-                                                            )
+                                                            if (!bmp.isRecycled) {
+                                                                viewModel.canvasState.fitToWidth(
+                                                                    viewportWidth = size.width.toFloat(),
+                                                                    viewportHeight = size.height.toFloat(),
+                                                                    imageWidth = bmp.width.toFloat(),
+                                                                    imageHeight = bmp.height.toFloat(),
+                                                                    focusCanvasY = releaseCanvasPt.y
+                                                                )
+                                                            }
                                                         }
                                                         lastTapTimestamp = 0L
                                                         lastTapLayerId = null
