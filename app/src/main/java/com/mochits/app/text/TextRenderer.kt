@@ -686,7 +686,7 @@ class TextRenderer(private val context: Context) {
                         val tf = Typeface.createFromFile(file)
                         if (tf != null) return tf
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        Logger.e("Error: ${e.message}", e)
                     }
                 }
             }

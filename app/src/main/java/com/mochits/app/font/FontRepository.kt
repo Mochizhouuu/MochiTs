@@ -66,7 +66,7 @@ class FontRepository(
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Logger.e("Error: ${e.message}", e)
         }
     }
 

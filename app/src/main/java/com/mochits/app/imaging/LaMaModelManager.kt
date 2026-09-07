@@ -47,7 +47,9 @@ data class LaMaDownloadErrorInfo(
     }
 }
 
-class LaMaModelManager private constructor(context: Context) {
+class LaMaModelManager @Inject constructor(
+    @ApplicationContext private val context: Context
+) {
 
     private val appContext = context.applicationContext
     private val modelFileName = "lama_manga.onnx"
@@ -343,17 +345,8 @@ class LaMaModelManager private constructor(context: Context) {
     companion object {
         private const val TAG = "LaMaModelManager"
 
-        @Volatile
-        private var INSTANCE: LaMaModelManager? = null
-
-        fun getInstance(context: Context): LaMaModelManager {
-            return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: LaMaModelManager(context.applicationContext).also { INSTANCE = it }
-            }
-        }
-
         fun resetInstanceForTesting() {
-            INSTANCE = null
+            // No-op: Hilt manages instance lifecycle
         }
     }
 }

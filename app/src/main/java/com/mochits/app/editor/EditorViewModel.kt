@@ -33,6 +33,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.util.UUID
 import javax.inject.Inject
+import com.mochits.app.util.Logger
 
 @HiltViewModel
 class EditorViewModel @Inject constructor(
@@ -71,7 +72,7 @@ class EditorViewModel @Inject constructor(
     val lamaDownloadProgress = MutableStateFlow(0f)
     val userMessage = MutableStateFlow<String?>(null)
 
-    val lamaModelManager = LaMaModelManager.getInstance(context)
+    @Inject lateinit var lamaModelManager: LaMaModelManager
     val lamaInpaintEngine = LaMaInpaintEngine(context)
 
     val maskToolMode = MutableStateFlow(MaskToolMode.BRUSH)
@@ -104,7 +105,7 @@ class EditorViewModel @Inject constructor(
                 val compColor = ColorUtils.samplePixelColor(comp, initialPt.x, initialPt.y) ?: initialColor
                 sampledColorPreview.value = compColor
             } catch (t: Throwable) {
-                t.printStackTrace()
+                Logger.e("Error: ${t.message}", t)
             }
         }
     }
@@ -223,7 +224,7 @@ data class HistoryManifest(
                             }
                         }
                     } catch (t: Throwable) {
-                        t.printStackTrace()
+                        Logger.e("Error: ${t.message}", t)
                     }
                 }
             }
@@ -367,7 +368,7 @@ data class HistoryManifest(
                                     }
                                 }
                             } catch (t: Throwable) {
-                                t.printStackTrace()
+                                Logger.e("Error: ${t.message}", t)
                             }
                         }
                     }
@@ -382,7 +383,7 @@ data class HistoryManifest(
                     setupCanvasSize(1080, 1920)
                 }
             } catch (t: Throwable) {
-                t.printStackTrace()
+                Logger.e("Error: ${t.message}", t)
                 setupCanvasSize(1080, 1920)
             }
         }
@@ -433,7 +434,7 @@ data class HistoryManifest(
                 bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Logger.e("Error: ${e.message}", e)
         }
     }
 
@@ -491,7 +492,7 @@ if (validName != null) referencedFiles.add(validName)
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Logger.e("Error: ${e.message}", e)
         }
     }
 
@@ -532,7 +533,7 @@ if (validName != null) referencedFiles.add(validName)
 
             updateUndoRedoState()
         } catch (e: Exception) {
-            e.printStackTrace()
+            Logger.e("Error: ${e.message}", e)
         }
     }
 
@@ -567,7 +568,7 @@ if (validName != null) referencedFiles.add(validName)
                     }
                 }
             } catch (t: Throwable) {
-                t.printStackTrace()
+                Logger.e("Error: ${t.message}", t)
             }
         }
     }
@@ -585,7 +586,7 @@ if (validName != null) referencedFiles.add(validName)
                 bmp.eraseColor(android.graphics.Color.WHITE)
                 baseBitmap.value = bmp
             } catch (t: Throwable) {
-                t.printStackTrace()
+                Logger.e("Error: ${t.message}", t)
                 // Fallback to safe standard dimensions if extreme allocation fails
                 val fallbackW = safeW.coerceAtMost(2048)
                 val fallbackH = safeH.coerceAtMost(4096)
@@ -594,7 +595,7 @@ if (validName != null) referencedFiles.add(validName)
                     bmp.eraseColor(android.graphics.Color.WHITE)
                     baseBitmap.value = bmp
                 } catch (t2: Throwable) {
-                    t2.printStackTrace()
+                    Logger.e("Error: ${t2.message}", t2)
                 }
             }
         }
@@ -624,7 +625,7 @@ if (validName != null) referencedFiles.add(validName)
                     repository.saveProject(updated)
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                Logger.e("Error: ${e.message}", e)
             } finally {
                 isLoadingImage.value = false
             }

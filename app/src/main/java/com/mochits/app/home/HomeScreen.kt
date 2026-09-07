@@ -78,7 +78,7 @@ fun HomeScreen(
                         onOpenEditor(newId)
                     }
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    Logger.e("Error: ${e.message}", e)
                 } finally {
                     viewModel.isLoading.value = false
                 }
@@ -100,7 +100,7 @@ fun HomeScreen(
                         onOpenEditor(newId)
                     }
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    Logger.e("Error: ${e.message}", e)
                 } finally {
                     viewModel.isLoading.value = false
                 }
@@ -322,7 +322,7 @@ fun HomeScreen(
                                 onOpenEditor(newId)
                             }
                         } catch (e: Exception) {
-                            e.printStackTrace()
+                            Logger.e("Error: ${e.message}", e)
                         }
                     }
                 }

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.mochits.app.font.CustomFontDao
 import com.mochits.app.font.FontRepository
+import com.mochits.app.imaging.LaMaModelManager
 import com.mochits.app.project.MochiTsDatabase
 import com.mochits.app.project.ProjectDao
 import dagger.Module
@@ -44,5 +45,13 @@ object AppModule {
         customFontDao: CustomFontDao
     ): FontRepository {
         return FontRepository(context, customFontDao)
+    }
+
+    @Provides
+    @Singleton
+    fun provideLaMaModelManager(
+        @ApplicationContext context: Context
+    ): LaMaModelManager {
+        return LaMaModelManager(context)
     }
 }

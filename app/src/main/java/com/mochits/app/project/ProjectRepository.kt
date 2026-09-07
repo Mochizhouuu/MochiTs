@@ -14,6 +14,7 @@ import java.io.FileOutputStream
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.mochits.app.util.Logger
 
 @Singleton
 class ProjectRepository @Inject constructor(
@@ -94,7 +95,7 @@ class ProjectRepository @Inject constructor(
                     }
                 }
             } catch (t: Throwable) {
-                t.printStackTrace()
+                Logger.e("Error: ${t.message}", t)
             }
         }
 
@@ -115,7 +116,7 @@ class ProjectRepository @Inject constructor(
                 }
                 bmp.recycle()
             } catch (t: Throwable) {
-                t.printStackTrace()
+                Logger.e("Error: ${t.message}", t)
                 // If direct creation failed (e.g. OOM for extreme resolution), fallback to safe downscaled canvas
                 try {
                     val safeW = finalWidth.coerceAtMost(2048)
@@ -136,7 +137,7 @@ class ProjectRepository @Inject constructor(
                     finalWidth = safeW
                     finalHeight = safeH
                 } catch (t2: Throwable) {
-                    t2.printStackTrace()
+                    Logger.e("Error: ${t2.message}", t2)
                 }
             }
         }

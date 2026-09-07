@@ -1376,7 +1376,7 @@ fun EditorScreen(
                         }
                     }
                 } catch (t: Throwable) {
-                    t.printStackTrace()
+                    Logger.e("Error: ${t.message}", t)
                 }
 
                 drawContext.canvas.nativeCanvas.restore()
