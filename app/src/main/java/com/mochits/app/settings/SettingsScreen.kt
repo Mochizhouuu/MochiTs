@@ -257,6 +257,7 @@ fun SettingsScreen(
                             }
                         }
                     }
+                    2 -> {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(
                                 text = "Manajemen Style Presets",
