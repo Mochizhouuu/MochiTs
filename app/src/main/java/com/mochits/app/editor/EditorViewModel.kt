@@ -17,7 +17,6 @@ import com.mochits.core.imaging.MaskSelectionTools
 import com.mochits.core.imaging.Result
 import com.mochits.app.imaging.LaMaInpaintEngine
 import com.mochits.app.imaging.LaMaModelManager
-import com.mochits.app.imaging.LaMaModelManager
 import com.mochits.app.model.EditorPanel
 import com.mochits.app.model.Layer
 import com.mochits.app.model.MaskToolMode

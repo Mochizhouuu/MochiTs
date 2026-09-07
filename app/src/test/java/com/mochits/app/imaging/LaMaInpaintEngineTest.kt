@@ -24,7 +24,7 @@ class LaMaInpaintEngineTest {
         LaMaModelManager.resetInstanceForTesting()
         modelManager = LaMaModelManager.getInstance(context)
         modelManager.deleteModel()
-        engine = LaMaInpaintEngine(context)
+        engine = LaMaInpaintEngine(modelManager)
     }
 
     @Test

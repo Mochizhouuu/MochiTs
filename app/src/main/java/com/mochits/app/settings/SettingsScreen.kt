@@ -456,7 +456,7 @@ fun DownloadErrorDialog(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Text(
-                        text = formattedDetail,
+                        text = formattedDetail ?: errorInfo.toFormattedString(),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(12.dp),

@@ -48,7 +48,8 @@ class EditorViewModelTest {
         val savedStateHandle = androidx.lifecycle.SavedStateHandle(mapOf("projectId" to project.id))
         val exportSettingsRepository = com.mochits.app.settings.ExportSettingsRepository(context)
         val fontRepository = com.mochits.app.font.FontRepository(context, db.customFontDao())
-        viewModel = EditorViewModel(context, repository, exportSettingsRepository, fontRepository, savedStateHandle)
+        val lamaModelManager = com.mochits.app.imaging.LaMaModelManager.getInstance(context)
+        viewModel = EditorViewModel(context, repository, exportSettingsRepository, fontRepository, lamaModelManager, savedStateHandle)
     }
 
     @After
@@ -728,7 +729,8 @@ class EditorViewModelTest {
         val savedStateHandle = androidx.lifecycle.SavedStateHandle(mapOf("projectId" to currentProjId))
         val exportSettingsRepository = com.mochits.app.settings.ExportSettingsRepository(context)
         val fontRepository = com.mochits.app.font.FontRepository(context, db.customFontDao())
-        val newViewModel = EditorViewModel(context, repository, exportSettingsRepository, fontRepository, savedStateHandle)
+        val lamaModelManager = com.mochits.app.imaging.LaMaModelManager.getInstance(context)
+        val newViewModel = EditorViewModel(context, repository, exportSettingsRepository, fontRepository, lamaModelManager, savedStateHandle)
 
         kotlinx.coroutines.yield()
         kotlinx.coroutines.delay(500)
@@ -784,7 +786,8 @@ class EditorViewModelTest {
         val savedStateHandle = androidx.lifecycle.SavedStateHandle(mapOf("projectId" to project.id))
         val exportSettingsRepository = com.mochits.app.settings.ExportSettingsRepository(context)
         val fontRepository = com.mochits.app.font.FontRepository(context, db.customFontDao())
-        val transparentVm = EditorViewModel(context, repository, exportSettingsRepository, fontRepository, savedStateHandle)
+        val lamaModelManager = com.mochits.app.imaging.LaMaModelManager.getInstance(context)
+        val transparentVm = EditorViewModel(context, repository, exportSettingsRepository, fontRepository, lamaModelManager, savedStateHandle)
 
         kotlinx.coroutines.delay(300)
 
