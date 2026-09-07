@@ -46,6 +46,9 @@ fun SettingsScreen(
     lamaModelManager: com.mochits.app.imaging.LaMaModelManager
 ) {
     val context = LocalContext.current
+    val currentFolderUri by viewModel.defaultExportFolderUri.collectAsState()
+    val currentFolderName by viewModel.defaultExportFolderName.collectAsState()
+    val formattedDetail by remember { mutableStateOf<String?>(null) }
     val currentTheme by viewModel.themeMode.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Tema", "Model", "Style", "Font", "Output")

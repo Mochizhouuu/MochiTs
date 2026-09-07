@@ -73,6 +73,7 @@ class EditorViewModel @Inject constructor(
     val selectedInpaintModel = MutableStateFlow(InpaintModel.TELEA)
     val isDownloadingLaMaModel = MutableStateFlow(false)
     val lamaDownloadProgress = MutableStateFlow(0f)
+    val userMessage = MutableStateFlow<String?>(null)
 
     val maskToolMode = MutableStateFlow(MaskToolMode.BRUSH)
     val brushSize = MutableStateFlow(40f)

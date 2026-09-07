@@ -22,7 +22,7 @@ class LaMaInpaintEngine(
     suspend fun inpaintLaMa(
         baseBitmap: Bitmap,
         maskBitmap: Bitmap
-    ): Result = withContext(Dispatchers.Default) {
+    ): Result<Bitmap> = withContext(Dispatchers.Default) {
         if (!modelManager.isModelDownloaded()) {
             return@withContext Result.Error(IllegalStateException("Model LaMa Manga belum terunduh"))
         }
