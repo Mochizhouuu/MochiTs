@@ -33,6 +33,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.util.UUID
 import javax.inject.Inject
+import dagger.hilt.android.scopes.Singleton
 import com.mochits.app.util.Logger
 
 @HiltViewModel
@@ -73,7 +74,7 @@ class EditorViewModel @Inject constructor(
     val userMessage = MutableStateFlow<String?>(null)
 
     @Inject lateinit var lamaModelManager: LaMaModelManager
-    val lamaInpaintEngine = LaMaInpaintEngine(context)
+    @Inject lateinit var lamaInpaintEngine: LaMaInpaintEngine
 
     val maskToolMode = MutableStateFlow(MaskToolMode.BRUSH)
     val brushSize = MutableStateFlow(40f)
