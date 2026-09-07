@@ -33,7 +33,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.util.UUID
 import javax.inject.Inject
-import dagger.hilt.android.scopes.Singleton
+import javax.inject.Singleton
 import com.mochits.app.util.Logger
 
 @HiltViewModel
