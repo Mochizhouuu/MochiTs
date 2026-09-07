@@ -44,7 +44,6 @@ class EditorViewModel @Inject constructor(
     val exportSettingsRepository: ExportSettingsRepository,
     val fontRepository: FontRepository,
     val lamaModelManager: com.mochits.app.imaging.LaMaModelManager,
-    
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
