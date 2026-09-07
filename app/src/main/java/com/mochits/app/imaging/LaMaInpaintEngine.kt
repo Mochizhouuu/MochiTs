@@ -8,7 +8,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import com.mochits.core.imaging.Result
-import dagger.hilt.android.scopes.Singleton
+import javax.inject.Singleton
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
