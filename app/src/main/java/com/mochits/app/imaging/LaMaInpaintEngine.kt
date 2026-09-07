@@ -236,7 +236,7 @@ class LaMaInpaintEngine @Inject constructor(
 
             Result.Success(finalBitmap)
         } catch (t: Throwable) {
-            t.printStackTrace()
+            Logger.e("Error: ${t.message}", t)
             Result.Error(Exception("Inference LaMa Manga gagal: ${t.message}", t))
         }
     }

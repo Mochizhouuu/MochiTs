@@ -45,6 +45,7 @@ fun SettingsScreen(
     viewModel: HomeViewModel,
     lamaModelManager: com.mochits.app.imaging.LaMaModelManager
 ) {
+    val context = LocalContext.current
     val currentTheme by viewModel.themeMode.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Tema", "Model", "Style", "Font", "Output")
@@ -256,8 +257,6 @@ fun SettingsScreen(
                             }
                         }
                     }
-                    2 -> {
-                        val context = LocalContext.current
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(
                                 text = "Manajemen Style Presets",
@@ -297,7 +296,6 @@ fun SettingsScreen(
                         }
                     }
                     3 -> {
-                        val context = LocalContext.current
                         val fontPicker = rememberLauncherForActivityResult(
                             contract = ActivityResultContracts.GetContent()
                         ) { uri ->
@@ -329,8 +327,6 @@ fun SettingsScreen(
                         }
                     }
                     4 -> {
-                        val context = LocalContext.current
-                        val currentFolderUri by viewModel.defaultExportFolderUri.collectAsState()
                         val currentFolderName by viewModel.defaultExportFolderName.collectAsState()
                         val isFolderValid = remember(currentFolderUri) {
                             viewModel.isFolderValid(currentFolderUri)
@@ -425,8 +421,6 @@ fun DownloadErrorDialog(
     errorInfo: LaMaDownloadErrorInfo,
     onDismiss: () -> Unit
 ) {
-    val context = LocalContext.current
-    val formattedDetail = remember(errorInfo) { errorInfo.toFormattedString() }
 
     AlertDialog(
         onDismissRequest = onDismiss,
