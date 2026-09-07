@@ -424,8 +424,8 @@ fun SettingsScreen(
 
 @Composable
 fun DownloadErrorDialog(
-    context: android.content.Context,
-    formattedDetail: String?,
+    context: android.content.Context = androidx.compose.ui.platform.LocalContext.current,
+    formattedDetail: String? = null,
     errorInfo: LaMaDownloadErrorInfo,
     onDismiss: () -> Unit
 ) {
