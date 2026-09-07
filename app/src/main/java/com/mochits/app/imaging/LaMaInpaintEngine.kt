@@ -15,10 +15,11 @@ import kotlinx.coroutines.withContext
 import java.nio.FloatBuffer
 import kotlin.math.max
 import kotlin.math.min
+import com.mochits.app.imaging.LaMaModelManager
 
 @Singleton
 class LaMaInpaintEngine @Inject constructor(
-    val modelManager: com.mochits.app.imaging.LaMaModelManager
+    val modelManager: LaMaModelManager
 ) {
     private var ortEnv: OrtEnvironment? = null
     private var ortSession: OrtSession? = null
