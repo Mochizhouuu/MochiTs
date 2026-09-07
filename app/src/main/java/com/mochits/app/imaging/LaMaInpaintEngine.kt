@@ -1,23 +1,20 @@
 package com.mochits.app.imaging
-import com.mochits.app.util.Logger
 
+import com.mochits.app.util.Logger
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.graphics.Bitmap
 import android.graphics.Color
 import com.mochits.core.imaging.Result
-import javax.inject.Singleton
-import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.nio.FloatBuffer
 import kotlin.math.max
 import kotlin.math.min
 
-@Singleton
-class LaMaInpaintEngine @Inject constructor(
-    val modelManager: LaMaModelManager
+class LaMaInpaintEngine(
+    private val modelManager: LaMaModelManager
 ) {
     private var ortEnv: OrtEnvironment? = null
     private var ortSession: OrtSession? = null

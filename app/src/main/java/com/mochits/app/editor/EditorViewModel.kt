@@ -43,7 +43,7 @@ class EditorViewModel @Inject constructor(
     val exportSettingsRepository: ExportSettingsRepository,
     val fontRepository: FontRepository,
     val lamaModelManager: com.mochits.app.imaging.LaMaModelManager,
-    val lamaInpaintEngine: com.mochits.app.imaging.LaMaInpaintEngine,
+    val lamaInpaintEngine: com.mochits.app.imaging.LaMaInpaintEngine = com.mochits.app.imaging.LaMaInpaintEngine(lamaModelManager),
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 

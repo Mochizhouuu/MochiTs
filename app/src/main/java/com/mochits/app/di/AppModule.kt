@@ -18,48 +18,4 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object AppModule {
 
-    @Provides
-    @Singleton
-    fun provideDatabase(@ApplicationContext context: Context): MochiTsDatabase {
-        return Room.databaseBuilder(
-            context,
-            MochiTsDatabase::class.java,
-            "mochits.db"
-        ).fallbackToDestructiveMigration().build()
-    }
-
-    @Provides
-    fun provideProjectDao(database: MochiTsDatabase): ProjectDao {
-        return database.projectDao()
-    }
-
-    @Provides
-    fun provideCustomFontDao(database: MochiTsDatabase): CustomFontDao {
-        return database.customFontDao()
-    }
-
-    @Provides
-    @Singleton
-    fun provideFontRepository(
-        @ApplicationContext context: Context,
-        customFontDao: CustomFontDao
-    ): FontRepository {
-        return FontRepository(context, customFontDao)
-    }
-
-    @Provides
-    @Singleton
-    fun provideLaMaModelManager(
-        @ApplicationContext context: Context
-    ): LaMaModelManager {
-        return LaMaModelManager(context)
-    }
-
-    @Provides
-    @Singleton
-    fun provideLaMaInpaintEngine(
-        lamaModelManager: LaMaModelManager
-    ): LaMaInpaintEngine {
-        return LaMaInpaintEngine(lamaModelManager)
-    }
 }
