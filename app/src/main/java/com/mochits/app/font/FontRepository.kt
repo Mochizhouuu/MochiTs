@@ -1,4 +1,5 @@
 package com.mochits.app.font
+import com.mochits.app.util.Logger
 
 import android.content.Context
 import android.graphics.Typeface

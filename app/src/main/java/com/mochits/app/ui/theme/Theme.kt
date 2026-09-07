@@ -50,6 +50,24 @@ val LavenderInverseSurface = Color(0xFF322935)
 val LavenderInverseOnSurface = Color(0xFFF5EFF7)
 val LavenderInversePrimary = Color(0xFFD0BCFF)
 
+// Dark Theme Colors — Defined BEFORE scheme to avoid forward reference
+val LavenderDarkPrimary = Color(0xFFD0BCFF)
+val LavenderDarkOnPrimary = Color(0xFF381E72)
+val LavenderDarkPrimaryContainer = Color(0xFF4F378B)
+val LavenderDarkOnPrimaryContainer = Color(0xFFEDE7F6)
+val LavenderDarkSecondary = Color(0xFFCCC2DC)
+val LavenderDarkOnSecondary = Color(0xFF332D41)
+val LavenderDarkSecondaryContainer = Color(0xFF4A4058)
+val LavenderDarkOnSecondaryContainer = Color(0xFFE8DEF8)
+val LavenderDarkTertiary = Color(0xFFEFB8C8)
+val LavenderDarkOnTertiary = Color(0xFF492532)
+val LavenderDarkTertiaryContainer = Color(0xFF633B48)
+val LavenderDarkOnTertiaryContainer = Color(0xFFF9D8E4)
+val LavenderDarkError = Color(0xFFFFB4AB)
+val LavenderDarkOnError = Color(0xFF690005)
+val LavenderDarkErrorContainer = Color(0xFF93000A)
+val LavenderDarkOnErrorContainer = Color(0xFFFFDAD6)
+
 // Surface (Dark)
 val LavenderDarkBackground = Color(0xFF141218)
 val LavenderDarkSurface = Color(0xFF1D1B24)
@@ -132,24 +150,6 @@ val DarkLavenderColorScheme = darkColorScheme(
     inverseOnSurface = LavenderDarkInverseOnSurface,
     inversePrimary = LavenderDarkInversePrimary
 )
-
-// Dark theme color constants
-val LavenderDarkPrimary = Color(0xFFD0BCFF)
-val LavenderDarkOnPrimary = Color(0xFF381E72)
-val LavenderDarkPrimaryContainer = Color(0xFF4F378B)
-val LavenderDarkOnPrimaryContainer = Color(0xFFEDE7F6)
-val LavenderDarkSecondary = Color(0xFFCCC2DC)
-val LavenderDarkOnSecondary = Color(0xFF332D41)
-val LavenderDarkSecondaryContainer = Color(0xFF4A4058)
-val LavenderDarkOnSecondaryContainer = Color(0xFFE8DEF8)
-val LavenderDarkTertiary = Color(0xFFEFB8C8)
-val LavenderDarkOnTertiary = Color(0xFF492532)
-val LavenderDarkTertiaryContainer = Color(0xFF633B48)
-val LavenderDarkOnTertiaryContainer = Color(0xFFF9D8E4)
-val LavenderDarkError = Color(0xFFFFB4AB)
-val LavenderDarkOnError = Color(0xFF690005)
-val LavenderDarkErrorContainer = Color(0xFF93000A)
-val LavenderDarkOnErrorContainer = Color(0xFFFFDAD6)
 
 // ═══════════════════════════════════════════════════════════════
 // Theme Mode & Composable

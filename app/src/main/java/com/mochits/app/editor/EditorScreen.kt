@@ -1,4 +1,5 @@
 package com.mochits.app.editor
+import com.mochits.app.util.Logger
 
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver

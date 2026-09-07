@@ -1,4 +1,5 @@
 package com.mochits.app.home
+import com.mochits.app.util.Logger
 
 import android.graphics.BitmapFactory
 import android.net.Uri

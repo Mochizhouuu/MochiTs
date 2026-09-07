@@ -49,7 +49,8 @@ class MainActivity : ComponentActivity() {
                                 onNavigateBack = {
                                     navController.popBackStack()
                                 },
-                                viewModel = homeViewModel
+                                viewModel = homeViewModel,
+                                lamaModelManager = homeViewModel.lamaModelManager
                             )
                         }
                         composable(

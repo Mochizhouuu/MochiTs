@@ -42,7 +42,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
-    viewModel: HomeViewModel
+    viewModel: HomeViewModel,
+    lamaModelManager: com.mochits.app.imaging.LaMaModelManager
 ) {
     val currentTheme by viewModel.themeMode.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -124,11 +125,9 @@ fun SettingsScreen(
                         }
                     }
                     1 -> {
-                        val context = LocalContext.current
-                        val lamaManager = remember { com.mochits.app.imaging.LaMaModelManager.getInstance(context) }
-                        val modelStatus by lamaManager.modelStatus.collectAsState()
-                        val downloadProgress by lamaManager.downloadProgress.collectAsState()
-                        val lastDownloadError by lamaManager.lastDownloadError.collectAsState()
+                        val modelStatus by lamaModelManager.modelStatus.collectAsState()
+                        val downloadProgress by lamaModelManager.downloadProgress.collectAsState()
+                        val lastDownloadError by lamaModelManager.lastDownloadError.collectAsState()
                         val coroutineScope = rememberCoroutineScope()
 
                         var showErrorDialog by remember { mutableStateOf(false) }
@@ -213,7 +212,7 @@ fun SettingsScreen(
                                                     Button(
                                                         onClick = {
                                                             coroutineScope.launch {
-                                                                val success = lamaManager.downloadModel()
+                                                                val success = lamaModelManager.downloadModel()
                                                                 if (success) {
                                                                     Toast.makeText(context, "Model LaMa berhasil diunduh!", Toast.LENGTH_SHORT).show()
                                                                 } else {
@@ -232,7 +231,7 @@ fun SettingsScreen(
                                             com.mochits.app.imaging.LaMaModelStatus.NOT_DOWNLOADED -> {
                                                 IconButton(onClick = {
                                                     coroutineScope.launch {
-                                                        val success = lamaManager.downloadModel()
+                                                        val success = lamaModelManager.downloadModel()
                                                         if (success) {
                                                             Toast.makeText(context, "Model LaMa berhasil diunduh!", Toast.LENGTH_SHORT).show()
                                                         } else {

@@ -20,7 +20,8 @@ import javax.inject.Inject
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val repository: ProjectRepository,
-    private val exportSettingsRepository: ExportSettingsRepository
+    private val exportSettingsRepository: ExportSettingsRepository,
+    val lamaModelManager: com.mochits.app.imaging.LaMaModelManager
 ) : ViewModel() {
 
     private val _themeMode = MutableStateFlow(AppThemeMode.SYSTEM)

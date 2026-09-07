@@ -13,6 +13,8 @@ import java.io.FileOutputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
 
 enum class LaMaModelStatus {
     NOT_DOWNLOADED,
