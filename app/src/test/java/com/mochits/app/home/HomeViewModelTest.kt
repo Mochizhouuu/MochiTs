@@ -31,7 +31,7 @@ class HomeViewModelTest {
         val context = RuntimeEnvironment.getApplication()
         val repository = ProjectRepository(context, ErrorProjectDao())
         val exportSettingsRepository = com.mochits.app.settings.ExportSettingsRepository(context)
-        val viewModel = HomeViewModel(repository, exportSettingsRepository)
+        val viewModel = HomeViewModel(repository, exportSettingsRepository, com.mochits.app.imaging.LaMaModelManager.getInstance(context))
 
         val currentProjects = viewModel.projects.value
         assertEquals(emptyList<ProjectEntity>(), currentProjects)

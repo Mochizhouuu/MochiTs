@@ -15,6 +15,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
+import javax.inject.Singleton
 
 enum class LaMaModelStatus {
     NOT_DOWNLOADED,
@@ -49,6 +50,7 @@ data class LaMaDownloadErrorInfo(
     }
 }
 
+@Singleton
 class LaMaModelManager @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
@@ -347,8 +349,17 @@ class LaMaModelManager @Inject constructor(
     companion object {
         private const val TAG = "LaMaModelManager"
 
+        @Volatile
+        private var INSTANCE: LaMaModelManager? = null
+
+        fun getInstance(context: Context): LaMaModelManager {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: LaMaModelManager(context.applicationContext).also { INSTANCE = it }
+            }
+        }
+
         fun resetInstanceForTesting() {
-            // No-op: Hilt manages instance lifecycle
+            INSTANCE = null
         }
     }
 }
