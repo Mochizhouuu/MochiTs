@@ -17,7 +17,6 @@ import kotlin.math.max
 import kotlin.math.min
 
 @Singleton
-@Inject
 class LaMaInpaintEngine @Inject constructor(
     val modelManager: com.mochits.app.imaging.LaMaModelManager
 ) {
