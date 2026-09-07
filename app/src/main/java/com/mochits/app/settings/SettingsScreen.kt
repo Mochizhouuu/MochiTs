@@ -138,6 +138,8 @@ fun SettingsScreen(
 
                         if (showErrorDialog && lastDownloadError != null) {
                             DownloadErrorDialog(
+                                context = context,
+                                formattedDetail = lastDownloadError?.toFormattedString() ?: "",
                                 errorInfo = lastDownloadError!!,
                                 onDismiss = { showErrorDialog = false }
                             )
@@ -422,6 +424,10 @@ fun SettingsScreen(
 
 @Composable
 fun DownloadErrorDialog(
+                                context = context,
+                                formattedDetail = lastDownloadError?.toFormattedString() ?: "",
+    context: android.content.Context,
+    formattedDetail: String?,
     errorInfo: LaMaDownloadErrorInfo,
     onDismiss: () -> Unit
 ) {
