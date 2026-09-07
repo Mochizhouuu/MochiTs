@@ -4,7 +4,6 @@ import com.mochits.app.util.Logger
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
-import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import com.mochits.core.imaging.Result
@@ -15,7 +14,6 @@ import kotlinx.coroutines.withContext
 import java.nio.FloatBuffer
 import kotlin.math.max
 import kotlin.math.min
-import com.mochits.app.imaging.LaMaModelManager
 
 @Singleton
 class LaMaInpaintEngine @Inject constructor(
