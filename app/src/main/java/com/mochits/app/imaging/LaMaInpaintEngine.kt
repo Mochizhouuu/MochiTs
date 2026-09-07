@@ -18,9 +18,9 @@ import kotlin.math.min
 
 @Singleton
 @Inject
-class LaMaInpaintEngine {
-
-    @javax.inject.Inject lateinit var modelManager: com.mochits.app.imaging.LaMaModelManager
+class LaMaInpaintEngine @Inject constructor(
+    val modelManager: com.mochits.app.imaging.LaMaModelManager
+) {
     private var ortEnv: OrtEnvironment? = null
     private var ortSession: OrtSession? = null
 

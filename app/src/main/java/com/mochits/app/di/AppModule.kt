@@ -54,4 +54,12 @@ object AppModule {
     ): LaMaModelManager {
         return LaMaModelManager(context)
     }
+
+    @Provides
+    @Singleton
+    fun provideLaMaInpaintEngine(
+        lamaModelManager: LaMaModelManager
+    ): LaMaInpaintEngine {
+        return LaMaInpaintEngine(lamaModelManager)
+    }
 }
