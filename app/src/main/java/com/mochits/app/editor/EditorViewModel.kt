@@ -17,6 +17,7 @@ import com.mochits.core.imaging.MaskSelectionTools
 import com.mochits.core.imaging.Result
 import com.mochits.app.imaging.LaMaInpaintEngine
 import com.mochits.app.imaging.LaMaModelManager
+import com.mochits.app.imaging.LaMaModelManager
 import com.mochits.app.model.EditorPanel
 import com.mochits.app.model.Layer
 import com.mochits.app.model.MaskToolMode
@@ -43,7 +44,7 @@ class EditorViewModel @Inject constructor(
     val exportSettingsRepository: ExportSettingsRepository,
     val fontRepository: FontRepository,
     val lamaModelManager: com.mochits.app.imaging.LaMaModelManager,
-    val lamaInpaintEngine: com.mochits.app.imaging.LaMaInpaintEngine = com.mochits.app.imaging.LaMaInpaintEngine(lamaModelManager),
+    val lamaInpaintEngine = com.mochits.app.imaging.LaMaInpaintEngine(lamaModelManager)
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
