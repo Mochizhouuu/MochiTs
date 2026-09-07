@@ -44,7 +44,7 @@ class EditorViewModel @Inject constructor(
     val exportSettingsRepository: ExportSettingsRepository,
     val fontRepository: FontRepository,
     val lamaModelManager: com.mochits.app.imaging.LaMaModelManager,
-    val lamaInpaintEngine = com.mochits.app.imaging.LaMaInpaintEngine(lamaModelManager)
+    
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -75,6 +75,7 @@ class EditorViewModel @Inject constructor(
     val isDownloadingLaMaModel = MutableStateFlow(false)
     val lamaDownloadProgress = MutableStateFlow(0f)
     val userMessage = MutableStateFlow<String?>(null)
+    val lamaInpaintEngine = com.mochits.app.imaging.LaMaInpaintEngine(lamaModelManager)
 
     val maskToolMode = MutableStateFlow(MaskToolMode.BRUSH)
     val brushSize = MutableStateFlow(40f)
