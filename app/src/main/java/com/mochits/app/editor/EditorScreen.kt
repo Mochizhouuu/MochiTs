@@ -921,12 +921,12 @@ fun EditorScreen(
                                                 }
                                                 val currentBoxW = selectedTextLayer.boxWidth
                                                 val minH = textRenderer.getMinBoxHeight(selectedTextLayer)
-                                                val newBoxH = (unrotatedPt.y - initialBoundsTop).coerceAtLeast(minH)
+                                                val newBoxH = (unrotatedPt.y - initialTextY).coerceAtLeast(minH)
                                                 viewModel.updateSelectedTextLayerStretch(
                                                     boxWidth = currentBoxW,
                                                     boxHeight = newBoxH,
-                                                    newX = initialBoundsLeft,
-                                                    newY = initialBoundsTop,
+                                                    newX = initialTextX,
+                                                    newY = initialTextY,
                                                     saveUndo = false
                                                 )
                                                 triggerRedraw++
@@ -956,7 +956,7 @@ fun EditorScreen(
                                                     boxWidth = newBoxW,
                                                     boxHeight = currentBoxH,
                                                     newX = newX,
-                                                    newY = initialBoundsTop,
+                                                    newY = initialTextY,
                                                     saveUndo = false
                                                 )
                                                 triggerRedraw++

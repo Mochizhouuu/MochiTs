@@ -626,8 +626,8 @@ class TextRenderer(private val context: Context) {
         val left = if (boxWidth != null) x else x + layoutResult.minX
         val right = if (boxWidth != null) x + boxWidth else x + layoutResult.maxX
 
-        val top = if (boxHeight != null) y else y + layoutResult.topOffset
-        val bottom = if (boxHeight != null) y + boxHeight else y + layoutResult.topOffset + totalTextHeight
+        val top = y
+        val bottom = if (boxHeight != null) y + boxHeight else y + totalTextHeight
 
         return RectF(left, top, right, bottom)
     }
