@@ -453,4 +453,49 @@ class TextRendererTest {
         assertFalse("Narrow oval drag preview should not break padamu into PA- DA- M-",
             joinedText.contains("PA- DA-") || joinedText.contains("PA-DA-M"))
     }
+
+    @Test
+    fun testGetTextBounds_TopIsStrictlyAnchoredAtY_DuringHorizontalStretch() {
+        val paint = Paint().apply { textSize = 28f }
+        val longText = "Ini adalah paragraf teks yang cukup panjang untuk diuji reflow dan posisi bounds top selama horizontal stretch."
+        val style = TextStyleConfig(fontSize = 28f)
+
+        val initialY = 150f
+
+        // 1. OVAL shape without boxHeight
+        val ovalLayerNarrow = Layer.TextLayer(
+            id = "oval_narrow", name = "Oval Layer", x = 50f, y = initialY,
+            text = longText, style = style, textContainerShape = TextContainerShape.OVAL,
+            boxWidth = 150f, boxHeight = null
+        )
+        val ovalLayerWide = Layer.TextLayer(
+            id = "oval_wide", name = "Oval Layer", x = 10f, y = initialY,
+            text = longText, style = style, textContainerShape = TextContainerShape.OVAL,
+            boxWidth = 400f, boxHeight = null
+        )
+
+        val boundsOvalNarrow = textRenderer.getTextBounds(ovalLayerNarrow)
+        val boundsOvalWide = textRenderer.getTextBounds(ovalLayerWide)
+
+        assertEquals("Narrow Oval top must equal initial Y", initialY, boundsOvalNarrow.top, 0.001f)
+        assertEquals("Wide Oval top must equal initial Y", initialY, boundsOvalWide.top, 0.001f)
+
+        // 2. BOX shape without boxHeight
+        val boxLayerNarrow = Layer.TextLayer(
+            id = "box_narrow", name = "Box Layer", x = 50f, y = initialY,
+            text = longText, style = style, textContainerShape = TextContainerShape.BOX,
+            boxWidth = 150f, boxHeight = null
+        )
+        val boxLayerWide = Layer.TextLayer(
+            id = "box_wide", name = "Box Layer", x = 10f, y = initialY,
+            text = longText, style = style, textContainerShape = TextContainerShape.BOX,
+            boxWidth = 400f, boxHeight = null
+        )
+
+        val boundsBoxNarrow = textRenderer.getTextBounds(boxLayerNarrow)
+        val boundsBoxWide = textRenderer.getTextBounds(boxLayerWide)
+
+        assertEquals("Narrow Box top must equal initial Y", initialY, boundsBoxNarrow.top, 0.001f)
+        assertEquals("Wide Box top must equal initial Y", initialY, boundsBoxWide.top, 0.001f)
+    }
 }

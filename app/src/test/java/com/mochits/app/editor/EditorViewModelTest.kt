@@ -822,4 +822,41 @@ class EditorViewModelTest {
         assertEquals(mask1?.size, mask2?.size)
         assertEquals(rawMask1?.size, rawMask2?.size)
     }
+
+    @Test
+    fun testUpdateSelectedTextLayerStretch_HorizontalStretch_PreservesYAndBoxHeight() {
+        viewModel.addTextLayer("Horizontal Stretch Stability Test")
+        val layerId = viewModel.selectedLayerId.value!!
+
+        val initialLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        val initialY = 200f
+        val initialX = 100f
+        val initialBoxH = 150f
+
+        viewModel.updateSelectedTextLayerPosition(initialX, initialY, saveUndo = false)
+        viewModel.updateSelectedTextLayerDimensions(boxWidth = 200f, boxHeight = initialBoxH, saveUndo = false)
+
+        val layerBeforeStretch = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        assertEquals(initialY, layerBeforeStretch.y, 0.01f)
+        assertEquals(initialBoxH, layerBeforeStretch.boxHeight ?: 0f, 0.01f)
+
+        // Simulate dragging STRETCH_H across 5 frames
+        val newWidths = listOf(220f, 280f, 350f, 420f, 500f)
+        for (w in newWidths) {
+            val newX = 200f - (w / 2f)
+            viewModel.updateSelectedTextLayerStretch(
+                boxWidth = w,
+                boxHeight = layerBeforeStretch.boxHeight,
+                newX = newX,
+                newY = initialY,
+                saveUndo = false
+            )
+
+            val currentLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+            assertEquals("Layer Y must remain strictly initialY during horizontal stretch", initialY, currentLayer.y, 0.001f)
+            assertEquals("Layer boxHeight must remain strictly initialBoxH during horizontal stretch", initialBoxH, currentLayer.boxHeight ?: 0f, 0.001f)
+            assertEquals(w, currentLayer.boxWidth ?: 0f, 0.01f)
+            assertEquals(newX, currentLayer.x, 0.01f)
+        }
+    }
 }
