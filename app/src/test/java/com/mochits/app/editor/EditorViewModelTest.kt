@@ -859,4 +859,42 @@ class EditorViewModelTest {
             assertEquals(newX, currentLayer.x, 0.01f)
         }
     }
+    @Test
+    fun testStretchH_MultiFrame_OvalLayer_BoundsTopAndLayerYAreStrictlyConstant() {
+        val sampleText = "Teks ini adalah contoh teks paragraf yang sangat panjang untuk diuji reflow-nya pada shape OVAL secara langsung di beberapa frame drag STRETCH_H secara berturut-turut."
+        viewModel.addTextLayer(sampleText)
+        val layerId = viewModel.selectedLayerId.value!!
+        viewModel.updateSelectedTextLayerContainerShape(com.mochits.app.model.TextContainerShape.OVAL)
+
+        val initialY = 250f
+        viewModel.updateSelectedTextLayerPosition(100f, initialY, saveUndo = false)
+
+        val testCases = listOf<Float?>(null, 200f) // Condition 1: boxHeight == null, Condition 2: boxHeight != null
+
+        for (targetBoxHeight in testCases) {
+            viewModel.updateSelectedTextLayerDimensions(boxWidth = 150f, boxHeight = targetBoxHeight, saveUndo = false)
+
+            val initialLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+            val initialCenterX = 200f
+
+            val dragWidths = listOf(160f, 180f, 220f, 260f, 310f, 370f, 430f, 500f, 300f, 180f)
+
+            for ((frame, w) in dragWidths.withIndex()) {
+                val newX = initialCenterX - (w / 2f)
+                viewModel.updateSelectedTextLayerStretch(
+                    boxWidth = w,
+                    boxHeight = initialLayer.boxHeight,
+                    newX = newX,
+                    newY = initialY,
+                    saveUndo = false
+                )
+
+                val currentLayer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+                val bounds = viewModel.textRenderer.getTextBounds(currentLayer)
+
+                assertEquals("Frame $frame (boxHeight=$targetBoxHeight): layer.y must remain strictly equal to initialY", initialY, currentLayer.y, 0.0001f)
+                assertEquals("Frame $frame (boxHeight=$targetBoxHeight): bounds.top must remain strictly equal to initialY", initialY, bounds.top, 0.0001f)
+            }
+        }
+    }
 }

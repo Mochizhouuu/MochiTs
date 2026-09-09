@@ -462,9 +462,9 @@ class TextRenderer(private val context: Context) {
 
         val totalTextHeight = lines.size * lineHeight
         val finalContainerW = boxWidth ?: (lines.maxOfOrNull { it.width }?.coerceAtLeast(20f) ?: 20f)
-        val finalContainerH = boxHeight ?: (effectiveBoxHeight ?: totalTextHeight).coerceAtLeast(lineHeight)
+        val finalContainerH = boxHeight ?: totalTextHeight.coerceAtLeast(lineHeight)
 
-        val topOffset = if (boxHeight != null || effectiveBoxHeight != null) {
+        val topOffset = if (boxHeight != null) {
             ((finalContainerH - totalTextHeight) / 2f).coerceAtLeast(0f)
         } else 0f
 
@@ -621,13 +621,11 @@ class TextRenderer(private val context: Context) {
         }
         val layoutResult = layoutText(text, paint, shape, boxWidth, boxHeight, style.alignment)
 
-        val totalTextHeight = (layoutResult.lines.size * layoutResult.lineHeight).coerceAtLeast(layoutResult.lineHeight)
-
         val left = if (boxWidth != null) x else x + layoutResult.minX
         val right = if (boxWidth != null) x + boxWidth else x + layoutResult.maxX
 
         val top = y
-        val bottom = if (boxHeight != null) y + boxHeight else y + totalTextHeight
+        val bottom = if (boxHeight != null) y + boxHeight else y + layoutResult.containerHeight
 
         return RectF(left, top, right, bottom)
     }
