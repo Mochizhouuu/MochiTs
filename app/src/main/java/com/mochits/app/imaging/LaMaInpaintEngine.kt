@@ -27,6 +27,18 @@ class LaMaInpaintEngine(
             return@withContext Result.Error(IllegalStateException("Model LaMa Manga belum terunduh"))
         }
         val modelFile = modelManager.getModelFile()
+
+        var croppedBase: Bitmap? = null
+        var croppedMask: Bitmap? = null
+        var scaledBase: Bitmap? = null
+        var scaledMask: Bitmap? = null
+        var result512: Bitmap? = null
+        var scaledResult: Bitmap? = null
+
+        var imageTensor: OnnxTensor? = null
+        var maskTensor: OnnxTensor? = null
+        var results: OrtSession.Result? = null
+
         try {
             if (ortEnv == null) {
                 ortEnv = OrtEnvironment.getEnvironment()
@@ -98,13 +110,13 @@ class LaMaInpaintEngine(
             cropH = cropBottom - cropTop
 
             // 3. Crop base and mask bitmaps
-            val croppedBase = Bitmap.createBitmap(baseBitmap, cropLeft, cropTop, cropW, cropH)
-            val croppedMask = Bitmap.createBitmap(maskBitmap, cropLeft, cropTop, cropW, cropH)
+            croppedBase = Bitmap.createBitmap(baseBitmap, cropLeft, cropTop, cropW, cropH)
+            croppedMask = Bitmap.createBitmap(maskBitmap, cropLeft, cropTop, cropW, cropH)
 
             // 4. Scale to 512x512
             val targetSize = 512
-            val scaledBase = Bitmap.createScaledBitmap(croppedBase, targetSize, targetSize, true)
-            val scaledMask = Bitmap.createScaledBitmap(croppedMask, targetSize, targetSize, true)
+            scaledBase = Bitmap.createScaledBitmap(croppedBase, targetSize, targetSize, true)
+            scaledMask = Bitmap.createScaledBitmap(croppedMask, targetSize, targetSize, true)
 
             // 5. Fill ONNX input buffers
             val planeSize = targetSize * targetSize
@@ -134,12 +146,13 @@ class LaMaInpaintEngine(
 
             val imageShape = longArrayOf(1, 3, targetSize.toLong(), targetSize.toLong())
             val maskShape = longArrayOf(1, 1, targetSize.toLong(), targetSize.toLong())
-            val imageTensor = OnnxTensor.createTensor(env, imgBuffer, imageShape)
-            val maskTensor = OnnxTensor.createTensor(env, maskBuffer, maskShape)
+            imageTensor = OnnxTensor.createTensor(env, imgBuffer, imageShape)
+            maskTensor = OnnxTensor.createTensor(env, maskBuffer, maskShape)
             val inputs = mapOf("image" to imageTensor, "mask" to maskTensor)
 
-            val results = session.run(inputs)
-            val outputTensorValue = results[0].value
+            val sessionResults = session.run(inputs)
+            results = sessionResults
+            val outputTensorValue = sessionResults[0].value
 
             val rawOutputFloats = FloatArray(3 * planeSize)
             if (outputTensorValue is Array<*>) {
@@ -159,9 +172,6 @@ class LaMaInpaintEngine(
                 buf.rewind()
                 buf.get(rawOutputFloats)
             }
-            imageTensor.close()
-            maskTensor.close()
-            results.close()
 
             // 6. Normalize and create output bitmap
             var minVal = Float.MAX_VALUE
@@ -183,11 +193,11 @@ class LaMaInpaintEngine(
                 val b = normalizeColorComponent(bRaw, minVal, maxVal)
                 outPixels[i] = Color.rgb(r, g, b)
             }
-            val result512 = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
+            result512 = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
             result512.setPixels(outPixels, 0, targetSize, 0, 0, targetSize, targetSize)
 
             // 7. Scale back and composite
-            val scaledResult = Bitmap.createScaledBitmap(result512, cropW, cropH, true)
+            scaledResult = Bitmap.createScaledBitmap(result512, cropW, cropH, true)
             val finalBitmap = baseBitmap.copy(Bitmap.Config.ARGB_8888, true)
             val basePixels = IntArray(cropW * cropH)
             finalBitmap.getPixels(basePixels, 0, cropW, cropLeft, cropTop, cropW, cropH)
@@ -222,18 +232,25 @@ class LaMaInpaintEngine(
             }
             finalBitmap.setPixels(basePixels, 0, cropW, cropLeft, cropTop, cropW, cropH)
 
-            // Clean up
-            croppedBase.recycle()
-            croppedMask.recycle()
-            scaledBase.recycle()
-            scaledMask.recycle()
-            result512.recycle()
-            scaledResult.recycle()
-
             Result.Success(finalBitmap)
+        } catch (oom: OutOfMemoryError) {
+            Logger.e("LaMa Inpainting OutOfMemoryError: ${oom.message}", oom)
+            System.gc()
+            Result.Error(Exception("Inpainting gagal karena memori rendah. Coba pilih area yang lebih kecil.", oom))
         } catch (t: Throwable) {
             Logger.e("Error: ${t.message}", t)
             Result.Error(Exception("Inference LaMa Manga gagal: ${t.message}", t))
+        } finally {
+            try { imageTensor?.close() } catch (_: Throwable) {}
+            try { maskTensor?.close() } catch (_: Throwable) {}
+            try { results?.close() } catch (_: Throwable) {}
+
+            try { croppedBase?.let { if (!it.isRecycled) it.recycle() } } catch (_: Throwable) {}
+            try { croppedMask?.let { if (!it.isRecycled) it.recycle() } } catch (_: Throwable) {}
+            try { scaledBase?.let { if (!it.isRecycled) it.recycle() } } catch (_: Throwable) {}
+            try { scaledMask?.let { if (!it.isRecycled) it.recycle() } } catch (_: Throwable) {}
+            try { result512?.let { if (!it.isRecycled) it.recycle() } } catch (_: Throwable) {}
+            try { scaledResult?.let { if (!it.isRecycled) it.recycle() } } catch (_: Throwable) {}
         }
     }
 

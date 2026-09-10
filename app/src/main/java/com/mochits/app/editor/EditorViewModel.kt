@@ -350,26 +350,26 @@ data class HistoryManifest(
                     project.value = proj
                     layers.value = serializer.deserialize(proj.layersJson)
                     var loadedBmp: Bitmap? = null
-                    proj.thumbnailPath?.let { path ->
-                        val file = File(path)
-                        if (file.exists()) {
-                            try {
-                                val options = android.graphics.BitmapFactory.Options().apply {
-                                    inMutable = true
-                                }
-                                val decoded = android.graphics.BitmapFactory.decodeFile(file.absolutePath, options)
-                                if (decoded != null) {
-                                    loadedBmp = if (decoded.isMutable && decoded.config == Bitmap.Config.ARGB_8888) {
-                                        decoded
-                                    } else {
-                                        val copy = decoded.copy(Bitmap.Config.ARGB_8888, true)
-                                        decoded.recycle()
-                                        copy
-                                    }
-                                }
-                            } catch (t: Throwable) {
-                                Logger.e("Error: ${t.message}", t)
+                    val baseFile = proj.thumbnailPath?.let { File(it) }?.takeIf { it.exists() }
+                        ?: File(context.filesDir, "projects/${proj.id}/base_image.png").takeIf { it.exists() }
+
+                    if (baseFile != null) {
+                        try {
+                            val options = android.graphics.BitmapFactory.Options().apply {
+                                inMutable = true
                             }
+                            val decoded = android.graphics.BitmapFactory.decodeFile(baseFile.absolutePath, options)
+                            if (decoded != null) {
+                                loadedBmp = if (decoded.isMutable && decoded.config == Bitmap.Config.ARGB_8888) {
+                                    decoded
+                                } else {
+                                    val copy = decoded.copy(Bitmap.Config.ARGB_8888, true)
+                                    decoded.recycle()
+                                    copy
+                                }
+                            }
+                        } catch (t: Throwable) {
+                            Logger.e("Error loading base bitmap from disk: ${t.message}", t)
                         }
                     }
                     if (loadedBmp != null) {
@@ -729,16 +729,31 @@ if (validName != null) referencedFiles.add(validName)
                 }
 
                 saveUndoSnapshot()
-                when (val lamaResult = lamaInpaintEngine.inpaintLaMa(currentBase, tools.maskBitmap)) {
-                    is Result.Success -> {
-                        baseBitmap.value = lamaResult.data
-                        tools.clearMask()
-                        autoSave()
+                try {
+                    when (val lamaResult = lamaInpaintEngine.inpaintLaMa(currentBase, tools.maskBitmap)) {
+                        is Result.Success -> {
+                            baseBitmap.value = lamaResult.data
+                            tools.clearMask()
+                            autoSave()
+                        }
+                        is Result.Error -> {
+                            val msg = lamaResult.exception.message ?: "Memori rendah"
+                            userMessage.value = if (msg.contains("memori rendah", ignoreCase = true) || lamaResult.exception is OutOfMemoryError) {
+                                "Inpainting gagal karena memori rendah. Coba pilih area yang lebih kecil. Mengalihkan ke Telea..."
+                            } else {
+                                "Inference LaMa gagal: $msg. Mengalihkan ke Telea..."
+                            }
+                            runTeleaFallback(currentBase, tools)
+                        }
+                        else -> {}
                     }
-                    is Result.Error -> {
-                        userMessage.value = "Inference LaMa gagal: ${lamaResult.exception.message}"
-                    }
-                    else -> {}
+                } catch (oom: OutOfMemoryError) {
+                    System.gc()
+                    userMessage.value = "Inpainting gagal karena memori rendah. Coba pilih area yang lebih kecil. Mengalihkan ke Telea..."
+                    runTeleaFallback(currentBase, tools)
+                } catch (t: Throwable) {
+                    userMessage.value = "Inference LaMa gagal: ${t.message}. Mengalihkan ke Telea..."
+                    runTeleaFallback(currentBase, tools)
                 }
             } else {
                 saveUndoSnapshot()

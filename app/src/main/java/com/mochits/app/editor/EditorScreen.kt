@@ -846,6 +846,8 @@ fun EditorScreen(
                                                     initialTextY = hitTextLayer.y
                                                     isBodyMoveDragging = false
                                                     hitHandle = true
+                                                    firstChange.consume()
+                                                    Logger.d("Touch intercepted by text layer: ${hitTextLayer.id}")
                                                 }
                                             }
                                         }
@@ -857,6 +859,7 @@ fun EditorScreen(
 
                                 // Check pending body move drag threshold
                                 if (pendingBodyMoveLayer != null && firstChange.pressed && activeHandleType == null) {
+                                    firstChange.consume()
                                     val moveDist = (firstChange.position - initialTouchScreenPt).getDistance()
                                     if (moveDist > 8f || isBodyMoveDragging) {
                                         if (!isBodyMoveDragging) {
@@ -1026,6 +1029,7 @@ fun EditorScreen(
                                         val panDelta = center - prevCenter
 
                                         panAccumulator += panDelta.getDistance()
+                                        Logger.d("Canvas Multi-Finger Gesture Transform: panDelta=$panDelta, zoomFactor=$zoomFactor")
                                         viewModel.canvasState.onGestureTransform(center, panDelta, zoomFactor)
                                         triggerRedraw++
                                         pressedList.forEach { it.consume() }
@@ -1035,6 +1039,7 @@ fun EditorScreen(
                                         val moved = panDelta.getDistance() > 1.5f
                                         if (moved) {
                                             panAccumulator += panDelta.getDistance()
+                                            Logger.d("Canvas Single-Finger Pan Transform: panDelta=$panDelta")
                                             viewModel.canvasState.onGestureTransform(c.position, panDelta, 1f)
                                             triggerRedraw++
                                             c.consume()
