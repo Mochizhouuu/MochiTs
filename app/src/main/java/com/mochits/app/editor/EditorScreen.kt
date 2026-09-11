@@ -474,19 +474,50 @@ fun EditorScreen(
             var magicWandMovedDistance by remember { mutableFloatStateOf(0f) }
             var isMagicWandPending by remember { mutableStateOf(false) }
 
-            // Selected text layer & handle bounds calculation
+            // Selected text layer & handle bounds calculation (single evaluated bounds)
             val selectedTextLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer
-            val handleCanvasCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text, selectedTextLayer?.boxWidth, selectedTextLayer?.boxHeight) {
+            val selectedTextBounds = remember(
+                selectedTextLayer,
+                selectedTextLayer?.x,
+                selectedTextLayer?.y,
+                selectedTextLayer?.style?.fontSize,
+                selectedTextLayer?.text,
+                selectedTextLayer?.boxWidth,
+                selectedTextLayer?.boxHeight,
+                selectedTextLayer?.textContainerShape,
+                selectedTextLayer?.style?.alignment,
+                selectedTextLayer?.style?.fontName,
+                selectedTextLayer?.style?.fontStyle
+            ) {
                 if (selectedTextLayer != null) {
-                    val bounds = textRenderer.getTextBounds(selectedTextLayer)
-                    Offset(bounds.right, bounds.bottom)
-                } else {
-                    Offset.Zero
-                }
+                    textRenderer.getTextBounds(selectedTextLayer)
+                } else null
+            }
+
+            val handleCanvasCenter = remember(selectedTextBounds) {
+                selectedTextBounds?.let { Offset(it.right, it.bottom) } ?: Offset.Zero
+            }
+            val deleteHandleCanvasCenter = remember(selectedTextBounds) {
+                selectedTextBounds?.let { Offset(it.left, it.top) } ?: Offset.Zero
+            }
+            val rotateHandleCanvasCenter = remember(selectedTextBounds) {
+                selectedTextBounds?.let { Offset(it.right, it.top) } ?: Offset.Zero
+            }
+            val stretchVBottomCenter = remember(selectedTextBounds, viewModel.canvasState.scale) {
+                if (selectedTextBounds != null) {
+                    val floatOffset = (14f / viewModel.canvasState.scale) * 0.75f
+                    Offset(selectedTextBounds.centerX(), selectedTextBounds.bottom + floatOffset)
+                } else Offset.Zero
+            }
+            val stretchHRightCenter = remember(selectedTextBounds, viewModel.canvasState.scale) {
+                if (selectedTextBounds != null) {
+                    val floatOffset = (14f / viewModel.canvasState.scale) * 0.75f
+                    Offset(selectedTextBounds.right + floatOffset, selectedTextBounds.centerY())
+                } else Offset.Zero
             }
 
             var activeHandleType by remember { mutableStateOf<TextHandleType?>(null) }
-                var initialDragDist by remember { mutableFloatStateOf(0f) }
+            var initialDragDist by remember { mutableFloatStateOf(0f) }
             var initialFontSize by remember { mutableFloatStateOf(36f) }
             var initialTextRotation by remember { mutableFloatStateOf(0f) }
             var initialTouchAngle by remember { mutableFloatStateOf(0f) }
@@ -497,6 +528,8 @@ fun EditorScreen(
             var initialTouchCanvasPt by remember { mutableStateOf(Offset.Zero) }
             var initialBoxW by remember { mutableFloatStateOf(0f) }
             var initialBoxH by remember { mutableFloatStateOf(0f) }
+            var initialMinW by remember { mutableFloatStateOf(30f) }
+            var initialMinH by remember { mutableFloatStateOf(20f) }
             var initialBoundsLeft by remember { mutableFloatStateOf(0f) }
             var initialBoundsTop by remember { mutableFloatStateOf(0f) }
 
@@ -506,37 +539,6 @@ fun EditorScreen(
             var pendingBodyMoveLayer by remember { mutableStateOf<Layer.TextLayer?>(null) }
             var initialTouchScreenPt by remember { mutableStateOf(Offset.Zero) }
             var isBodyMoveDragging by remember { mutableStateOf(false) }
-
-            // Handle positions in unrotated text bounds space
-            val deleteHandleCanvasCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text) {
-                if (selectedTextLayer != null) {
-                    val bounds = textRenderer.getTextBounds(selectedTextLayer)
-                    Offset(bounds.left, bounds.top)
-                } else Offset.Zero
-            }
-
-            val rotateHandleCanvasCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text, selectedTextLayer?.boxWidth, selectedTextLayer?.boxHeight) {
-                if (selectedTextLayer != null) {
-                    val bounds = textRenderer.getTextBounds(selectedTextLayer)
-                    Offset(bounds.right, bounds.top)
-                } else Offset.Zero
-            }
-
-            val stretchVBottomCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text, selectedTextLayer?.boxWidth, selectedTextLayer?.boxHeight, viewModel.canvasState.scale) {
-                if (selectedTextLayer != null) {
-                    val bounds = textRenderer.getTextBounds(selectedTextLayer)
-                    val floatOffset = (14f / viewModel.canvasState.scale) * 0.75f
-                    Offset(bounds.centerX(), bounds.bottom + floatOffset)
-                } else Offset.Zero
-            }
-
-            val stretchHRightCenter = remember(selectedTextLayer, selectedTextLayer?.x, selectedTextLayer?.y, selectedTextLayer?.style?.fontSize, selectedTextLayer?.text, selectedTextLayer?.boxWidth, selectedTextLayer?.boxHeight, viewModel.canvasState.scale) {
-                if (selectedTextLayer != null) {
-                    val bounds = textRenderer.getTextBounds(selectedTextLayer)
-                    val floatOffset = (14f / viewModel.canvasState.scale) * 0.75f
-                    Offset(bounds.right + floatOffset, bounds.centerY())
-                } else Offset.Zero
-            }
 
             var panAccumulator by remember { mutableFloatStateOf(0f) }
 
@@ -813,6 +815,7 @@ fun EditorScreen(
                                                 initialTextCenterY = textCenterY
                                                 initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
                                                 initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
+                                                initialMinH = textRenderer.getMinBoxHeight(selectedTextLayer)
                                                 initialBoundsLeft = bounds.left
                                                 initialBoundsTop = bounds.top
                                                 hitHandle = true
@@ -828,6 +831,7 @@ fun EditorScreen(
                                                 initialTextCenterY = textCenterY
                                                 initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
                                                 initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
+                                                initialMinW = textRenderer.getMinBoxWidth(selectedTextLayer)
                                                 initialBoundsLeft = bounds.left
                                                 initialBoundsTop = bounds.top
                                                 hitHandle = true
@@ -923,8 +927,7 @@ fun EditorScreen(
                                                     touchCanvasPt
                                                 }
                                                 val currentBoxW = selectedTextLayer.boxWidth
-                                                val minH = textRenderer.getMinBoxHeight(selectedTextLayer)
-                                                val newBoxH = (unrotatedPt.y - initialTextY).coerceAtLeast(minH)
+                                                val newBoxH = (unrotatedPt.y - initialTextY).coerceAtLeast(initialMinH)
                                                 viewModel.updateSelectedTextLayerStretch(
                                                     boxWidth = currentBoxW,
                                                     boxHeight = newBoxH,
@@ -952,8 +955,7 @@ fun EditorScreen(
                                                 }
                                                 val currentBoxH = selectedTextLayer.boxHeight
                                                 val distFromCenter = kotlin.math.abs(unrotatedPt.x - initialTextCenterX)
-                                                val minW = textRenderer.getMinBoxWidth(selectedTextLayer)
-                                                val newBoxW = (distFromCenter * 2f).coerceAtLeast(minW)
+                                                val newBoxW = (distFromCenter * 2f).coerceAtLeast(initialMinW)
                                                 val newX = initialTextCenterX - (newBoxW / 2f)
                                                 viewModel.updateSelectedTextLayerStretch(
                                                     boxWidth = newBoxW,

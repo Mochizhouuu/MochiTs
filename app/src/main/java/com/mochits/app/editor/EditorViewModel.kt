@@ -345,10 +345,15 @@ data class HistoryManifest(
     private fun loadProject() {
         viewModelScope.launch {
             try {
-                val proj = repository.getProject(projectId)
+                val proj = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    repository.getProject(projectId)
+                }
                 if (proj != null) {
                     project.value = proj
-                    layers.value = serializer.deserialize(proj.layersJson)
+                    val deserialized = serializer.deserialize(proj.layersJson)
+                    if (layers.value.isEmpty() && deserialized.isNotEmpty()) {
+                        layers.value = deserialized
+                    }
                     var loadedBmp: Bitmap? = null
                     val baseFile = proj.thumbnailPath?.let { File(it) }?.takeIf { it.exists() }
                         ?: File(context.filesDir, "projects/${proj.id}/base_image.png").takeIf { it.exists() }
@@ -358,7 +363,9 @@ data class HistoryManifest(
                             val options = android.graphics.BitmapFactory.Options().apply {
                                 inMutable = true
                             }
-                            val decoded = android.graphics.BitmapFactory.decodeFile(baseFile.absolutePath, options)
+                            val decoded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                android.graphics.BitmapFactory.decodeFile(baseFile.absolutePath, options)
+                            }
                             if (decoded != null) {
                                 loadedBmp = if (decoded.isMutable && decoded.config == Bitmap.Config.ARGB_8888) {
                                     decoded
@@ -374,17 +381,26 @@ data class HistoryManifest(
                     }
                     if (loadedBmp != null) {
                         baseBitmap.value = loadedBmp
-                        setupCanvasSize(loadedBmp!!.width, loadedBmp!!.height)
+                        setupCanvasSize(loadedBmp.width, loadedBmp.height)
                     } else {
-                        setupCanvasSize(proj.width, proj.height)
+                        val current = baseBitmap.value
+                        if (current == null || current.isRecycled) {
+                            setupCanvasSize(proj.width, proj.height)
+                        }
                     }
                     loadHistoryFromDisk(proj.id)
                 } else {
-                    setupCanvasSize(1080, 1920)
+                    val current = baseBitmap.value
+                    if (current == null || current.isRecycled) {
+                        setupCanvasSize(1080, 1920)
+                    }
                 }
             } catch (t: Throwable) {
                 Logger.e("Error: ${t.message}", t)
-                setupCanvasSize(1080, 1920)
+                val current = baseBitmap.value
+                if (current == null || current.isRecycled) {
+                    setupCanvasSize(1080, 1920)
+                }
             }
         }
     }
@@ -412,14 +428,16 @@ data class HistoryManifest(
         val currentBmp = baseBitmap.value
         val currentLayers = layers.value
 
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            saveBaseBitmapToDiskInternal(currentProj, currentBmp)
-            val json = serializer.serialize(currentLayers)
-            val imageFile = File(context.filesDir, "projects/${currentProj.id}/base_image.png")
-            val updatedProj = currentProj.copy(
-                layersJson = json,
-                thumbnailPath = if (imageFile.exists()) imageFile.absolutePath else currentProj.thumbnailPath
-            )
+        val imageFile = File(context.filesDir, "projects/${currentProj.id}/base_image.png")
+        saveBaseBitmapToDiskInternal(currentProj, currentBmp)
+        val json = serializer.serialize(currentLayers)
+        val updatedProj = currentProj.copy(
+            layersJson = json,
+            thumbnailPath = if (imageFile.exists()) imageFile.absolutePath else currentProj.thumbnailPath
+        )
+        project.value = updatedProj
+
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
             repository.saveProject(updatedProj)
             syncHistoryToDiskInternal(currentProj.id)
         }
@@ -587,7 +605,6 @@ if (validName != null) referencedFiles.add(validName)
                 baseBitmap.value = bmp
             } catch (t: Throwable) {
                 Logger.e("Error: ${t.message}", t)
-                // Fallback to safe standard dimensions if extreme allocation fails
                 val fallbackW = safeW.coerceAtMost(2048)
                 val fallbackH = safeH.coerceAtMost(4096)
                 try {
