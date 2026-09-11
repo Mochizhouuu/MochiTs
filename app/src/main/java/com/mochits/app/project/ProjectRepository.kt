@@ -85,11 +85,18 @@ class ProjectRepository @Inject constructor(
                     if (decodedBmp != null) {
                         finalWidth = decodedBmp.width
                         finalHeight = decodedBmp.height
-                        FileOutputStream(imageFile).use { output ->
+                        val tmpFile = java.io.File(imageFile.parentFile, "${imageFile.name}.tmp")
+                        FileOutputStream(tmpFile).use { output ->
                             decodedBmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output)
+                            output.flush()
                         }
                         decodedBmp.recycle()
-                        if (imageFile.exists() && imageFile.length() > 0) {
+                        if (tmpFile.exists() && tmpFile.length() > 0) {
+                            if (imageFile.exists()) imageFile.delete()
+                            if (!tmpFile.renameTo(imageFile)) {
+                                tmpFile.copyTo(imageFile, overwrite = true)
+                                tmpFile.delete()
+                            }
                             thumbnailPath = imageFile.absolutePath
                         }
                     }
