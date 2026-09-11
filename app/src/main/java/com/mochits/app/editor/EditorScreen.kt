@@ -855,26 +855,26 @@ fun EditorScreen(
                                                 firstChange.consume()
                                                 continue
                                             }
-                                            else -> {
-                                                val hitTextLayer = layers.reversed().filterIsInstance<Layer.TextLayer>().firstOrNull { layer ->
-                                                    layer.isVisible && isPointInsideTextLayer(layer, touchCanvasPt, textRenderer)
-                                                }
-                                                if (hitTextLayer != null) {
-                                                    pendingBodyMoveLayer = hitTextLayer
-                                                    initialTouchScreenPt = firstChange.position
-                                                    initialTouchCanvasPt = touchCanvasPt
-                                                    initialTextX = hitTextLayer.x
-                                                    initialTextY = hitTextLayer.y
-                                                    isBodyMoveDragging = false
-                                                    hitHandle = true
-                                                    firstChange.consume()
-                                                    Logger.d("Touch intercepted by text layer: ${hitTextLayer.id}")
-                                                }
-                                            }
+                                            else -> {}
                                         }
                                     }
                                     if (!hitHandle) {
-                                        activeHandleType = null
+                                        val hitTextLayer = layers.reversed().filterIsInstance<Layer.TextLayer>().firstOrNull { layer ->
+                                            layer.isVisible && isPointInsideTextLayer(layer, touchCanvasPt, textRenderer)
+                                        }
+                                        if (hitTextLayer != null) {
+                                            pendingBodyMoveLayer = hitTextLayer
+                                            initialTouchScreenPt = firstChange.position
+                                            initialTouchCanvasPt = touchCanvasPt
+                                            initialTextX = hitTextLayer.x
+                                            initialTextY = hitTextLayer.y
+                                            isBodyMoveDragging = false
+                                            hitHandle = true
+                                            firstChange.consume()
+                                            Logger.d("Touch intercepted by text layer: ${hitTextLayer.id}")
+                                        } else {
+                                            activeHandleType = null
+                                        }
                                     }
                                 }
 
