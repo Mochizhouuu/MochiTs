@@ -55,28 +55,71 @@ class LaMaInpaintEngine(
             val width = baseBitmap.width
             val height = baseBitmap.height
 
-            // 1. Find mask bounding box
-            val maskPixels = IntArray(width * height)
-            maskBitmap.getPixels(maskPixels, 0, width, 0, 0, width, height)
+            // 1. Find mask bounding box with row-by-row scanning (memory efficient & fast)
             var minX = width
             var minY = height
             var maxX = -1
             var maxY = -1
+
+            val rowBuffer = IntArray(width)
+            // First pass: find minY
             for (y in 0 until height) {
-                val offset = y * width
+                maskBitmap.getPixels(rowBuffer, 0, width, 0, y, width, 1)
+                var rowHasMask = false
                 for (x in 0 until width) {
-                    val px = maskPixels[offset + x]
+                    val px = rowBuffer[x]
                     val alpha = max((px ushr 24) and 0xFF, px and 0xFF)
                     if (alpha > 0) {
+                        rowHasMask = true
                         if (x < minX) minX = x
                         if (x > maxX) maxX = x
-                        if (y < minY) minY = y
-                        if (y > maxY) maxY = y
                     }
+                }
+                if (rowHasMask) {
+                    minY = y
+                    break
                 }
             }
 
             // If mask is completely empty, return base copy
+            if (minY >= height) {
+                return@withContext Result.Success(baseBitmap.copy(baseBitmap.config, true))
+            }
+
+            // Second pass: find maxY
+            for (y in (height - 1) downTo minY) {
+                maskBitmap.getPixels(rowBuffer, 0, width, 0, y, width, 1)
+                var rowHasMask = false
+                for (x in 0 until width) {
+                    val px = rowBuffer[x]
+                    val alpha = max((px ushr 24) and 0xFF, px and 0xFF)
+                    if (alpha > 0) {
+                        rowHasMask = true
+                        if (x < minX) minX = x
+                        if (x > maxX) maxX = x
+                    }
+                }
+                if (rowHasMask) {
+                    maxY = y
+                    break
+                }
+            }
+
+            // Third pass: refine minX and maxX for remaining rows
+            if (minY + 1 <= maxY - 1) {
+                for (y in (minY + 1) until maxY) {
+                    maskBitmap.getPixels(rowBuffer, 0, width, 0, y, width, 1)
+                    for (x in 0 until width) {
+                        val px = rowBuffer[x]
+                        val alpha = max((px ushr 24) and 0xFF, px and 0xFF)
+                        if (alpha > 0) {
+                            if (x < minX) minX = x
+                            if (x > maxX) maxX = x
+                        }
+                    }
+                }
+            }
+
             if (maxX < 0 || maxY < 0) {
                 return@withContext Result.Success(baseBitmap.copy(baseBitmap.config, true))
             }
@@ -152,25 +195,33 @@ class LaMaInpaintEngine(
 
             val sessionResults = session.run(inputs)
             results = sessionResults
-            val outputTensorValue = sessionResults[0].value
 
             val rawOutputFloats = FloatArray(3 * planeSize)
-            if (outputTensorValue is Array<*>) {
-                @Suppress("UNCHECKED_CAST")
-                val floatArray4D = outputTensorValue as Array<Array<Array<FloatArray>>>
-                for (ch in 0..2) {
-                    val chOffset = ch * planeSize
-                    for (y in 0 until targetSize) {
-                        val rowOffset = y * targetSize
-                        for (x in 0 until targetSize) {
-                            rawOutputFloats[chOffset + rowOffset + x] = floatArray4D[0][ch][y][x]
+            val outputTensor = sessionResults[0] as? OnnxTensor
+            val directBuffer = try { outputTensor?.floatBuffer } catch (_: Throwable) { null }
+
+            if (directBuffer != null) {
+                directBuffer.rewind()
+                directBuffer.get(rawOutputFloats)
+            } else {
+                val outputTensorValue = sessionResults[0].value
+                if (outputTensorValue is FloatBuffer) {
+                    val buf = outputTensorValue
+                    buf.rewind()
+                    buf.get(rawOutputFloats)
+                } else if (outputTensorValue is Array<*>) {
+                    @Suppress("UNCHECKED_CAST")
+                    val floatArray4D = outputTensorValue as Array<Array<Array<FloatArray>>>
+                    for (ch in 0..2) {
+                        val chOffset = ch * planeSize
+                        for (y in 0 until targetSize) {
+                            val rowOffset = y * targetSize
+                            for (x in 0 until targetSize) {
+                                rawOutputFloats[chOffset + rowOffset + x] = floatArray4D[0][ch][y][x]
+                            }
                         }
                     }
                 }
-            } else if (outputTensorValue is FloatBuffer) {
-                val buf = outputTensorValue
-                buf.rewind()
-                buf.get(rawOutputFloats)
             }
 
             // 6. Normalize and create output bitmap

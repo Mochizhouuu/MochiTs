@@ -35,8 +35,8 @@ private data class TextLayoutKey(
     val textSize: Float,
     val typeface: Typeface?,
     val shape: TextContainerShape,
-    val boxWidth: Float?,
-    val boxHeight: Float?,
+    val boxWidthHalfPx: Int?,
+    val boxHeightHalfPx: Int?,
     val alignment: TextAlignment
 )
 
@@ -199,8 +199,8 @@ class TextRenderer(private val context: Context) {
             textSize = paint.textSize,
             typeface = paint.typeface,
             shape = shape,
-            boxWidth = boxWidth,
-            boxHeight = boxHeight,
+            boxWidthHalfPx = boxWidth?.let { kotlin.math.round(it * 2f).toInt() },
+            boxHeightHalfPx = boxHeight?.let { kotlin.math.round(it * 2f).toInt() },
             alignment = alignment
         )
 
