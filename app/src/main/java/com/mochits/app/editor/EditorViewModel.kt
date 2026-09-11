@@ -243,8 +243,10 @@ data class HistoryManifest(
     }
 
     private fun updateUndoRedoState() {
-        canUndo.value = undoStack.isNotEmpty()
-        canRedo.value = redoStack.isNotEmpty()
+        synchronized(undoStack) {
+            canUndo.value = undoStack.isNotEmpty()
+            canRedo.value = redoStack.isNotEmpty()
+        }
     }
 
     private fun calculateMaxHistorySteps(): Int {
@@ -281,48 +283,56 @@ data class HistoryManifest(
             maskBytes = getMaskByteArray(),
             rawMaskBytes = getRawMaskByteArray()
         )
-        undoStack.addLast(snapshot)
-        val maxHistory = calculateMaxHistorySteps()
-        while (undoStack.size > maxHistory) {
-            undoStack.removeFirst()
+        synchronized(undoStack) {
+            undoStack.addLast(snapshot)
+            val maxHistory = calculateMaxHistorySteps()
+            while (undoStack.size > maxHistory) {
+                undoStack.removeFirst()
+            }
+            redoStack.clear()
         }
-        redoStack.clear()
         updateUndoRedoState()
     }
 
     fun rollbackUndoSnapshot() {
-        if (undoStack.isNotEmpty()) {
-            val snapshot = undoStack.removeLast()
+        val snapshot = synchronized(undoStack) {
+            if (undoStack.isNotEmpty()) undoStack.removeLast() else null
+        }
+        if (snapshot != null) {
             restoreSnapshot(snapshot)
             updateUndoRedoState()
         }
     }
 
     fun undo() {
-        if (undoStack.isEmpty()) return
-        val currentSnapshot = HistorySnapshot(
-            layers = layers.value,
-            baseBitmap = baseBitmap.value,
-            maskBytes = getMaskByteArray(),
-            rawMaskBytes = getRawMaskByteArray()
-        )
-        redoStack.addLast(currentSnapshot)
-        val previousState = undoStack.removeLast()
+        val previousState = synchronized(undoStack) {
+            if (undoStack.isEmpty()) return
+            val currentSnapshot = HistorySnapshot(
+                layers = layers.value,
+                baseBitmap = baseBitmap.value,
+                maskBytes = getMaskByteArray(),
+                rawMaskBytes = getRawMaskByteArray()
+            )
+            redoStack.addLast(currentSnapshot)
+            undoStack.removeLast()
+        }
         restoreSnapshot(previousState)
         updateUndoRedoState()
         autoSave()
     }
 
     fun redo() {
-        if (redoStack.isEmpty()) return
-        val currentSnapshot = HistorySnapshot(
-            layers = layers.value,
-            baseBitmap = baseBitmap.value,
-            maskBytes = getMaskByteArray(),
-            rawMaskBytes = getRawMaskByteArray()
-        )
-        undoStack.addLast(currentSnapshot)
-        val nextState = redoStack.removeLast()
+        val nextState = synchronized(undoStack) {
+            if (redoStack.isEmpty()) return
+            val currentSnapshot = HistorySnapshot(
+                layers = layers.value,
+                baseBitmap = baseBitmap.value,
+                maskBytes = getMaskByteArray(),
+                rawMaskBytes = getRawMaskByteArray()
+            )
+            undoStack.addLast(currentSnapshot)
+            redoStack.removeLast()
+        }
         restoreSnapshot(nextState)
         updateUndoRedoState()
         autoSave()
@@ -428,18 +438,21 @@ data class HistoryManifest(
         val currentBmp = baseBitmap.value
         val currentLayers = layers.value
 
-        val imageFile = File(context.filesDir, "projects/${currentProj.id}/base_image.png")
-        saveBaseBitmapToDiskInternal(currentProj, currentBmp)
-        val json = serializer.serialize(currentLayers)
-        val updatedProj = currentProj.copy(
-            layersJson = json,
-            thumbnailPath = if (imageFile.exists()) imageFile.absolutePath else currentProj.thumbnailPath
-        )
-        project.value = updatedProj
-
-        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
-            repository.saveProject(updatedProj)
-            syncHistoryToDiskInternal(currentProj.id)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
+            try {
+                saveBaseBitmapToDiskInternal(currentProj, currentBmp)
+                val json = serializer.serialize(currentLayers)
+                val imageFile = File(context.filesDir, "projects/${currentProj.id}/base_image.png")
+                val updatedProj = currentProj.copy(
+                    layersJson = json,
+                    thumbnailPath = if (imageFile.exists()) imageFile.absolutePath else currentProj.thumbnailPath
+                )
+                project.value = updatedProj
+                repository.saveProject(updatedProj)
+                syncHistoryToDiskInternal(currentProj.id)
+            } catch (e: Exception) {
+                Logger.e("Error flushing project to disk: ${e.message}", e)
+            }
         }
     }
 
@@ -448,11 +461,24 @@ data class HistoryManifest(
         try {
             val projectDir = File(context.filesDir, "projects/${proj.id}").apply { mkdirs() }
             val imageFile = File(projectDir, "base_image.png")
-            java.io.FileOutputStream(imageFile).use { out ->
+            val tmpFile = File(projectDir, "base_image.png.tmp")
+
+            java.io.FileOutputStream(tmpFile).use { out ->
                 bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                out.flush()
+            }
+            if (tmpFile.exists() && tmpFile.length() > 0) {
+                if (imageFile.exists()) {
+                    imageFile.delete()
+                }
+                if (!tmpFile.renameTo(imageFile)) {
+                    tmpFile.copyTo(imageFile, overwrite = true)
+                    tmpFile.delete()
+                }
+                Logger.d("Atomic save base_image.png successful: ${imageFile.length()} bytes, dimensions=${bmp.width}x${bmp.height}")
             }
         } catch (e: Exception) {
-            Logger.e("Error: ${e.message}", e)
+            Logger.e("Error saving base bitmap to disk: ${e.message}", e)
         }
     }
 
@@ -461,38 +487,69 @@ data class HistoryManifest(
             val historyDir = File(context.filesDir, "projects/$projId/history").apply { mkdirs() }
             val referencedFiles = mutableSetOf<String>()
 
-            val undoEntries = undoStack.mapIndexed { index, snapshot ->
+            val undoSnapshotList = synchronized(undoStack) { undoStack.toList() }
+            val redoSnapshotList = synchronized(undoStack) { redoStack.toList() }
+
+            val undoEntries = undoSnapshotList.mapIndexed { index, snapshot ->
                 var fileName: String? = snapshot.bitmapFilePath?.let { File(it).name }
                 val bmp = snapshot.baseBitmap
                 if (bmp != null && !bmp.isRecycled) {
                     val fName = "undo_bmp_$index.png"
+                    val tmpName = "undo_bmp_$index.png.tmp"
                     val file = File(historyDir, fName)
-                    java.io.FileOutputStream(file).use { out ->
-                        bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    val tmpFile = File(historyDir, tmpName)
+                    try {
+                        java.io.FileOutputStream(tmpFile).use { out ->
+                            bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                            out.flush()
+                        }
+                        if (tmpFile.exists() && tmpFile.length() > 0) {
+                            if (file.exists()) file.delete()
+                            if (!tmpFile.renameTo(file)) {
+                                tmpFile.copyTo(file, overwrite = true)
+                                tmpFile.delete()
+                            }
+                            fileName = fName
+                        }
+                    } catch (t: Throwable) {
+                        Logger.e("Error compressing undo history bitmap: ${t.message}", t)
                     }
-                    fileName = fName
                 }
                 val validName = fileName
-if (validName != null) referencedFiles.add(validName)
+                if (validName != null) referencedFiles.add(validName)
                 HistoryStepEntry(
                     layersJson = serializer.serialize(snapshot.layers),
                     bitmapFileName = fileName
                 )
             }
 
-            val redoEntries = redoStack.mapIndexed { index, snapshot ->
+            val redoEntries = redoSnapshotList.mapIndexed { index, snapshot ->
                 var fileName: String? = snapshot.bitmapFilePath?.let { File(it).name }
                 val bmp = snapshot.baseBitmap
                 if (bmp != null && !bmp.isRecycled) {
                     val fName = "redo_bmp_$index.png"
+                    val tmpName = "redo_bmp_$index.png.tmp"
                     val file = File(historyDir, fName)
-                    java.io.FileOutputStream(file).use { out ->
-                        bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    val tmpFile = File(historyDir, tmpName)
+                    try {
+                        java.io.FileOutputStream(tmpFile).use { out ->
+                            bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                            out.flush()
+                        }
+                        if (tmpFile.exists() && tmpFile.length() > 0) {
+                            if (file.exists()) file.delete()
+                            if (!tmpFile.renameTo(file)) {
+                                tmpFile.copyTo(file, overwrite = true)
+                                tmpFile.delete()
+                            }
+                            fileName = fName
+                        }
+                    } catch (t: Throwable) {
+                        Logger.e("Error compressing redo history bitmap: ${t.message}", t)
                     }
-                    fileName = fName
                 }
                 val validName = fileName
-if (validName != null) referencedFiles.add(validName)
+                if (validName != null) referencedFiles.add(validName)
                 HistoryStepEntry(
                     layersJson = serializer.serialize(snapshot.layers),
                     bitmapFileName = fileName
@@ -510,7 +567,7 @@ if (validName != null) referencedFiles.add(validName)
                 }
             }
         } catch (e: Exception) {
-            Logger.e("Error: ${e.message}", e)
+            Logger.e("Error in syncHistoryToDiskInternal: ${e.message}", e)
         }
     }
 
@@ -523,35 +580,37 @@ if (validName != null) referencedFiles.add(validName)
             val manifestJson = manifestFile.readText()
             val manifest = com.google.gson.Gson().fromJson(manifestJson, HistoryManifest::class.java) ?: return
 
-            undoStack.clear()
-            manifest.undoSteps.forEach { entry ->
-                val snapshotLayers = serializer.deserialize(entry.layersJson)
-                val bmpPath = entry.bitmapFileName?.let { File(historyDir, it).absolutePath }
-                undoStack.addLast(
-                    HistorySnapshot(
-                        layers = snapshotLayers,
-                        baseBitmap = null,
-                        bitmapFilePath = bmpPath
+            synchronized(undoStack) {
+                undoStack.clear()
+                manifest.undoSteps.forEach { entry ->
+                    val snapshotLayers = serializer.deserialize(entry.layersJson)
+                    val bmpPath = entry.bitmapFileName?.let { File(historyDir, it).absolutePath }
+                    undoStack.addLast(
+                        HistorySnapshot(
+                            layers = snapshotLayers,
+                            baseBitmap = null,
+                            bitmapFilePath = bmpPath
+                        )
                     )
-                )
-            }
+                }
 
-            redoStack.clear()
-            manifest.redoSteps.forEach { entry ->
-                val snapshotLayers = serializer.deserialize(entry.layersJson)
-                val bmpPath = entry.bitmapFileName?.let { File(historyDir, it).absolutePath }
-                redoStack.addLast(
-                    HistorySnapshot(
-                        layers = snapshotLayers,
-                        baseBitmap = null,
-                        bitmapFilePath = bmpPath
+                redoStack.clear()
+                manifest.redoSteps.forEach { entry ->
+                    val snapshotLayers = serializer.deserialize(entry.layersJson)
+                    val bmpPath = entry.bitmapFileName?.let { File(historyDir, it).absolutePath }
+                    redoStack.addLast(
+                        HistorySnapshot(
+                            layers = snapshotLayers,
+                            baseBitmap = null,
+                            bitmapFilePath = bmpPath
+                        )
                     )
-                )
+                }
             }
 
             updateUndoRedoState()
         } catch (e: Exception) {
-            Logger.e("Error: ${e.message}", e)
+            Logger.e("Error loading history from disk: ${e.message}", e)
         }
     }
 

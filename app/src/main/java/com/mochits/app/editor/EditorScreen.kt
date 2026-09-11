@@ -300,13 +300,30 @@ fun EditorScreen(
     }
 
     var shouldFocusTextField by remember { mutableStateOf(false) }
+    var isNavigatingBack by remember { mutableStateOf(false) }
+
+    androidx.activity.compose.BackHandler(enabled = !isNavigatingBack) {
+        if (!isNavigatingBack) {
+            isNavigatingBack = true
+            viewModel.flushToDisk()
+            onNavigateBack()
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(
+                        onClick = {
+                            if (!isNavigatingBack) {
+                                isNavigatingBack = true
+                                viewModel.flushToDisk()
+                                onNavigateBack()
+                            }
+                        }
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
@@ -570,7 +587,7 @@ fun EditorScreen(
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(isEyedropperActive, activePanel, selectedTextLayer, layers, handleCanvasCenter, deleteHandleCanvasCenter, rotateHandleCanvasCenter, stretchVBottomCenter, stretchHRightCenter) {
+                    .pointerInput(Unit) {
                         awaitPointerEventScope {
                             while (true) {
                                 val event = awaitPointerEvent()
@@ -877,7 +894,8 @@ fun EditorScreen(
 
                                 // Handle active drag on text handles
                                 if (activeHandleType != null && firstChange.pressed) {
-                                    firstChange.consume()
+                                    event.changes.forEach { it.consume() }
+                                    Logger.d("Text handle drag active: type=$activeHandleType, consumed touches=${event.changes.size}")
                                     when (activeHandleType) {
                                         TextHandleType.RESIZE -> {
                                             if (selectedTextLayer != null) {
