@@ -722,6 +722,7 @@ fun EditorScreen(
                                 val handleHitRadius = (36f / viewModel.canvasState.scale)
                                 val stretchHitRadius = (38f / viewModel.canvasState.scale)
 
+                                if (activeHandleType == null && pendingBodyMoveLayer == null) {
                                 val isJustDown = !firstChange.previousPressed && firstChange.pressed
                                 if (isJustDown) {
                                     panAccumulator = 0f
@@ -878,6 +879,7 @@ fun EditorScreen(
                                     }
                                 }
 
+                                }
                                 // Check pending body move drag threshold
                                 if (pendingBodyMoveLayer != null && firstChange.pressed && activeHandleType == null) {
                                     firstChange.consume()
