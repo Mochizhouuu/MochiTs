@@ -109,6 +109,17 @@ class LayerSerializer {
                     boxHeight = dto.boxHeight?.takeIf { it.isFinite() && it > 0f }
                 )
             } else {
+                val imageBitmap = dto.imagePath?.let { path ->
+                    val file = File(path)
+                    if (file.exists()) {
+                        try {
+                            val opts = android.graphics.BitmapFactory.Options().apply { inMutable = true }
+                            android.graphics.BitmapFactory.decodeFile(file.absolutePath, opts)
+                        } catch (t: Throwable) {
+                            null
+                        }
+                    } else null
+                }
                 Layer.ImageLayer(
                     id = dto.id,
                     name = dto.name,
@@ -120,6 +131,7 @@ class LayerSerializer {
                     opacity = dto.opacity,
                     isVisible = dto.isVisible,
                     isLocked = dto.isLocked,
+                    bitmap = imageBitmap,
                     imagePath = dto.imagePath
                 )
             }

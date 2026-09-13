@@ -267,7 +267,7 @@ data class HistoryManifest(
         }
     }
 
-    private fun calculateMaxHistorySteps(): Int {
+    private fun calculateMaxHistorySteps(): Int = synchronized(undoStack) {
         val w = project.value?.width ?: 1080
         val h = project.value?.height ?: 1920
         val pixels = w.toLong() * h.toLong()
@@ -288,7 +288,7 @@ data class HistoryManifest(
             else -> 20
         }
 
-        return minOf(maxStepsByMemory, maxStepsByPixels).coerceIn(3, 25)
+        minOf(maxStepsByMemory, maxStepsByPixels).coerceIn(3, 25)
     }
 
     fun getMaskByteArray(): ByteArray? {
@@ -655,6 +655,28 @@ data class HistoryManifest(
         }
     }
 
+        private fun loadHistoryBitmap(filePath: String?): Bitmap? {
+        if (filePath == null) return null
+        val file = File(filePath)
+        if (!file.exists()) return null
+        return try {
+            val opts = android.graphics.BitmapFactory.Options().apply { inMutable = true }
+            val decoded = android.graphics.BitmapFactory.decodeFile(file.absolutePath, opts)
+            if (decoded != null) {
+                if (decoded.isMutable && decoded.config == Bitmap.Config.ARGB_8888) {
+                    decoded
+                } else {
+                    val copy = decoded.copy(Bitmap.Config.ARGB_8888, true)
+                    decoded.recycle()
+                    copy
+                }
+            } else null
+        } catch (t: Throwable) {
+            Logger.e("Error loading history bitmap: ${t.message}", t)
+            null
+        }
+    }
+
     private fun loadHistoryFromDisk(projId: String) {
         try {
             val historyDir = File(context.filesDir, "projects/$projId/history")
@@ -669,10 +691,11 @@ data class HistoryManifest(
                 manifest.undoSteps.forEach { entry ->
                     val snapshotLayers = serializer.deserialize(entry.layersJson)
                     val bmpPath = entry.bitmapFileName?.let { File(historyDir, it).absolutePath }
+                    val loadedBmp = loadHistoryBitmap(bmpPath)
                     undoStack.addLast(
                         HistorySnapshot(
                             layers = snapshotLayers,
-                            baseBitmap = null,
+                            baseBitmap = loadedBmp,
                             bitmapFilePath = bmpPath
                         )
                     )
@@ -682,10 +705,11 @@ data class HistoryManifest(
                 manifest.redoSteps.forEach { entry ->
                     val snapshotLayers = serializer.deserialize(entry.layersJson)
                     val bmpPath = entry.bitmapFileName?.let { File(historyDir, it).absolutePath }
+                    val loadedBmp = loadHistoryBitmap(bmpPath)
                     redoStack.addLast(
                         HistorySnapshot(
                             layers = snapshotLayers,
-                            baseBitmap = null,
+                            baseBitmap = loadedBmp,
                             bitmapFilePath = bmpPath
                         )
                     )
@@ -1185,7 +1209,7 @@ data class HistoryManifest(
         fontSize: Float,
         boxWidth: Float?,
         boxHeight: Float?,
-        saveUndo: Boolean = false
+        saveUndo: Boolean = true
     ) {
         if (saveUndo) {
             saveUndoSnapshot()
