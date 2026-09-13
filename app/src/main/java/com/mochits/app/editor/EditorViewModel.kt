@@ -30,6 +30,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.util.UUID
 import javax.inject.Inject
@@ -184,6 +186,22 @@ val defaultTextStyle = MutableStateFlow(TextStyleConfig())
 
     val isProcessingInpaint = MutableStateFlow(false)
     val isExporting = MutableStateFlow(false)
+
+    private val saveMutex = Mutex()
+    private var lastSaveTimestamp = 0L
+
+    private fun recycleBitmapSafely(bitmap: Bitmap?) {
+        bitmap?.let {
+            if (!it.isRecycled) {
+                try {
+                    it.recycle()
+                } catch (e: Exception) {
+                    Logger.e("Error recycling bitmap: ${e.message}", e)
+                }
+            }
+        }
+    }
+
     val isLoadingImage = MutableStateFlow(false)
 
 
@@ -253,11 +271,24 @@ data class HistoryManifest(
         val w = project.value?.width ?: 1080
         val h = project.value?.height ?: 1920
         val pixels = w.toLong() * h.toLong()
-        return when {
-            pixels > 12_000_000L -> 10
-            pixels > 4_000_000L -> 15
-            else -> 25
+
+        val runtime = Runtime.getRuntime()
+        val maxMemory = runtime.maxMemory()
+        val usedMemory = runtime.totalMemory() - runtime.freeMemory()
+        val availableMemory = maxMemory - usedMemory
+
+        val memoryPerSnapshot = pixels * 4L
+        val maxHistoryMemory = (availableMemory * 0.3).toLong()
+        val maxStepsByMemory = if (memoryPerSnapshot > 0) (maxHistoryMemory / memoryPerSnapshot).toInt() else 20
+
+        val maxStepsByPixels = when {
+            pixels > 16_000_000L -> 5
+            pixels > 8_000_000L -> 8
+            pixels > 4_000_000L -> 12
+            else -> 20
         }
+
+        return minOf(maxStepsByMemory, maxStepsByPixels).coerceIn(3, 25)
     }
 
     fun getMaskByteArray(): ByteArray? {
@@ -354,28 +385,42 @@ data class HistoryManifest(
 
     private fun loadProject() {
         viewModelScope.launch {
+            isLoadingImage.value = true
             try {
                 val proj = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     repository.getProject(projectId)
                 }
+
                 if (proj != null) {
                     project.value = proj
-                    val deserialized = serializer.deserialize(proj.layersJson)
-                    if (layers.value.isEmpty() && deserialized.isNotEmpty()) {
-                        layers.value = deserialized
-                    }
+
                     var loadedBmp: Bitmap? = null
                     val baseFile = proj.thumbnailPath?.let { File(it) }?.takeIf { it.exists() }
                         ?: File(context.filesDir, "projects/${proj.id}/base_image.png").takeIf { it.exists() }
 
-                    if (baseFile != null) {
+                    if (baseFile != null && baseFile.length() > 0) {
                         try {
                             val options = android.graphics.BitmapFactory.Options().apply {
                                 inMutable = true
+                                inJustDecodeBounds = true
                             }
+
+                            android.graphics.BitmapFactory.decodeFile(baseFile.absolutePath, options)
+
+                            val maxDimension = 8192
+                            if (options.outWidth > maxDimension || options.outHeight > maxDimension) {
+                                val scale = maxOf(
+                                    options.outWidth.toFloat() / maxDimension,
+                                    options.outHeight.toFloat() / maxDimension
+                                )
+                                options.inSampleSize = scale.toInt().coerceAtLeast(1)
+                            }
+
+                            options.inJustDecodeBounds = false
                             val decoded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                                 android.graphics.BitmapFactory.decodeFile(baseFile.absolutePath, options)
                             }
+
                             if (decoded != null) {
                                 loadedBmp = if (decoded.isMutable && decoded.config == Bitmap.Config.ARGB_8888) {
                                     decoded
@@ -384,33 +429,58 @@ data class HistoryManifest(
                                     decoded.recycle()
                                     copy
                                 }
+                            } else {
+                                Logger.e("Failed to decode base image, file may be corrupted")
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    try { baseFile.delete() } catch (e: Exception) {}
+                                }
                             }
                         } catch (t: Throwable) {
-                            Logger.e("Error loading base bitmap from disk: ${t.message}", t)
+                            Logger.e("Error loading base bitmap: ${t.message}", t)
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                try { baseFile.delete() } catch (e: Exception) {}
+                            }
                         }
                     }
+
                     if (loadedBmp != null) {
+                        val oldBmp = baseBitmap.value
                         baseBitmap.value = loadedBmp
+                        recycleBitmapSafely(oldBmp)
                         setupCanvasSize(loadedBmp.width, loadedBmp.height)
+
+                        val deserialized = serializer.deserialize(proj.layersJson)
+                        if (layers.value.isEmpty() && deserialized.isNotEmpty()) {
+                            layers.value = deserialized
+                        }
+
+                        loadHistoryFromDisk(proj.id)
                     } else {
-                        val current = baseBitmap.value
-                        if (current == null || current.isRecycled) {
-                            setupCanvasSize(proj.width, proj.height)
+                        val w = proj.width.coerceIn(1, 32768)
+                        val h = proj.height.coerceIn(1, 32768)
+                        setupCanvasSize(w, h)
+
+                        val deserialized = serializer.deserialize(proj.layersJson)
+                        if (layers.value.isEmpty() && deserialized.isNotEmpty()) {
+                            layers.value = deserialized
                         }
                     }
-                    loadHistoryFromDisk(proj.id)
                 } else {
-                    val current = baseBitmap.value
-                    if (current == null || current.isRecycled) {
-                        setupCanvasSize(1080, 1920)
-                    }
-                }
-            } catch (t: Throwable) {
-                Logger.e("Error: ${t.message}", t)
-                val current = baseBitmap.value
-                if (current == null || current.isRecycled) {
                     setupCanvasSize(1080, 1920)
                 }
+            } catch (oom: OutOfMemoryError) {
+                Logger.e("Out of memory loading project", oom)
+                System.gc()
+                try {
+                    setupCanvasSize(1080, 1920)
+                } catch (e: Exception) {
+                    Logger.e("Failed to create fallback canvas", e)
+                }
+            } catch (t: Throwable) {
+                Logger.e("Error loading project: ${t.message}", t)
+                setupCanvasSize(1080, 1920)
+            } finally {
+                isLoadingImage.value = false
             }
         }
     }
@@ -420,16 +490,28 @@ data class HistoryManifest(
         val currentBmp = baseBitmap.value
         val currentLayers = layers.value
 
+        val now = System.currentTimeMillis()
+        if (now - lastSaveTimestamp < 500) {
+            return
+        }
+        lastSaveTimestamp = now
+
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            saveBaseBitmapToDiskInternal(currentProj, currentBmp)
-            val json = serializer.serialize(currentLayers)
-            val imageFile = File(context.filesDir, "projects/${currentProj.id}/base_image.png")
-            val updatedProj = currentProj.copy(
-                layersJson = json,
-                thumbnailPath = if (imageFile.exists()) imageFile.absolutePath else currentProj.thumbnailPath
-            )
-            repository.saveProject(updatedProj)
-            syncHistoryToDiskInternal(currentProj.id)
+            saveMutex.withLock {
+                try {
+                    saveBaseBitmapToDiskInternal(currentProj, currentBmp)
+                    val json = serializer.serialize(currentLayers)
+                    val imageFile = File(context.filesDir, "projects/${currentProj.id}/base_image.png")
+                    val updatedProj = currentProj.copy(
+                        layersJson = json,
+                        thumbnailPath = if (imageFile.exists()) imageFile.absolutePath else currentProj.thumbnailPath
+                    )
+                    repository.saveProject(updatedProj)
+                    syncHistoryToDiskInternal(currentProj.id)
+                } catch (e: Exception) {
+                    Logger.e("Error in autoSave: ${e.message}", e)
+                }
+            }
         }
     }
 
@@ -439,19 +521,21 @@ data class HistoryManifest(
         val currentLayers = layers.value
 
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
-            try {
-                saveBaseBitmapToDiskInternal(currentProj, currentBmp)
-                val json = serializer.serialize(currentLayers)
-                val imageFile = File(context.filesDir, "projects/${currentProj.id}/base_image.png")
-                val updatedProj = currentProj.copy(
-                    layersJson = json,
-                    thumbnailPath = if (imageFile.exists()) imageFile.absolutePath else currentProj.thumbnailPath
-                )
-                project.value = updatedProj
-                repository.saveProject(updatedProj)
-                syncHistoryToDiskInternal(currentProj.id)
-            } catch (e: Exception) {
-                Logger.e("Error flushing project to disk: ${e.message}", e)
+            saveMutex.withLock {
+                try {
+                    saveBaseBitmapToDiskInternal(currentProj, currentBmp)
+                    val json = serializer.serialize(currentLayers)
+                    val imageFile = File(context.filesDir, "projects/${currentProj.id}/base_image.png")
+                    val updatedProj = currentProj.copy(
+                        layersJson = json,
+                        thumbnailPath = if (imageFile.exists()) imageFile.absolutePath else currentProj.thumbnailPath
+                    )
+                    project.value = updatedProj
+                    repository.saveProject(updatedProj)
+                    syncHistoryToDiskInternal(currentProj.id)
+                } catch (e: Exception) {
+                    Logger.e("Error flushing project to disk: ${e.message}", e)
+                }
             }
         }
     }
@@ -681,14 +765,29 @@ data class HistoryManifest(
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             isLoadingImage.value = true
             try {
+                val oldBitmap = baseBitmap.value
                 baseBitmap.value = bitmap
+                recycleBitmapSafely(oldBitmap)
+
                 setupCanvasSize(bitmap.width, bitmap.height)
 
                 val projectDir = File(context.filesDir, "projects/$projectId").apply { mkdirs() }
                 val imageFile = File(projectDir, "base_image.png")
-                java.io.FileOutputStream(imageFile).use { out ->
+                val tmpFile = File(projectDir, "base_image.png.tmp")
+
+                java.io.FileOutputStream(tmpFile).use { out ->
                     bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    out.flush()
                 }
+
+                if (tmpFile.exists() && tmpFile.length() > 0) {
+                    if (imageFile.exists()) imageFile.delete()
+                    if (!tmpFile.renameTo(imageFile)) {
+                        tmpFile.copyTo(imageFile, overwrite = true)
+                        tmpFile.delete()
+                    }
+                }
+
                 val currentProj = project.value
                 if (currentProj != null) {
                     val updated = currentProj.copy(
@@ -701,7 +800,8 @@ data class HistoryManifest(
                     repository.saveProject(updated)
                 }
             } catch (e: Exception) {
-                Logger.e("Error: ${e.message}", e)
+                Logger.e("Error setting base image: ${e.message}", e)
+                userMessage.value = "Gagal memuat gambar: ${e.message}"
             } finally {
                 isLoadingImage.value = false
             }
@@ -857,6 +957,25 @@ data class HistoryManifest(
     override fun onCleared() {
         super.onCleared()
         lamaInpaintEngine.close()
+
+        recycleBitmapSafely(baseBitmap.value)
+        recycleBitmapSafely(compositeBitmap)
+
+        layers.value.filterIsInstance<Layer.ImageLayer>().forEach { layer ->
+            recycleBitmapSafely(layer.bitmap)
+        }
+
+        synchronized(undoStack) {
+            undoStack.forEach { snapshot ->
+                recycleBitmapSafely(snapshot.baseBitmap)
+            }
+            undoStack.clear()
+
+            redoStack.forEach { snapshot ->
+                recycleBitmapSafely(snapshot.baseBitmap)
+            }
+            redoStack.clear()
+        }
     }
 
     fun addTextLayer(
@@ -954,19 +1073,6 @@ data class HistoryManifest(
         if (saveUndo) {
             autoSave()
         }
-    }
-
-    fun updateSelectedTextContent(newText: String) {
-        val selectedId = selectedLayerId.value ?: return
-        saveUndoSnapshot()
-        layers.value = layers.value.map { layer ->
-            if (layer.id == selectedId && layer is Layer.TextLayer) {
-                layer.copy(text = newText)
-            } else {
-                layer
-            }
-        }
-        autoSave()
     }
 
     fun updateSelectedTextLayerPosition(newX: Float, newY: Float, saveUndo: Boolean = true) {
