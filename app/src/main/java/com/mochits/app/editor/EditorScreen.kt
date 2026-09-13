@@ -106,12 +106,20 @@ private fun performExportToTreeUri(
         "WEBP" -> "image/webp"
         else -> "image/png"
     }
+
     val docTree = DocumentFile.fromTreeUri(context, treeUri)
-    val createdFile = docTree?.createFile(mimeType, "$saveName.$ext")
+    if (docTree == null || !docTree.canWrite()) {
+        android.widget.Toast.makeText(context, "Tidak dapat menulis ke folder tujuan", android.widget.Toast.LENGTH_SHORT).show()
+        return
+    }
+
+    docTree.findFile("$saveName.$ext")?.delete()
+
+    val createdFile = docTree.createFile(mimeType, "$saveName.$ext")
     if (createdFile?.uri != null) {
-        val pfd = context.contentResolver.openFileDescriptor(createdFile.uri, "w")
-        if (pfd != null) {
-            val tempFile = File(context.cacheDir, "temp_export.$ext")
+        val tempFile = File(context.cacheDir, "temp_export_${System.currentTimeMillis()}.$ext")
+
+        try {
             val compressFormat = when (selectedFormat.uppercase()) {
                 "JPEG", "JPG" -> android.graphics.Bitmap.CompressFormat.JPEG
                 "WEBP" -> if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
@@ -122,25 +130,43 @@ private fun performExportToTreeUri(
                 }
                 else -> android.graphics.Bitmap.CompressFormat.PNG
             }
+
             viewModel.exportProject(tempFile, compressFormat, exportQuality.toInt()) { success ->
-                if (success) {
+                if (success && tempFile.exists() && tempFile.length() > 0) {
                     try {
-                        tempFile.inputStream().use { input ->
+                        context.contentResolver.openFileDescriptor(createdFile.uri, "w")?.use { pfd ->
                             java.io.FileOutputStream(pfd.fileDescriptor).use { output ->
-                                input.copyTo(output)
+                                tempFile.inputStream().use { input ->
+                                    val buffer = ByteArray(8192)
+                                    var bytesRead: Int
+                                    while (input.read(buffer).also { bytesRead = it } != -1) {
+                                        output.write(buffer, 0, bytesRead)
+                                    }
+                                    output.flush()
+                                }
                             }
                         }
-                        android.widget.Toast.makeText(context, "Berhasil diekspor ke folder output!", android.widget.Toast.LENGTH_SHORT).show()
-                    } catch (_: Exception) {}
-                    pfd.close()
+                        android.widget.Toast.makeText(context, "Berhasil diekspor!", android.widget.Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        com.mochits.app.util.Logger.e("Export copy error: ${e.message}", e)
+                        android.widget.Toast.makeText(context, "Gagal menyalin file: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                        createdFile.delete()
+                    } finally {
+                        tempFile.delete()
+                    }
                 } else {
-                    pfd.close()
-                    android.widget.Toast.makeText(context, "Gagal meng-ekspor gambar.", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(context, "Gagal membuat file export", android.widget.Toast.LENGTH_SHORT).show()
+                    createdFile.delete()
+                    tempFile.delete()
                 }
             }
+        } catch (e: Exception) {
+            com.mochits.app.util.Logger.e("Export error: ${e.message}", e)
+            android.widget.Toast.makeText(context, "Error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+            tempFile.delete()
         }
     } else {
-        android.widget.Toast.makeText(context, "Gagal membuat file di folder tujuan.", android.widget.Toast.LENGTH_SHORT).show()
+        android.widget.Toast.makeText(context, "Gagal membuat file di folder tujuan", android.widget.Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -1904,10 +1930,15 @@ fun TextToolPanel(
         textInput = selectedLayer?.text ?: ""
     }
 
-    LaunchedEffect(autoFocus) {
-        if (autoFocus) {
-            focusRequester.requestFocus()
-            onFocused?.invoke()
+    LaunchedEffect(autoFocus, selectedLayer?.id) {
+        if (autoFocus && selectedLayer != null) {
+            kotlinx.coroutines.delay(100)
+            try {
+                focusRequester.requestFocus()
+                onFocused?.invoke()
+            } catch (e: Exception) {
+                com.mochits.app.util.Logger.e("Failed to request focus: ${e.message}")
+            }
         }
     }
 
@@ -1931,7 +1962,12 @@ fun TextToolPanel(
             ) {
                 OutlinedTextField(
                     value = textInput,
-                    onValueChange = { textInput = it },
+                    onValueChange = { newText ->
+                        textInput = newText
+                        if (selectedLayer != null) {
+                            onUpdateTextContent?.invoke(newText)
+                        }
+                    },
                     label = { Text(if (selectedLayer != null) "Edit Teks" else "Teks Baru") },
                     maxLines = 3,
                     modifier = Modifier
