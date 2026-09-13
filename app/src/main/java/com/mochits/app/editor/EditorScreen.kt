@@ -575,6 +575,8 @@ fun EditorScreen(
             var initialMinH by remember { mutableFloatStateOf(20f) }
             var initialBoundsLeft by remember { mutableFloatStateOf(0f) }
             var initialBoundsTop by remember { mutableFloatStateOf(0f) }
+            var deleteHandlePressTime by remember { mutableLongStateOf(0L) }
+            var pendingDeleteLayerId by remember { mutableStateOf<String?>(null) }
 
             var lastTapTimestamp by remember { mutableLongStateOf(0L) }
             var lastTapLayerId by remember { mutableStateOf<String?>(null) }
@@ -816,12 +818,10 @@ fun EditorScreen(
                                         when (chosenHandle) {
                                             TextHandleType.DELETE -> {
                                                 activeHandleType = TextHandleType.DELETE
-                                                viewModel.deleteLayer(selectedTextLayer.id)
-                                                viewModel.selectLayer(null)
-                                                activeHandleType = null
+                                                deleteHandlePressTime = System.currentTimeMillis()
+                                                pendingDeleteLayerId = selectedTextLayer.id
                                                 hitHandle = true
                                                 firstChange.consume()
-                                                triggerRedraw++
                                                 continue
                                             }
                                             TextHandleType.ROTATE -> {
@@ -910,7 +910,7 @@ fun EditorScreen(
                                 if (pendingBodyMoveLayer != null && firstChange.pressed && activeHandleType == null) {
                                     firstChange.consume()
                                     val moveDist = (firstChange.position - initialTouchScreenPt).getDistance()
-                                    if (moveDist > 8f || isBodyMoveDragging) {
+                                    if (moveDist > 15f || isBodyMoveDragging) {
                                         if (!isBodyMoveDragging) {
                                             isBodyMoveDragging = true
                                             activeHandleType = TextHandleType.BODY_MOVE
@@ -959,6 +959,7 @@ fun EditorScreen(
                                         }
                                         TextHandleType.STRETCH_V -> {
                                             if (selectedTextLayer != null) {
+                                                val maxCanvasHeight = baseBitmap?.height?.toFloat() ?: (project?.height?.toFloat() ?: 1920f)
                                                 val unrotatedPt = if (selectedTextLayer.rotation != 0f) {
                                                     val rad = Math.toRadians(-selectedTextLayer.rotation.toDouble())
                                                     val cosA = kotlin.math.cos(rad)
@@ -973,7 +974,8 @@ fun EditorScreen(
                                                     touchCanvasPt
                                                 }
                                                 val currentBoxW = selectedTextLayer.boxWidth
-                                                val newBoxH = (unrotatedPt.y - initialTextY).coerceAtLeast(initialMinH)
+                                                val rawBoxH = unrotatedPt.y - initialTextY
+                                                val newBoxH = rawBoxH.coerceIn(initialMinH, maxCanvasHeight)
                                                 viewModel.updateSelectedTextLayerStretch(
                                                     boxWidth = currentBoxW,
                                                     boxHeight = newBoxH,
@@ -986,6 +988,7 @@ fun EditorScreen(
                                         }
                                         TextHandleType.STRETCH_H -> {
                                             if (selectedTextLayer != null) {
+                                                val maxCanvasWidth = baseBitmap?.width?.toFloat() ?: (project?.width?.toFloat() ?: 1080f)
                                                 val unrotatedPt = if (selectedTextLayer.rotation != 0f) {
                                                     val rad = Math.toRadians(-selectedTextLayer.rotation.toDouble())
                                                     val cosA = kotlin.math.cos(rad)
@@ -1001,7 +1004,8 @@ fun EditorScreen(
                                                 }
                                                 val currentBoxH = selectedTextLayer.boxHeight
                                                 val distFromCenter = kotlin.math.abs(unrotatedPt.x - initialTextCenterX)
-                                                val newBoxW = (distFromCenter * 2f).coerceAtLeast(initialMinW)
+                                                val rawBoxW = distFromCenter * 2f
+                                                val newBoxW = rawBoxW.coerceIn(initialMinW, maxCanvasWidth)
                                                 val newX = initialTextCenterX - (newBoxW / 2f)
                                                 viewModel.updateSelectedTextLayerStretch(
                                                     boxWidth = newBoxW,
@@ -1031,7 +1035,18 @@ fun EditorScreen(
                                 }
 
                                 if (changes.none { it.pressed }) {
-                                    if (activeHandleType != null || isBodyMoveDragging) {
+                                    if (activeHandleType == TextHandleType.DELETE) {
+                                        val pressDuration = System.currentTimeMillis() - deleteHandlePressTime
+                                        if (pressDuration < 300L && pendingDeleteLayerId != null) {
+                                            viewModel.deleteLayer(pendingDeleteLayerId!!)
+                                            viewModel.selectLayer(null)
+                                        }
+                                        activeHandleType = null
+                                        pendingDeleteLayerId = null
+                                        deleteHandlePressTime = 0L
+                                        triggerRedraw++
+                                        continue
+                                    } else if (activeHandleType != null || isBodyMoveDragging) {
                                         viewModel.finalizeTextTransform()
                                         activeHandleType = null
                                         isBodyMoveDragging = false
