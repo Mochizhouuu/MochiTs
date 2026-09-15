@@ -70,6 +70,46 @@ private enum class TextHandleType {
     RESIZE, ROTATE, DELETE, STRETCH_V, STRETCH_H, BODY_MOVE
 }
 
+private fun handleAnchors(bounds: RectF, scale: Float): List<Pair<TextHandleType, Offset>> {
+    val gap = 24f / scale
+    return listOf(
+        TextHandleType.DELETE to Offset(bounds.left, bounds.top),
+        TextHandleType.ROTATE to Offset(bounds.right, bounds.top),
+        TextHandleType.RESIZE to Offset(bounds.right, bounds.bottom),
+        TextHandleType.STRETCH_V to Offset(bounds.centerX(), bounds.bottom + gap),
+        TextHandleType.STRETCH_H to Offset(bounds.right + gap, bounds.centerY())
+    )
+}
+
+private fun hitTestTextHandles(
+    touchCanvas: Offset,
+    layer: Layer.TextLayer,
+    bounds: RectF,
+    scale: Float
+): TextHandleType? {
+    val cx = bounds.centerX()
+    val cy = bounds.centerY()
+    val rad = Math.toRadians(-layer.rotation.toDouble())
+    val cosA = kotlin.math.cos(rad)
+    val sinA = kotlin.math.sin(rad)
+    val dx = (touchCanvas.x - cx).toDouble()
+    val dy = (touchCanvas.y - cy).toDouble()
+    val local = Offset(
+        (cx + (dx * cosA - dy * sinA)).toFloat(),
+        (cy + (dx * sinA + dy * cosA)).toFloat()
+    )
+
+    val slop = 48f / scale
+    val slopSq = slop * slop
+    val anchors = handleAnchors(bounds, scale)
+
+    return anchors
+        .map { (type, pos) -> type to (local - pos).getDistanceSquared() }
+        .filter { it.second <= slopSq }
+        .minByOrNull { it.second }
+        ?.first
+}
+
 private fun isPointInsideTextLayer(
     layer: Layer.TextLayer,
     touchCanvasPt: Offset,
@@ -520,47 +560,8 @@ fun EditorScreen(
             var isMagicWandPending by remember { mutableStateOf(false) }
             var isProcessingMagicWand by remember { mutableStateOf(false) }
 
-            // Selected text layer & handle bounds calculation (single evaluated bounds)
+            // Selected text layer
             val selectedTextLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer
-            val selectedTextBounds = remember(
-                selectedTextLayer,
-                selectedTextLayer?.x,
-                selectedTextLayer?.y,
-                selectedTextLayer?.style?.fontSize,
-                selectedTextLayer?.text,
-                selectedTextLayer?.boxWidth,
-                selectedTextLayer?.boxHeight,
-                selectedTextLayer?.textContainerShape,
-                selectedTextLayer?.style?.alignment,
-                selectedTextLayer?.style?.fontName,
-                selectedTextLayer?.style?.fontStyle
-            ) {
-                if (selectedTextLayer != null) {
-                    textRenderer.getTextBounds(selectedTextLayer)
-                } else null
-            }
-
-            val handleCanvasCenter = remember(selectedTextBounds) {
-                selectedTextBounds?.let { Offset(it.right, it.bottom) } ?: Offset.Zero
-            }
-            val deleteHandleCanvasCenter = remember(selectedTextBounds) {
-                selectedTextBounds?.let { Offset(it.left, it.top) } ?: Offset.Zero
-            }
-            val rotateHandleCanvasCenter = remember(selectedTextBounds) {
-                selectedTextBounds?.let { Offset(it.right, it.top) } ?: Offset.Zero
-            }
-            val stretchVBottomCenter = remember(selectedTextBounds, viewModel.canvasState.scale) {
-                if (selectedTextBounds != null) {
-                    val floatOffset = (24f / viewModel.canvasState.scale) * 0.75f
-                    Offset(selectedTextBounds.centerX(), selectedTextBounds.bottom + floatOffset)
-                } else Offset.Zero
-            }
-            val stretchHRightCenter = remember(selectedTextBounds, viewModel.canvasState.scale) {
-                if (selectedTextBounds != null) {
-                    val floatOffset = (24f / viewModel.canvasState.scale) * 0.75f
-                    Offset(selectedTextBounds.right + floatOffset, selectedTextBounds.centerY())
-                } else Offset.Zero
-            }
 
             var activeHandleType by remember { mutableStateOf<TextHandleType?>(null) }
             var initialDragDist by remember { mutableFloatStateOf(0f) }
@@ -605,7 +606,6 @@ fun EditorScreen(
             val resizeIconPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.WHITE; isAntiAlias = true; strokeCap = AndroidPaint.Cap.ROUND; strokeJoin = AndroidPaint.Join.ROUND } }
             val deleteFillPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.FILL; color = AndroidColor.parseColor("#E53935"); isAntiAlias = true } }
             val xPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.WHITE; isAntiAlias = true; strokeCap = AndroidPaint.Cap.ROUND } }
-            val linePaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.parseColor("#3F51B5") } }
             val rotateFillPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.FILL; color = AndroidColor.parseColor("#4CAF50"); isAntiAlias = true } }
             val rotateArcPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.WHITE; isAntiAlias = true; strokeCap = AndroidPaint.Cap.ROUND } }
             val rotateArrowPathCache = remember { android.graphics.Path() }
@@ -735,16 +735,21 @@ fun EditorScreen(
                                                     val canvasPt = viewModel.canvasState.mapper.screenToCanvas(startPt.x, startPt.y)
                                                     isProcessingMagicWand = true
                                                     coroutineScope.launch(Dispatchers.Default) {
-                                                        viewModel.saveUndoSnapshot()
-                                                        viewModel.maskSelectionTools?.magicWandSelect(
-                                                            srcBitmap = baseBitmap,
-                                                            point = canvasPt,
-                                                            tolerance = startTol,
-                                                            expandPixels = startExp
-                                                        )
-                                                        withContext(Dispatchers.Main) {
+                                                        try {
+                                                            viewModel.saveUndoSnapshot()
+                                                            val flattened = viewModel.flattenForSelection()
+                                                            val src = flattened ?: baseBitmap
+                                                            viewModel.maskSelectionTools?.magicWandSelect(
+                                                                srcBitmap = src,
+                                                                point = canvasPt,
+                                                                tolerance = startTol,
+                                                                expandPixels = startExp
+                                                            )
+                                                            withContext(Dispatchers.Main) {
+                                                                triggerRedraw++
+                                                            }
+                                                        } finally {
                                                             isProcessingMagicWand = false
-                                                            triggerRedraw++
                                                         }
                                                     }
                                                 }
@@ -764,165 +769,128 @@ fun EditorScreen(
                                 // 2. TEXT HANDLES INTERCEPTION: Check hit-testing on handles
                                 val firstChange = changes.first()
                                 val touchCanvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
-                                val handleHitRadius = (48f / viewModel.canvasState.scale)
-                                val stretchHitRadius = (48f / viewModel.canvasState.scale)
 
                                 if (activeHandleType == null && pendingBodyMoveLayer == null) {
-                                val isJustDown = !firstChange.previousPressed && firstChange.pressed
-                                if (isJustDown) {
-                                    panAccumulator = 0f
-                                    var hitHandle = false
-                                    if (selectedTextLayer != null) {
-                                        val bounds = textRenderer.getTextBounds(selectedTextLayer)
-                                        val textCenterX = bounds.centerX()
-                                        val textCenterY = bounds.centerY()
+                                    val isJustDown = !firstChange.previousPressed && firstChange.pressed
+                                    if (isJustDown) {
+                                        panAccumulator = 0f
+                                        var hitHandle = false
+                                        if (selectedTextLayer != null) {
+                                            val bounds = textRenderer.getTextBounds(selectedTextLayer)
+                                            val textCenterX = bounds.centerX()
+                                            val textCenterY = bounds.centerY()
 
-                                        // Transform touch point to unrotated coordinate space around text center
-                                        val unrotatedPt = if (selectedTextLayer.rotation != 0f) {
-                                            val rad = Math.toRadians(-selectedTextLayer.rotation.toDouble())
-                                            val cosA = kotlin.math.cos(rad)
-                                            val sinA = kotlin.math.sin(rad)
-                                            val dx = (touchCanvasPt.x - textCenterX).toDouble()
-                                            val dy = (touchCanvasPt.y - textCenterY).toDouble()
-                                            Offset(
-                                                (textCenterX + dx * cosA - dy * sinA).toFloat(),
-                                                (textCenterY + dx * sinA + dy * cosA).toFloat()
+                                            val chosenHandle = hitTestTextHandles(
+                                                touchCanvasPt,
+                                                selectedTextLayer,
+                                                bounds,
+                                                viewModel.canvasState.scale
                                             )
-                                        } else {
-                                            touchCanvasPt
+
+                                            val unrotatedPt = if (selectedTextLayer.rotation != 0f) {
+                                                val rad = Math.toRadians(-selectedTextLayer.rotation.toDouble())
+                                                val cosA = kotlin.math.cos(rad)
+                                                val sinA = kotlin.math.sin(rad)
+                                                val dx = (touchCanvasPt.x - textCenterX).toDouble()
+                                                val dy = (touchCanvasPt.y - textCenterY).toDouble()
+                                                Offset(
+                                                    (textCenterX + dx * cosA - dy * sinA).toFloat(),
+                                                    (textCenterY + dx * sinA + dy * cosA).toFloat()
+                                                )
+                                            } else {
+                                                touchCanvasPt
+                                            }
+
+                                            when (chosenHandle) {
+                                                TextHandleType.DELETE -> {
+                                                    viewModel.saveUndoSnapshot()
+                                                    viewModel.deleteLayer(selectedTextLayer.id)
+                                                    viewModel.selectLayer(null)
+                                                    hitHandle = true
+                                                    firstChange.consume()
+                                                    triggerRedraw++
+                                                    continue
+                                                }
+                                                TextHandleType.ROTATE -> {
+                                                    activeHandleType = TextHandleType.ROTATE
+                                                    viewModel.saveUndoSnapshot()
+                                                    initialTextCenterX = textCenterX
+                                                    initialTextCenterY = textCenterY
+                                                    initialTouchAngle = Math.toDegrees(kotlin.math.atan2((touchCanvasPt.y - textCenterY).toDouble(), (touchCanvasPt.x - textCenterX).toDouble())).toFloat()
+                                                    initialTextRotation = selectedTextLayer.rotation
+                                                    hitHandle = true
+                                                    firstChange.consume()
+                                                    continue
+                                                }
+                                                TextHandleType.RESIZE -> {
+                                                    activeHandleType = TextHandleType.RESIZE
+                                                    viewModel.saveUndoSnapshot()
+                                                    initialTextCenterX = textCenterX
+                                                    initialTextCenterY = textCenterY
+                                                    initialDragDist = kotlin.math.hypot(unrotatedPt.x - textCenterX, unrotatedPt.y - textCenterY)
+                                                    initialFontSize = selectedTextLayer.style.fontSize
+                                                    initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
+                                                    initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
+                                                    initialBoundsLeft = bounds.left
+                                                    initialBoundsTop = bounds.top
+                                                    hitHandle = true
+                                                    firstChange.consume()
+                                                    continue
+                                                }
+                                                TextHandleType.STRETCH_V -> {
+                                                    activeHandleType = TextHandleType.STRETCH_V
+                                                    viewModel.saveUndoSnapshot()
+                                                    initialTextX = selectedTextLayer.x
+                                                    initialTextY = selectedTextLayer.y
+                                                    initialTextCenterX = textCenterX
+                                                    initialTextCenterY = textCenterY
+                                                    initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
+                                                    initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
+                                                    initialMinH = textRenderer.getMinBoxHeight(selectedTextLayer)
+                                                    initialBoundsLeft = bounds.left
+                                                    initialBoundsTop = bounds.top
+                                                    hitHandle = true
+                                                    firstChange.consume()
+                                                    continue
+                                                }
+                                                TextHandleType.STRETCH_H -> {
+                                                    activeHandleType = TextHandleType.STRETCH_H
+                                                    viewModel.saveUndoSnapshot()
+                                                    initialTextX = selectedTextLayer.x
+                                                    initialTextY = selectedTextLayer.y
+                                                    initialTextCenterX = textCenterX
+                                                    initialTextCenterY = textCenterY
+                                                    initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
+                                                    initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
+                                                    initialMinW = textRenderer.getMinBoxWidth(selectedTextLayer)
+                                                    initialBoundsLeft = bounds.left
+                                                    initialBoundsTop = bounds.top
+                                                    hitHandle = true
+                                                    firstChange.consume()
+                                                    continue
+                                                }
+                                                else -> {}
+                                            }
                                         }
-
-                                        val distResizeSq = (unrotatedPt.x - handleCanvasCenter.x) * (unrotatedPt.x - handleCanvasCenter.x) +
-                                                (unrotatedPt.y - handleCanvasCenter.y) * (unrotatedPt.y - handleCanvasCenter.y)
-                                        val distDeleteSq = (unrotatedPt.x - deleteHandleCanvasCenter.x) * (unrotatedPt.x - deleteHandleCanvasCenter.x) +
-                                                (unrotatedPt.y - deleteHandleCanvasCenter.y) * (unrotatedPt.y - deleteHandleCanvasCenter.y)
-                                        val distRotateSq = (unrotatedPt.x - rotateHandleCanvasCenter.x) * (unrotatedPt.x - rotateHandleCanvasCenter.x) +
-                                                (unrotatedPt.y - rotateHandleCanvasCenter.y) * (unrotatedPt.y - rotateHandleCanvasCenter.y)
-
-                                        val distStretchVSq = (unrotatedPt.x - stretchVBottomCenter.x) * (unrotatedPt.x - stretchVBottomCenter.x) +
-                                                (unrotatedPt.y - stretchVBottomCenter.y) * (unrotatedPt.y - stretchVBottomCenter.y)
-
-                                        val distStretchHSq = (unrotatedPt.x - stretchHRightCenter.x) * (unrotatedPt.x - stretchHRightCenter.x) +
-                                                (unrotatedPt.y - stretchHRightCenter.y) * (unrotatedPt.y - stretchHRightCenter.y)
-
-                                        val rSq = handleHitRadius * handleHitRadius
-                                        val stretchRSq = stretchHitRadius * stretchHitRadius
-
-                                        var chosenHandle: TextHandleType? = null
-                                        var minRatio = Float.MAX_VALUE
-
-                                        if (distDeleteSq <= rSq) {
-                                            val ratio = distDeleteSq / rSq
-                                            if (ratio < minRatio) { minRatio = ratio; chosenHandle = TextHandleType.DELETE }
-                                        }
-                                        if (distRotateSq <= rSq) {
-                                            val ratio = distRotateSq / rSq
-                                            if (ratio < minRatio) { minRatio = ratio; chosenHandle = TextHandleType.ROTATE }
-                                        }
-                                        if (distResizeSq <= rSq) {
-                                            val ratio = distResizeSq / rSq
-                                            if (ratio < minRatio) { minRatio = ratio; chosenHandle = TextHandleType.RESIZE }
-                                        }
-                                        if (distStretchVSq <= stretchRSq) {
-                                            val ratio = distStretchVSq / stretchRSq
-                                            if (ratio < minRatio) { minRatio = ratio; chosenHandle = TextHandleType.STRETCH_V }
-                                        }
-                                        if (distStretchHSq <= stretchRSq) {
-                                            val ratio = distStretchHSq / stretchRSq
-                                            if (ratio < minRatio) { minRatio = ratio; chosenHandle = TextHandleType.STRETCH_H }
-                                        }
-
-                                        when (chosenHandle) {
-                                            TextHandleType.DELETE -> {
-                                                viewModel.saveUndoSnapshot()
-                                                viewModel.deleteLayer(selectedTextLayer.id)
-                                                viewModel.selectLayer(null)
+                                        if (!hitHandle) {
+                                            val hitTextLayer = layers.reversed().filterIsInstance<Layer.TextLayer>().firstOrNull { layer ->
+                                                layer.isVisible && isPointInsideTextLayer(layer, touchCanvasPt, textRenderer)
+                                            }
+                                            if (hitTextLayer != null) {
+                                                pendingBodyMoveLayer = hitTextLayer
+                                                initialTouchScreenPt = firstChange.position
+                                                initialTouchCanvasPt = touchCanvasPt
+                                                initialTextX = hitTextLayer.x
+                                                initialTextY = hitTextLayer.y
+                                                isBodyMoveDragging = false
                                                 hitHandle = true
                                                 firstChange.consume()
-                                                triggerRedraw++
-                                                continue
+                                                Logger.d("Touch intercepted by text layer: ${hitTextLayer.id}")
+                                            } else {
+                                                activeHandleType = null
                                             }
-                                            TextHandleType.ROTATE -> {
-                                                activeHandleType = TextHandleType.ROTATE
-                                                viewModel.saveUndoSnapshot()
-                                                initialTextCenterX = textCenterX
-                                                initialTextCenterY = textCenterY
-                                                initialTouchAngle = Math.toDegrees(kotlin.math.atan2((touchCanvasPt.y - textCenterY).toDouble(), (touchCanvasPt.x - textCenterX).toDouble())).toFloat()
-                                                initialTextRotation = selectedTextLayer.rotation
-                                                hitHandle = true
-                                                firstChange.consume()
-                                                continue
-                                            }
-                                            TextHandleType.RESIZE -> {
-                                                activeHandleType = TextHandleType.RESIZE
-                                                viewModel.saveUndoSnapshot()
-                                                initialTextCenterX = textCenterX
-                                                initialTextCenterY = textCenterY
-                                                initialDragDist = kotlin.math.hypot(unrotatedPt.x - textCenterX, unrotatedPt.y - textCenterY)
-                                                initialFontSize = selectedTextLayer.style.fontSize
-                                                initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
-                                                initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
-                                                initialBoundsLeft = bounds.left
-                                                initialBoundsTop = bounds.top
-                                                hitHandle = true
-                                                firstChange.consume()
-                                                continue
-                                            }
-                                            TextHandleType.STRETCH_V -> {
-                                                activeHandleType = TextHandleType.STRETCH_V
-                                                viewModel.saveUndoSnapshot()
-                                                initialTextX = selectedTextLayer.x
-                                                initialTextY = selectedTextLayer.y
-                                                initialTextCenterX = textCenterX
-                                                initialTextCenterY = textCenterY
-                                                initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
-                                                initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
-                                                initialMinH = textRenderer.getMinBoxHeight(selectedTextLayer)
-                                                initialBoundsLeft = bounds.left
-                                                initialBoundsTop = bounds.top
-                                                hitHandle = true
-                                                firstChange.consume()
-                                                continue
-                                            }
-                                            TextHandleType.STRETCH_H -> {
-                                                activeHandleType = TextHandleType.STRETCH_H
-                                                viewModel.saveUndoSnapshot()
-                                                initialTextX = selectedTextLayer.x
-                                                initialTextY = selectedTextLayer.y
-                                                initialTextCenterX = textCenterX
-                                                initialTextCenterY = textCenterY
-                                                initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
-                                                initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
-                                                initialMinW = textRenderer.getMinBoxWidth(selectedTextLayer)
-                                                initialBoundsLeft = bounds.left
-                                                initialBoundsTop = bounds.top
-                                                hitHandle = true
-                                                firstChange.consume()
-                                                continue
-                                            }
-                                            else -> {}
                                         }
                                     }
-                                    if (!hitHandle) {
-                                        val hitTextLayer = layers.reversed().filterIsInstance<Layer.TextLayer>().firstOrNull { layer ->
-                                            layer.isVisible && isPointInsideTextLayer(layer, touchCanvasPt, textRenderer)
-                                        }
-                                        if (hitTextLayer != null) {
-                                            pendingBodyMoveLayer = hitTextLayer
-                                            initialTouchScreenPt = firstChange.position
-                                            initialTouchCanvasPt = touchCanvasPt
-                                            initialTextX = hitTextLayer.x
-                                            initialTextY = hitTextLayer.y
-                                            isBodyMoveDragging = false
-                                            hitHandle = true
-                                            firstChange.consume()
-                                            Logger.d("Touch intercepted by text layer: ${hitTextLayer.id}")
-                                        } else {
-                                            activeHandleType = null
-                                        }
-                                    }
-                                }
-
                                 }
                                 // Check pending body move drag threshold
                                 if (pendingBodyMoveLayer != null && firstChange.pressed && activeHandleType == null) {
@@ -1304,7 +1272,7 @@ fun EditorScreen(
                                         layer = layer
                                     )
 
-                                    // Render bounding box & controls (Resize, Rotate, Delete) if selected
+                                    // Render bounding box & controls (Resize, Rotate, Delete, Stretch V/H) if selected
                                     if (layer.id == selectedLayerId) {
                                         val currentScale = viewModel.canvasState.scale
                                         val strokeW = 3f / currentScale
@@ -1312,7 +1280,7 @@ fun EditorScreen(
 
                                         val boxPaint = boxPaintCache.apply {
                                             strokeWidth = strokeW
-                                            pathEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
+                                            pathEffect = DashPathEffect(floatArrayOf(10f / currentScale, 10f / currentScale), 0f)
                                         }
                                         if (layer.textContainerShape == com.mochits.app.model.TextContainerShape.OVAL) {
                                             drawContext.canvas.nativeCanvas.drawOval(bounds, boxPaint)
@@ -1322,68 +1290,69 @@ fun EditorScreen(
 
                                         val handleFillPaint = handleFillPaintCache
                                         val handleStrokePaint = handleStrokePaintCache.apply { strokeWidth = strokeW }
+                                        val anchorsMap = handleAnchors(bounds, currentScale).toMap()
 
                                         // 1. Bottom-Right Resize Handle (Diagonal Double-Arrow Icon ↗↙)
-                                        val resizeFillPaint = resizeFillPaintCache
-                                        drawContext.canvas.nativeCanvas.drawCircle(bounds.right, bounds.bottom, handleRadius, resizeFillPaint)
-                                        drawContext.canvas.nativeCanvas.drawCircle(bounds.right, bounds.bottom, handleRadius, handleStrokePaint)
+                                        val resizePos = anchorsMap[TextHandleType.RESIZE] ?: Offset(bounds.right, bounds.bottom)
+                                        drawContext.canvas.nativeCanvas.drawCircle(resizePos.x, resizePos.y, handleRadius, resizeFillPaintCache)
+                                        drawContext.canvas.nativeCanvas.drawCircle(resizePos.x, resizePos.y, handleRadius, handleStrokePaint)
 
                                         val resizeIconPaint = resizeIconPaintCache.apply { strokeWidth = 2.5f / currentScale }
                                         val diagOff = handleRadius * 0.45f
                                         drawContext.canvas.nativeCanvas.drawLine(
-                                            bounds.right - diagOff, bounds.bottom + diagOff,
-                                            bounds.right + diagOff, bounds.bottom - diagOff,
+                                            resizePos.x - diagOff, resizePos.y + diagOff,
+                                            resizePos.x + diagOff, resizePos.y - diagOff,
                                             resizeIconPaint
                                         )
                                         drawContext.canvas.nativeCanvas.drawLine(
-                                            bounds.right + diagOff, bounds.bottom - diagOff,
-                                            bounds.right + diagOff - (diagOff * 0.6f), bounds.bottom - diagOff,
+                                            resizePos.x + diagOff, resizePos.y - diagOff,
+                                            resizePos.x + diagOff - (diagOff * 0.6f), resizePos.y - diagOff,
                                             resizeIconPaint
                                         )
                                         drawContext.canvas.nativeCanvas.drawLine(
-                                            bounds.right + diagOff, bounds.bottom - diagOff,
-                                            bounds.right + diagOff, bounds.bottom - diagOff + (diagOff * 0.6f),
+                                            resizePos.x + diagOff, resizePos.y - diagOff,
+                                            resizePos.x + diagOff, resizePos.y - diagOff + (diagOff * 0.6f),
                                             resizeIconPaint
                                         )
                                         drawContext.canvas.nativeCanvas.drawLine(
-                                            bounds.right - diagOff, bounds.bottom + diagOff,
-                                            bounds.right - diagOff + (diagOff * 0.6f), bounds.bottom + diagOff,
+                                            resizePos.x - diagOff, resizePos.y + diagOff,
+                                            resizePos.x - diagOff + (diagOff * 0.6f), resizePos.y + diagOff,
                                             resizeIconPaint
                                         )
                                         drawContext.canvas.nativeCanvas.drawLine(
-                                            bounds.right - diagOff, bounds.bottom + diagOff,
-                                            bounds.right - diagOff, bounds.bottom + diagOff - (diagOff * 0.6f),
+                                            resizePos.x - diagOff, resizePos.y + diagOff,
+                                            resizePos.x - diagOff, resizePos.y + diagOff - (diagOff * 0.6f),
                                             resizeIconPaint
                                         )
 
                                         // 2. Top-Left Delete (X) Button (Red Circle + White "X" Icon)
-                                        val deleteFillPaint = deleteFillPaintCache
+                                        val deletePos = anchorsMap[TextHandleType.DELETE] ?: Offset(bounds.left, bounds.top)
                                         val xPaint = xPaintCache.apply { strokeWidth = 3f / currentScale }
-                                        drawContext.canvas.nativeCanvas.drawCircle(bounds.left, bounds.top, handleRadius, deleteFillPaint)
+                                        drawContext.canvas.nativeCanvas.drawCircle(deletePos.x, deletePos.y, handleRadius, deleteFillPaintCache)
                                         val crossOffset = handleRadius * 0.45f
                                         drawContext.canvas.nativeCanvas.drawLine(
-                                            bounds.left - crossOffset, bounds.top - crossOffset,
-                                            bounds.left + crossOffset, bounds.top + crossOffset, xPaint
+                                            deletePos.x - crossOffset, deletePos.y - crossOffset,
+                                            deletePos.x + crossOffset, deletePos.y + crossOffset, xPaint
                                         )
                                         drawContext.canvas.nativeCanvas.drawLine(
-                                            bounds.left + crossOffset, bounds.top - crossOffset,
-                                            bounds.left - crossOffset, bounds.top + crossOffset, xPaint
+                                            deletePos.x + crossOffset, deletePos.y - crossOffset,
+                                            deletePos.x - crossOffset, deletePos.y + crossOffset, xPaint
                                         )
 
                                         // 3. Top-Right Rotate Handle (Green Circle + Circular Arrow Icon)
-                                        val rotateFillPaint = rotateFillPaintCache
-                                        drawContext.canvas.nativeCanvas.drawCircle(bounds.right, bounds.top, handleRadius, rotateFillPaint)
-                                        drawContext.canvas.nativeCanvas.drawCircle(bounds.right, bounds.top, handleRadius, handleStrokePaint)
+                                        val rotatePos = anchorsMap[TextHandleType.ROTATE] ?: Offset(bounds.right, bounds.top)
+                                        drawContext.canvas.nativeCanvas.drawCircle(rotatePos.x, rotatePos.y, handleRadius, rotateFillPaintCache)
+                                        drawContext.canvas.nativeCanvas.drawCircle(rotatePos.x, rotatePos.y, handleRadius, handleStrokePaint)
 
                                         val rotateArcPaint = rotateArcPaintCache.apply { strokeWidth = 2.5f / currentScale }
                                         val arcR = handleRadius * 0.5f
                                         arcRectCache.set(
-                                            bounds.right - arcR, bounds.top - arcR,
-                                            bounds.right + arcR, bounds.top + arcR
+                                            rotatePos.x - arcR, rotatePos.y - arcR,
+                                            rotatePos.x + arcR, rotatePos.y + arcR
                                         )
                                         drawContext.canvas.nativeCanvas.drawArc(arcRectCache, 45f, 270f, false, rotateArcPaint)
-                                        val tipX = bounds.right + arcR * kotlin.math.cos(Math.toRadians(45.0)).toFloat()
-                                        val tipY = bounds.top + arcR * kotlin.math.sin(Math.toRadians(45.0)).toFloat()
+                                        val tipX = rotatePos.x + arcR * kotlin.math.cos(Math.toRadians(45.0)).toFloat()
+                                        val tipY = rotatePos.y + arcR * kotlin.math.sin(Math.toRadians(45.0)).toFloat()
                                         rotateArrowPathCache.reset()
                                         rotateArrowPathCache.moveTo(tipX, tipY)
                                         rotateArrowPathCache.lineTo(tipX + 4f / currentScale, tipY - 5f / currentScale)
@@ -1393,45 +1362,38 @@ fun EditorScreen(
                                         drawContext.canvas.nativeCanvas.drawPath(rotateArrowPathCache, rotateArrowPaint)
 
                                         // 4. Vertical Stretch Handle (Bottom Center - Pill + ↕ Arrow Icon)
+                                        val stretchVPos = anchorsMap[TextHandleType.STRETCH_V] ?: Offset(bounds.centerX(), bounds.bottom + 24f / currentScale)
                                         val pillW = handleRadius * 1.6f
                                         val pillH = handleRadius * 0.9f
                                         val vArrowPaint = vArrowPaintCache.apply { strokeWidth = 2f / currentScale }
 
-                                        fun drawVStretchHandle(cx: Float, cy: Float) {
-                                            pillRectCache.set(cx - pillW / 2f, cy - pillH / 2f, cx + pillW / 2f, cy + pillH / 2f)
-                                            drawContext.canvas.nativeCanvas.drawRoundRect(pillRectCache, 6f, 6f, handleFillPaint)
-                                            drawContext.canvas.nativeCanvas.drawRoundRect(pillRectCache, 6f, 6f, handleStrokePaint)
+                                        pillRectCache.set(stretchVPos.x - pillW / 2f, stretchVPos.y - pillH / 2f, stretchVPos.x + pillW / 2f, stretchVPos.y + pillH / 2f)
+                                        drawContext.canvas.nativeCanvas.drawRoundRect(pillRectCache, 6f, 6f, handleFillPaint)
+                                        drawContext.canvas.nativeCanvas.drawRoundRect(pillRectCache, 6f, 6f, handleStrokePaint)
 
-                                            val arrowLen = pillH * 0.35f
-                                            drawContext.canvas.nativeCanvas.drawLine(cx, cy - arrowLen, cx, cy + arrowLen, vArrowPaint)
-                                            drawContext.canvas.nativeCanvas.drawLine(cx, cy - arrowLen, cx - 3f / currentScale, cy - arrowLen + 3f / currentScale, vArrowPaint)
-                                            drawContext.canvas.nativeCanvas.drawLine(cx, cy - arrowLen, cx + 3f / currentScale, cy - arrowLen + 3f / currentScale, vArrowPaint)
-                                            drawContext.canvas.nativeCanvas.drawLine(cx, cy + arrowLen, cx - 3f / currentScale, cy + arrowLen - 3f / currentScale, vArrowPaint)
-                                            drawContext.canvas.nativeCanvas.drawLine(cx, cy + arrowLen, cx + 3f / currentScale, cy + arrowLen - 3f / currentScale, vArrowPaint)
-                                        }
-
-                                        val floatOffset = handleRadius * 0.75f
-                                        drawVStretchHandle(bounds.centerX(), bounds.bottom + floatOffset)
+                                        val arrowLenV = pillH * 0.35f
+                                        drawContext.canvas.nativeCanvas.drawLine(stretchVPos.x, stretchVPos.y - arrowLenV, stretchVPos.x, stretchVPos.y + arrowLenV, vArrowPaint)
+                                        drawContext.canvas.nativeCanvas.drawLine(stretchVPos.x, stretchVPos.y - arrowLenV, stretchVPos.x - 3f / currentScale, stretchVPos.y - arrowLenV + 3f / currentScale, vArrowPaint)
+                                        drawContext.canvas.nativeCanvas.drawLine(stretchVPos.x, stretchVPos.y - arrowLenV, stretchVPos.x + 3f / currentScale, stretchVPos.y - arrowLenV + 3f / currentScale, vArrowPaint)
+                                        drawContext.canvas.nativeCanvas.drawLine(stretchVPos.x, stretchVPos.y + arrowLenV, stretchVPos.x - 3f / currentScale, stretchVPos.y + arrowLenV - 3f / currentScale, vArrowPaint)
+                                        drawContext.canvas.nativeCanvas.drawLine(stretchVPos.x, stretchVPos.y + arrowLenV, stretchVPos.x + 3f / currentScale, stretchVPos.y + arrowLenV - 3f / currentScale, vArrowPaint)
 
                                         // 5. Horizontal Stretch Handle (Right Center - Pill + ↔ Arrow Icon)
+                                        val stretchHPos = anchorsMap[TextHandleType.STRETCH_H] ?: Offset(bounds.right + 24f / currentScale, bounds.centerY())
                                         val pillHW = handleRadius * 0.9f
                                         val pillHH = handleRadius * 1.6f
                                         val hArrowPaint = hArrowPaintCache.apply { strokeWidth = 2f / currentScale }
 
-                                        fun drawHStretchHandle(cx: Float, cy: Float) {
-                                            pillRectCache.set(cx - pillHW / 2f, cy - pillHH / 2f, cx + pillHW / 2f, cy + pillHH / 2f)
-                                            drawContext.canvas.nativeCanvas.drawRoundRect(pillRectCache, 6f, 6f, handleFillPaint)
-                                            drawContext.canvas.nativeCanvas.drawRoundRect(pillRectCache, 6f, 6f, handleStrokePaint)
+                                        pillRectCache.set(stretchHPos.x - pillHW / 2f, stretchHPos.y - pillHH / 2f, stretchHPos.x + pillHW / 2f, stretchHPos.y + pillHH / 2f)
+                                        drawContext.canvas.nativeCanvas.drawRoundRect(pillRectCache, 6f, 6f, handleFillPaint)
+                                        drawContext.canvas.nativeCanvas.drawRoundRect(pillRectCache, 6f, 6f, handleStrokePaint)
 
-                                            val arrowLen = pillHW * 0.35f
-                                            drawContext.canvas.nativeCanvas.drawLine(cx - arrowLen, cy, cx + arrowLen, cy, hArrowPaint)
-                                            drawContext.canvas.nativeCanvas.drawLine(cx - arrowLen, cy, cx - arrowLen + 3f / currentScale, cy - 3f / currentScale, hArrowPaint)
-                                            drawContext.canvas.nativeCanvas.drawLine(cx - arrowLen, cy, cx - arrowLen + 3f / currentScale, cy + 3f / currentScale, hArrowPaint)
-                                            drawContext.canvas.nativeCanvas.drawLine(cx + arrowLen, cy, cx + arrowLen - 3f / currentScale, cy - 3f / currentScale, hArrowPaint)
-                                            drawContext.canvas.nativeCanvas.drawLine(cx + arrowLen, cy, cx + arrowLen - 3f / currentScale, cy + 3f / currentScale, hArrowPaint)
-                                        }
-
-                                        drawHStretchHandle(bounds.right + floatOffset, bounds.centerY())
+                                        val arrowLenH = pillHW * 0.35f
+                                        drawContext.canvas.nativeCanvas.drawLine(stretchHPos.x - arrowLenH, stretchHPos.y, stretchHPos.x + arrowLenH, stretchHPos.y, hArrowPaint)
+                                        drawContext.canvas.nativeCanvas.drawLine(stretchHPos.x - arrowLenH, stretchHPos.y, stretchHPos.x - arrowLenH + 3f / currentScale, stretchHPos.y - 3f / currentScale, hArrowPaint)
+                                        drawContext.canvas.nativeCanvas.drawLine(stretchHPos.x - arrowLenH, stretchHPos.y, stretchHPos.x - arrowLenH + 3f / currentScale, stretchHPos.y + 3f / currentScale, hArrowPaint)
+                                        drawContext.canvas.nativeCanvas.drawLine(stretchHPos.x + arrowLenH, stretchHPos.y, stretchHPos.x + arrowLenH - 3f / currentScale, stretchHPos.y - 3f / currentScale, hArrowPaint)
+                                        drawContext.canvas.nativeCanvas.drawLine(stretchHPos.x + arrowLenH, stretchHPos.y, stretchHPos.x + arrowLenH - 3f / currentScale, stretchHPos.y + 3f / currentScale, hArrowPaint)
                                     }
 
                                     drawContext.canvas.nativeCanvas.restore()

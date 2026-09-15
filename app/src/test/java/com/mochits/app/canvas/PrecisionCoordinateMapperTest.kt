@@ -23,6 +23,35 @@ class PrecisionCoordinateMapperTest {
     }
 
     @Test
+    fun `roundtrip coordinate mapping test`() {
+        val mapper = PrecisionCoordinateMapper(1080, 1920)
+        val testScales = listOf(0.5f, 1.0f, 3.0f)
+        val testOffsets = listOf(
+            Pair(-200f, 150f),
+            Pair(0f, 0f),
+            Pair(450.5f, -320.25f)
+        )
+        val testPoints = listOf(
+            androidx.compose.ui.geometry.Offset(0f, 0f),
+            androidx.compose.ui.geometry.Offset(540f, 960f),
+            androidx.compose.ui.geometry.Offset(1080f, 1920f),
+            androidx.compose.ui.geometry.Offset(123.4f, 567.8f)
+        )
+
+        for (s in testScales) {
+            for ((tx, ty) in testOffsets) {
+                mapper.updateTransform(s, tx, ty)
+                for (p in testPoints) {
+                    val screenPt = mapper.canvasToScreen(p.x, p.y)
+                    val backToCanvasPt = mapper.screenToCanvas(screenPt.x, screenPt.y)
+                    assertEquals(p.x, backToCanvasPt.x, 0.01f, "Failed for scale $s, tx $tx, ty $ty, point $p")
+                    assertEquals(p.y, backToCanvasPt.y, 0.01f, "Failed for scale $s, tx $tx, ty $ty, point $p")
+                }
+            }
+        }
+    }
+
+    @Test
     fun `canvasState updates scale and offset when pan zoom gesture occurs outside text handles`() {
         val state = CanvasEditorState()
         state.updateTransform(1.0f, 0f, 0f)

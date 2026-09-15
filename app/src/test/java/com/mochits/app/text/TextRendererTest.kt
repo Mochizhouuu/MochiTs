@@ -498,4 +498,50 @@ class TextRendererTest {
         assertEquals("Narrow Box top must equal initial Y", initialY, boundsBoxNarrow.top, 0.001f)
         assertEquals("Wide Box top must equal initial Y", initialY, boundsBoxWide.top, 0.001f)
     }
+
+    @Test
+    fun testTextInkVsTextBounds() {
+        val bitmap = android.graphics.Bitmap.createBitmap(500, 500, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+
+        val style = TextStyleConfig(fontSize = 32f, textColor = android.graphics.Color.BLACK)
+        val textLayer = Layer.TextLayer(
+            id = "test1",
+            name = "Text",
+            x = 100f,
+            y = 100f,
+            text = "TESTING INK",
+            style = style,
+            textContainerShape = TextContainerShape.BOX
+        )
+
+        textRenderer.drawStyledText(canvas, textLayer)
+
+        var minX = 500
+        var maxX = 0
+        var minY = 500
+        var maxY = 0
+        var foundInk = false
+
+        for (y in 0 until 500) {
+            for (x in 0 until 500) {
+                if (bitmap.getPixel(x, y) != 0) { // non-transparent pixel
+                    foundInk = true
+                    if (x < minX) minX = x
+                    if (x > maxX) maxX = x
+                    if (y < minY) minY = y
+                    if (y > maxY) maxY = y
+                }
+            }
+        }
+
+        assertTrue("Should have drawn ink pixels on bitmap", foundInk)
+
+        val bounds = textRenderer.getTextBounds(textLayer)
+
+        assertTrue("Ink top ($minY) should be >= bounds.top - 2px (${bounds.top})", minY >= bounds.top - 2f)
+        assertTrue("Ink bottom ($maxY) should be <= bounds.bottom + 2px (${bounds.bottom})", maxY <= bounds.bottom + 2f)
+        assertTrue("Ink left ($minX) should be >= bounds.left - 2px (${bounds.left})", minX >= bounds.left - 2f)
+        assertTrue("Ink right ($maxX) should be <= bounds.right + 2px (${bounds.right})", maxX <= bounds.right + 2f)
+    }
 }

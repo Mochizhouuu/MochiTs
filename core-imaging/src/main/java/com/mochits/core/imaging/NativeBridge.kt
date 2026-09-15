@@ -30,50 +30,98 @@ object NativeBridge {
         if (maskBitmap.width != w || maskBitmap.height != h) return
         if (startX < 0 || startX >= w || startY < 0 || startY >= h) return
 
-        val targetColor = srcBitmap.getPixel(startX, startY)
-        val targetR = (targetColor shr 16) and 0xFF
-        val targetG = (targetColor shr 8) and 0xFF
+        val pixels = IntArray(w * h)
+        srcBitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+
+        val targetColor = pixels[startY * w + startX]
+        val targetR = (targetColor ushr 16) and 0xFF
+        val targetG = (targetColor ushr 8) and 0xFF
         val targetB = targetColor and 0xFF
 
-        val tolSq = tolerance * tolerance
+        val tol = tolerance.toInt()
         val visited = BooleanArray(w * h)
-        val queue = java.util.ArrayDeque<Pair<Int, Int>>()
+        val queueInt = IntArray(w * h)
+        var head = 0
+        var tail = 0
 
-        queue.add(Pair(startX, startY))
+        queueInt[tail++] = startY * w + startX
         visited[startY * w + startX] = true
 
-        val dx = intArrayOf(0, 0, -1, 1)
-        val dy = intArrayOf(-1, 1, 0, 0)
+        val buffer = java.nio.ByteBuffer.allocate(w * h)
+        maskBitmap.copyPixelsToBuffer(buffer)
+        val maskPixels = buffer.array()
 
-        while (queue.isNotEmpty()) {
-            val element = queue.poll() ?: break
-            val (cx, cy) = element
-            maskBitmap.setPixel(cx, cy, android.graphics.Color.WHITE) // 255 alpha
+        while (head < tail) {
+            val idx = queueInt[head++]
+            val cx = idx % w
+            val cy = idx / w
 
-            for (i in 0 until 4) {
-                val nx = cx + dx[i]
-                val ny = cy + dy[i]
-                if (nx in 0 until w && ny in 0 until h) {
-                    val nIdx = ny * w + nx
-                    if (!visited[nIdx]) {
-                        visited[nIdx] = true
-                        val c = srcBitmap.getPixel(nx, ny)
-                        val r = (c shr 16) and 0xFF
-                        val g = (c shr 8) and 0xFF
-                        val b = c and 0xFF
+            maskPixels[idx] = 0xFF.toByte()
 
-                        val dr = (r - targetR).toFloat()
-                        val dg = (g - targetG).toFloat()
-                        val db = (b - targetB).toFloat()
-                        val distSq = dr * dr + dg * dg + db * db
-
-                        if (distSq <= tolSq) {
-                            queue.add(Pair(nx, ny))
-                        }
+            if (cy > 0) {
+                val nIdx = idx - w
+                if (!visited[nIdx]) {
+                    visited[nIdx] = true
+                    val c = pixels[nIdx]
+                    val r = (c ushr 16) and 0xFF
+                    val g = (c ushr 8) and 0xFF
+                    val b = c and 0xFF
+                    if (kotlin.math.abs(r - targetR) <= tol &&
+                        kotlin.math.abs(g - targetG) <= tol &&
+                        kotlin.math.abs(b - targetB) <= tol) {
+                        queueInt[tail++] = nIdx
+                    }
+                }
+            }
+            if (cy < h - 1) {
+                val nIdx = idx + w
+                if (!visited[nIdx]) {
+                    visited[nIdx] = true
+                    val c = pixels[nIdx]
+                    val r = (c ushr 16) and 0xFF
+                    val g = (c ushr 8) and 0xFF
+                    val b = c and 0xFF
+                    if (kotlin.math.abs(r - targetR) <= tol &&
+                        kotlin.math.abs(g - targetG) <= tol &&
+                        kotlin.math.abs(b - targetB) <= tol) {
+                        queueInt[tail++] = nIdx
+                    }
+                }
+            }
+            if (cx > 0) {
+                val nIdx = idx - 1
+                if (!visited[nIdx]) {
+                    visited[nIdx] = true
+                    val c = pixels[nIdx]
+                    val r = (c ushr 16) and 0xFF
+                    val g = (c ushr 8) and 0xFF
+                    val b = c and 0xFF
+                    if (kotlin.math.abs(r - targetR) <= tol &&
+                        kotlin.math.abs(g - targetG) <= tol &&
+                        kotlin.math.abs(b - targetB) <= tol) {
+                        queueInt[tail++] = nIdx
+                    }
+                }
+            }
+            if (cx < w - 1) {
+                val nIdx = idx + 1
+                if (!visited[nIdx]) {
+                    visited[nIdx] = true
+                    val c = pixels[nIdx]
+                    val r = (c ushr 16) and 0xFF
+                    val g = (c ushr 8) and 0xFF
+                    val b = c and 0xFF
+                    if (kotlin.math.abs(r - targetR) <= tol &&
+                        kotlin.math.abs(g - targetG) <= tol &&
+                        kotlin.math.abs(b - targetB) <= tol) {
+                        queueInt[tail++] = nIdx
                     }
                 }
             }
         }
+
+        val outBuffer = java.nio.ByteBuffer.wrap(maskPixels)
+        maskBitmap.copyPixelsFromBuffer(outBuffer)
     }
 
     private fun fallbackClearMask(bitmap: Bitmap) {

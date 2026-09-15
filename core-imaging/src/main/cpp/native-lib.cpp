@@ -295,15 +295,13 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
     uint8_t* maskPtr = static_cast<uint8_t*>(maskPixels);
 
     uint32_t targetColor = srcPtr[startY * width + startX];
-    uint8_t targetR = (targetColor) & 0xFF;
-    uint8_t targetG = (targetColor >> 8) & 0xFF;
-    uint8_t targetB = (targetColor >> 16) & 0xFF;
+    int targetR = (targetColor) & 0xFF;
+    int targetG = (targetColor >> 8) & 0xFF;
+    int targetB = (targetColor >> 16) & 0xFF;
 
-    float tolSq = tolerance * tolerance;
+    int tol = static_cast<int>(tolerance);
 
-    // Visited map / array to avoid re-queuing
     std::vector<uint8_t> visited(width * height, 0);
-
     std::queue<std::pair<int, int>> q;
     q.push({startX, startY});
     visited[startY * width + startX] = 1;
@@ -331,12 +329,12 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
                     int g = (c >> 8) & 0xFF;
                     int b = (c >> 16) & 0xFF;
 
-                    float dr = static_cast<float>(r - targetR);
-                    float dg = static_cast<float>(g - targetG);
-                    float db = static_cast<float>(b - targetB);
-                    float distSq = dr * dr + dg * dg + db * db;
+                    int dr = std::abs(r - targetR);
+                    int dg = std::abs(g - targetG);
+                    int db = std::abs(b - targetB);
+                    int maxDiff = std::max({dr, dg, db});
 
-                    if (distSq <= tolSq) {
+                    if (maxDiff <= tol) {
                         q.push({nx, ny});
                     }
                 }
