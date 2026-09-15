@@ -9,6 +9,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.compose.foundation.shape.CircleShape
@@ -516,6 +518,7 @@ fun EditorScreen(
             var magicWandTouchStartPt by remember { mutableStateOf<Offset?>(null) }
             var magicWandMovedDistance by remember { mutableFloatStateOf(0f) }
             var isMagicWandPending by remember { mutableStateOf(false) }
+            var isProcessingMagicWand by remember { mutableStateOf(false) }
 
             // Selected text layer & handle bounds calculation (single evaluated bounds)
             val selectedTextLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer
@@ -548,13 +551,13 @@ fun EditorScreen(
             }
             val stretchVBottomCenter = remember(selectedTextBounds, viewModel.canvasState.scale) {
                 if (selectedTextBounds != null) {
-                    val floatOffset = (14f / viewModel.canvasState.scale) * 0.75f
+                    val floatOffset = (24f / viewModel.canvasState.scale) * 0.75f
                     Offset(selectedTextBounds.centerX(), selectedTextBounds.bottom + floatOffset)
                 } else Offset.Zero
             }
             val stretchHRightCenter = remember(selectedTextBounds, viewModel.canvasState.scale) {
                 if (selectedTextBounds != null) {
-                    val floatOffset = (14f / viewModel.canvasState.scale) * 0.75f
+                    val floatOffset = (24f / viewModel.canvasState.scale) * 0.75f
                     Offset(selectedTextBounds.right + floatOffset, selectedTextBounds.centerY())
                 } else Offset.Zero
             }
@@ -621,6 +624,11 @@ fun EditorScreen(
                                 val event = awaitPointerEvent()
                                 val changes = event.changes
                                 if (changes.isEmpty()) continue
+
+                                if (isProcessingMagicWand) {
+                                    changes.forEach { it.consume() }
+                                    continue
+                                }
 
                                 // 0. EYEDROPPER MODE ACTIVE: Intercept all drags/taps to move crosshair
                                 if (isEyedropperActive) {
@@ -720,16 +728,25 @@ fun EditorScreen(
                                         val releasedChange = changes.find { it.previousPressed && !it.pressed }
                                         if (releasedChange != null) {
                                             if (maskToolMode == MaskToolMode.MAGIC_WAND) {
-                                                if (isMagicWandPending && magicWandMovedDistance <= 15f && magicWandTouchStartPt != null) {
-                                                    viewModel.saveUndoSnapshot()
-                                                    val canvasPt = viewModel.canvasState.mapper.screenToCanvas(magicWandTouchStartPt!!.x, magicWandTouchStartPt!!.y)
-                                                    viewModel.maskSelectionTools?.magicWandSelect(
-                                                        srcBitmap = baseBitmap,
-                                                        point = canvasPt,
-                                                        tolerance = magicWandTolerance,
-                                                        expandPixels = magicWandExpand.toInt()
-                                                    )
-                                                    triggerRedraw++
+                                                if (isMagicWandPending && magicWandMovedDistance <= 15f && magicWandTouchStartPt != null && !isProcessingMagicWand) {
+                                                    val startPt = magicWandTouchStartPt!!
+                                                    val startTol = magicWandTolerance
+                                                    val startExp = magicWandExpand.toInt()
+                                                    val canvasPt = viewModel.canvasState.mapper.screenToCanvas(startPt.x, startPt.y)
+                                                    isProcessingMagicWand = true
+                                                    coroutineScope.launch(Dispatchers.Default) {
+                                                        viewModel.saveUndoSnapshot()
+                                                        viewModel.maskSelectionTools?.magicWandSelect(
+                                                            srcBitmap = baseBitmap,
+                                                            point = canvasPt,
+                                                            tolerance = startTol,
+                                                            expandPixels = startExp
+                                                        )
+                                                        withContext(Dispatchers.Main) {
+                                                            isProcessingMagicWand = false
+                                                            triggerRedraw++
+                                                        }
+                                                    }
                                                 }
                                                 isMagicWandPending = false
                                                 magicWandTouchStartPt = null
@@ -747,8 +764,8 @@ fun EditorScreen(
                                 // 2. TEXT HANDLES INTERCEPTION: Check hit-testing on handles
                                 val firstChange = changes.first()
                                 val touchCanvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
-                                val handleHitRadius = (36f / viewModel.canvasState.scale)
-                                val stretchHitRadius = (38f / viewModel.canvasState.scale)
+                                val handleHitRadius = (48f / viewModel.canvasState.scale)
+                                val stretchHitRadius = (48f / viewModel.canvasState.scale)
 
                                 if (activeHandleType == null && pendingBodyMoveLayer == null) {
                                 val isJustDown = !firstChange.previousPressed && firstChange.pressed
@@ -817,11 +834,12 @@ fun EditorScreen(
 
                                         when (chosenHandle) {
                                             TextHandleType.DELETE -> {
-                                                activeHandleType = TextHandleType.DELETE
-                                                deleteHandlePressTime = System.currentTimeMillis()
-                                                pendingDeleteLayerId = selectedTextLayer.id
+                                                viewModel.saveUndoSnapshot()
+                                                viewModel.deleteLayer(selectedTextLayer.id)
+                                                viewModel.selectLayer(null)
                                                 hitHandle = true
                                                 firstChange.consume()
+                                                triggerRedraw++
                                                 continue
                                             }
                                             TextHandleType.ROTATE -> {
@@ -840,7 +858,7 @@ fun EditorScreen(
                                                 viewModel.saveUndoSnapshot()
                                                 initialTextCenterX = textCenterX
                                                 initialTextCenterY = textCenterY
-                                                initialDragDist = kotlin.math.hypot(touchCanvasPt.x - textCenterX, touchCanvasPt.y - textCenterY)
+                                                initialDragDist = kotlin.math.hypot(unrotatedPt.x - textCenterX, unrotatedPt.y - textCenterY)
                                                 initialFontSize = selectedTextLayer.style.fontSize
                                                 initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
                                                 initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
@@ -924,10 +942,23 @@ fun EditorScreen(
                                 if (activeHandleType != null && firstChange.pressed) {
                                     event.changes.forEach { it.consume() }
                                     Logger.d("Text handle drag active: type=$activeHandleType, consumed touches=${event.changes.size}")
+                                    val unrotatedCurrentPt = if (selectedTextLayer != null && selectedTextLayer.rotation != 0f) {
+                                        val rad = Math.toRadians(-selectedTextLayer.rotation.toDouble())
+                                        val cosA = kotlin.math.cos(rad)
+                                        val sinA = kotlin.math.sin(rad)
+                                        val dx = (touchCanvasPt.x - initialTextCenterX).toDouble()
+                                        val dy = (touchCanvasPt.y - initialTextCenterY).toDouble()
+                                        Offset(
+                                            (initialTextCenterX + dx * cosA - dy * sinA).toFloat(),
+                                            (initialTextCenterY + dx * sinA + dy * cosA).toFloat()
+                                        )
+                                    } else {
+                                        touchCanvasPt
+                                    }
                                     when (activeHandleType) {
                                         TextHandleType.RESIZE -> {
                                             if (selectedTextLayer != null) {
-                                                val currentDist = kotlin.math.hypot(touchCanvasPt.x - initialTextCenterX, touchCanvasPt.y - initialTextCenterY)
+                                                val currentDist = kotlin.math.hypot(unrotatedCurrentPt.x - initialTextCenterX, unrotatedCurrentPt.y - initialTextCenterY)
                                                 if (initialDragDist > 0f) {
                                                     val scaleFactor = currentDist / initialDragDist
                                                     val newSize = (initialFontSize * scaleFactor).coerceIn(10f, 300f)
@@ -952,7 +983,8 @@ fun EditorScreen(
                                             if (selectedTextLayer != null) {
                                                 val currentAngle = Math.toDegrees(kotlin.math.atan2((touchCanvasPt.y - initialTextCenterY).toDouble(), (touchCanvasPt.x - initialTextCenterX).toDouble())).toFloat()
                                                 val deltaAngle = currentAngle - initialTouchAngle
-                                                val newRotation = (initialTextRotation + deltaAngle) % 360f
+                                                var newRotation = (initialTextRotation + deltaAngle) % 360f
+                                                if (newRotation < 0f) newRotation += 360f
                                                 viewModel.updateSelectedTextLayerRotation(newRotation, saveUndo = false)
                                                 triggerRedraw++
                                             }
@@ -960,21 +992,8 @@ fun EditorScreen(
                                         TextHandleType.STRETCH_V -> {
                                             if (selectedTextLayer != null) {
                                                 val maxCanvasHeight = baseBitmap?.height?.toFloat() ?: (project?.height?.toFloat() ?: 1920f)
-                                                val unrotatedPt = if (selectedTextLayer.rotation != 0f) {
-                                                    val rad = Math.toRadians(-selectedTextLayer.rotation.toDouble())
-                                                    val cosA = kotlin.math.cos(rad)
-                                                    val sinA = kotlin.math.sin(rad)
-                                                    val dx = (touchCanvasPt.x - initialTextCenterX).toDouble()
-                                                    val dy = (touchCanvasPt.y - initialTextCenterY).toDouble()
-                                                    Offset(
-                                                        (initialTextCenterX + dx * cosA - dy * sinA).toFloat(),
-                                                        (initialTextCenterY + dx * sinA + dy * cosA).toFloat()
-                                                    )
-                                                } else {
-                                                    touchCanvasPt
-                                                }
                                                 val currentBoxW = selectedTextLayer.boxWidth
-                                                val rawBoxH = unrotatedPt.y - initialTextY
+                                                val rawBoxH = unrotatedCurrentPt.y - initialTextY
                                                 val newBoxH = rawBoxH.coerceIn(initialMinH, maxCanvasHeight)
                                                 viewModel.updateSelectedTextLayerStretch(
                                                     boxWidth = currentBoxW,
@@ -989,21 +1008,8 @@ fun EditorScreen(
                                         TextHandleType.STRETCH_H -> {
                                             if (selectedTextLayer != null) {
                                                 val maxCanvasWidth = baseBitmap?.width?.toFloat() ?: (project?.width?.toFloat() ?: 1080f)
-                                                val unrotatedPt = if (selectedTextLayer.rotation != 0f) {
-                                                    val rad = Math.toRadians(-selectedTextLayer.rotation.toDouble())
-                                                    val cosA = kotlin.math.cos(rad)
-                                                    val sinA = kotlin.math.sin(rad)
-                                                    val dx = (touchCanvasPt.x - initialTextCenterX).toDouble()
-                                                    val dy = (touchCanvasPt.y - initialTextCenterY).toDouble()
-                                                    Offset(
-                                                        (initialTextCenterX + dx * cosA - dy * sinA).toFloat(),
-                                                        (initialTextCenterY + dx * sinA + dy * cosA).toFloat()
-                                                    )
-                                                } else {
-                                                    touchCanvasPt
-                                                }
                                                 val currentBoxH = selectedTextLayer.boxHeight
-                                                val distFromCenter = kotlin.math.abs(unrotatedPt.x - initialTextCenterX)
+                                                val distFromCenter = kotlin.math.abs(unrotatedCurrentPt.x - initialTextCenterX)
                                                 val rawBoxW = distFromCenter * 2f
                                                 val newBoxW = rawBoxW.coerceIn(initialMinW, maxCanvasWidth)
                                                 val newX = initialTextCenterX - (newBoxW / 2f)
@@ -1302,7 +1308,7 @@ fun EditorScreen(
                                     if (layer.id == selectedLayerId) {
                                         val currentScale = viewModel.canvasState.scale
                                         val strokeW = 3f / currentScale
-                                        val handleRadius = 14f / currentScale
+                                        val handleRadius = 24f / currentScale
 
                                         val boxPaint = boxPaintCache.apply {
                                             strokeWidth = strokeW
@@ -1452,6 +1458,38 @@ fun EditorScreen(
             }
 
             // Floating Confirm/Cancel Action Bar for Eyedropper (Pill Container)
+            // Loading Overlay for Magic Wand Processing
+            if (isProcessingMagicWand) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.35f))
+                        .pointerInput(Unit) { },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 6.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.5.dp
+                            )
+                            Text(
+                                text = "Memproses seleksi Magic Wand...",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
+            }
+
             if (isEyedropperActive) {
                 Surface(
                     modifier = Modifier
