@@ -18,8 +18,14 @@ class ProjectExporter(private val context: Context) {
         baseBitmap: Bitmap,
         layers: List<Layer>
     ): Bitmap = withContext(Dispatchers.Default) {
+        // Guard dulu di level Kotlin: tanpa ini, drawBitmap(bitmap recycled)
+        // menembus ke native dan meng-abort seluruh Test Executor (exit 134,
+        // "cannot access an invalid/free'd bitmap") sehingga SEMUA test release
+        // mati, bukan cuma 1 test yang gagal.
+        require(!baseBitmap.isRecycled) { "baseBitmap is recycled" }
         val width = baseBitmap.width
         val height = baseBitmap.height
+        require(width > 0 && height > 0) { "baseBitmap has invalid size" }
         val outputBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(outputBitmap)
 

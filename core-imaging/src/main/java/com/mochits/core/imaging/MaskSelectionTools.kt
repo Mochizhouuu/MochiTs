@@ -51,17 +51,25 @@ class MaskSelectionTools(
 
     fun resetSize(newWidth: Int, newHeight: Int) {
         if (width == newWidth && height == newHeight) return
+        // Jangan draw dari bitmap yang sudah di-recycle: di Robolectric NATIVE
+        // itu native abort (exit 134), bukan sekadar exception.
+        val oldMask = if (maskBitmap.isRecycled) null else maskBitmap
+        val oldRawMask = if (rawMaskBitmap.isRecycled) null else rawMaskBitmap
         val newMask = createSafeMaskBitmap(newWidth, newHeight)
         val newRawMask = createSafeMaskBitmap(newWidth, newHeight)
 
-        val canvas = android.graphics.Canvas(newMask)
-        canvas.drawBitmap(maskBitmap, 0f, 0f, null)
+        if (oldMask != null) {
+            val canvas = android.graphics.Canvas(newMask)
+            canvas.drawBitmap(oldMask, 0f, 0f, null)
+        }
 
-        val rawCanvas = android.graphics.Canvas(newRawMask)
-        rawCanvas.drawBitmap(rawMaskBitmap, 0f, 0f, null)
+        if (oldRawMask != null) {
+            val rawCanvas = android.graphics.Canvas(newRawMask)
+            rawCanvas.drawBitmap(oldRawMask, 0f, 0f, null)
+        }
 
-        maskBitmap.recycle()
-        rawMaskBitmap.recycle()
+        if (!maskBitmap.isRecycled) maskBitmap.recycle()
+        if (!rawMaskBitmap.isRecycled) rawMaskBitmap.recycle()
 
         maskBitmap = newMask
         rawMaskBitmap = newRawMask

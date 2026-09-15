@@ -87,7 +87,14 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
         unitTests.isIncludeAndroidResources = true
-        unitTests.all { it.useJUnitPlatform() }
+        unitTests.all {
+            it.useJUnitPlatform()
+            // Isolasi crash native bitmap (Robolectric NATIVE, "invalid/free'd
+            // bitmap" -> exit 134): tiap kelas jalan di fork sendiri supaya
+            // satu kelas bermasalah tidak membunuh seluruh executor.
+            it.forkEvery = 1
+            it.maxHeapSize = "2g"
+        }
     }
 }
 

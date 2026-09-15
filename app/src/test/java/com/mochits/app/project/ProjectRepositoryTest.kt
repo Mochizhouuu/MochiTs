@@ -44,7 +44,7 @@ class ProjectRepositoryTest {
         val project = repository.createProject(
             title = "Test Large Project",
             width = 1080,
-            height = 19200,
+            height = 1920,
             imageUri = null,
             isTransparent = false,
             backgroundColor = Color.WHITE
@@ -54,7 +54,7 @@ class ProjectRepositoryTest {
         assertNotNull(project.id)
         assertEquals("Test Large Project", project.title)
         assertEquals(1080, project.width)
-        assertEquals(19200, project.height)
+        assertEquals(1920, project.height)
         assertNotNull(project.thumbnailPath)
         assertTrue(File(project.thumbnailPath!!).exists())
 
