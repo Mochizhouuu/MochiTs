@@ -299,7 +299,9 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
     int targetG = (targetColor >> 8) & 0xFF;
     int targetB = (targetColor >> 16) & 0xFF;
 
-    int tol = static_cast<int>(tolerance);
+    // Euclidean RGB distance (tolerance already mapped to 0..441.673).
+    // Tighter than per-channel Chebyshev; prevents diagonal color leaks outside target.
+    float tolSq = tolerance * tolerance;
 
     std::vector<uint8_t> visited(width * height, 0);
     std::queue<std::pair<int, int>> q;
@@ -329,12 +331,12 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
                     int g = (c >> 8) & 0xFF;
                     int b = (c >> 16) & 0xFF;
 
-                    int dr = std::abs(r - targetR);
-                    int dg = std::abs(g - targetG);
-                    int db = std::abs(b - targetB);
-                    int maxDiff = std::max({dr, dg, db});
+                    float dr = static_cast<float>(r - targetR);
+                    float dg = static_cast<float>(g - targetG);
+                    float db = static_cast<float>(b - targetB);
+                    float distSq = dr * dr + dg * dg + db * db;
 
-                    if (maxDiff <= tol) {
+                    if (distSq <= tolSq) {
                         q.push({nx, ny});
                     }
                 }

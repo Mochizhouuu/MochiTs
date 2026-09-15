@@ -139,10 +139,19 @@ class MaskSelectionTools(
     fun magicWandSelect(srcBitmap: Bitmap?, point: Offset, tolerance: Float, expandPixels: Int = currentExpandPixels) {
         invalidateCache()
         if (srcBitmap == null || srcBitmap.isRecycled) return
-        val startX = point.x.toInt()
-        val startY = point.y.toInt()
-        // Map UI tolerance scale (0..100) to RGB Euclidean distance threshold (0..255f)
-        val mappedTolerance = tolerance.coerceIn(0f, 100f) * 2.55f
+        // Reject taps outside the source image using float comparison first.
+        // (Using toInt() directly would truncate -0.5 -> 0 and falsely hit the edge.)
+        if (point.x < 0f || point.y < 0f || point.x >= srcBitmap.width.toFloat() || point.y >= srcBitmap.height.toFloat()) return
+        if (maskBitmap.width != srcBitmap.width || maskBitmap.height != srcBitmap.height) {
+            // Keep mask aligned with source; silently resync instead of writing out of bounds.
+            resetSize(srcBitmap.width, srcBitmap.height)
+        }
+        val startX = kotlin.math.floor(point.x).toInt()
+        val startY = kotlin.math.floor(point.y).toInt()
+        // Map UI tolerance scale (0..100) to full RGB Euclidean distance (0..441.673f).
+        // Euclidean (sphere) is tighter than per-channel Chebyshev (cube) and avoids
+        // leaking into neighbouring colors diagonally (e.g. corner (81,81,81)).
+        val mappedTolerance = (tolerance.coerceIn(0f, 100f) / 100f) * 441.673f
         currentExpandPixels = expandPixels.coerceIn(0, 30)
         NativeBridge.magicWandSelectSafe(srcBitmap, rawMaskBitmap, startX, startY, mappedTolerance)
         applyExpandInternal()

@@ -38,7 +38,9 @@ object NativeBridge {
         val targetG = (targetColor ushr 8) and 0xFF
         val targetB = targetColor and 0xFF
 
-        val tol = tolerance.toInt()
+        // Euclidean RGB distance (tolerance is already mapped to 0..441.673).
+        // Tighter than per-channel Chebyshev; prevents diagonal color leaks.
+        val tolSq = tolerance * tolerance
         val visited = BooleanArray(w * h)
         val queueInt = IntArray(w * h)
         var head = 0
@@ -51,6 +53,13 @@ object NativeBridge {
         maskBitmap.copyPixelsToBuffer(buffer)
         val maskPixels = buffer.array()
 
+        fun colorMatches(c: Int): Boolean {
+            val dr = ((c ushr 16) and 0xFF) - targetR
+            val dg = ((c ushr 8) and 0xFF) - targetG
+            val db = (c and 0xFF) - targetB
+            return (dr * dr + dg * dg + db * db).toFloat() <= tolSq
+        }
+
         while (head < tail) {
             val idx = queueInt[head++]
             val cx = idx % w
@@ -62,13 +71,7 @@ object NativeBridge {
                 val nIdx = idx - w
                 if (!visited[nIdx]) {
                     visited[nIdx] = true
-                    val c = pixels[nIdx]
-                    val r = (c ushr 16) and 0xFF
-                    val g = (c ushr 8) and 0xFF
-                    val b = c and 0xFF
-                    if (kotlin.math.abs(r - targetR) <= tol &&
-                        kotlin.math.abs(g - targetG) <= tol &&
-                        kotlin.math.abs(b - targetB) <= tol) {
+                    if (colorMatches(pixels[nIdx])) {
                         queueInt[tail++] = nIdx
                     }
                 }
@@ -77,13 +80,7 @@ object NativeBridge {
                 val nIdx = idx + w
                 if (!visited[nIdx]) {
                     visited[nIdx] = true
-                    val c = pixels[nIdx]
-                    val r = (c ushr 16) and 0xFF
-                    val g = (c ushr 8) and 0xFF
-                    val b = c and 0xFF
-                    if (kotlin.math.abs(r - targetR) <= tol &&
-                        kotlin.math.abs(g - targetG) <= tol &&
-                        kotlin.math.abs(b - targetB) <= tol) {
+                    if (colorMatches(pixels[nIdx])) {
                         queueInt[tail++] = nIdx
                     }
                 }
@@ -92,13 +89,7 @@ object NativeBridge {
                 val nIdx = idx - 1
                 if (!visited[nIdx]) {
                     visited[nIdx] = true
-                    val c = pixels[nIdx]
-                    val r = (c ushr 16) and 0xFF
-                    val g = (c ushr 8) and 0xFF
-                    val b = c and 0xFF
-                    if (kotlin.math.abs(r - targetR) <= tol &&
-                        kotlin.math.abs(g - targetG) <= tol &&
-                        kotlin.math.abs(b - targetB) <= tol) {
+                    if (colorMatches(pixels[nIdx])) {
                         queueInt[tail++] = nIdx
                     }
                 }
@@ -107,13 +98,7 @@ object NativeBridge {
                 val nIdx = idx + 1
                 if (!visited[nIdx]) {
                     visited[nIdx] = true
-                    val c = pixels[nIdx]
-                    val r = (c ushr 16) and 0xFF
-                    val g = (c ushr 8) and 0xFF
-                    val b = c and 0xFF
-                    if (kotlin.math.abs(r - targetR) <= tol &&
-                        kotlin.math.abs(g - targetG) <= tol &&
-                        kotlin.math.abs(b - targetB) <= tol) {
+                    if (colorMatches(pixels[nIdx])) {
                         queueInt[tail++] = nIdx
                     }
                 }

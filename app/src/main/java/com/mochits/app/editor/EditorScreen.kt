@@ -560,8 +560,9 @@ fun EditorScreen(
             var isMagicWandPending by remember { mutableStateOf(false) }
             var isProcessingMagicWand by remember { mutableStateOf(false) }
 
-            // Selected text layer
-            val selectedTextLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer
+            // NOTE: gesture handling below intentionally does NOT use a captured
+            // selected-layer compose val (it would go stale inside pointerInput(Unit)).
+            // It reads fresh state via viewModel.selectedLayerId/layers instead.
 
             var activeHandleType by remember { mutableStateOf<TextHandleType?>(null) }
             var initialDragDist by remember { mutableFloatStateOf(0f) }
@@ -733,23 +734,31 @@ fun EditorScreen(
                                                     val startTol = magicWandTolerance
                                                     val startExp = magicWandExpand.toInt()
                                                     val canvasPt = viewModel.canvasState.mapper.screenToCanvas(startPt.x, startPt.y)
-                                                    isProcessingMagicWand = true
-                                                    coroutineScope.launch(Dispatchers.Default) {
-                                                        try {
-                                                            viewModel.saveUndoSnapshot()
-                                                            val flattened = viewModel.flattenForSelection()
-                                                            val src = flattened ?: baseBitmap
-                                                            viewModel.maskSelectionTools?.magicWandSelect(
-                                                                srcBitmap = src,
-                                                                point = canvasPt,
-                                                                tolerance = startTol,
-                                                                expandPixels = startExp
-                                                            )
-                                                            withContext(Dispatchers.Main) {
-                                                                triggerRedraw++
+                                                    // Ignore taps outside the image instead of pushing a useless
+                                                    // undo step / flood-filling from a clamped edge pixel.
+                                                    val base = viewModel.baseBitmap.value
+                                                    val insideImage = base != null && !base.isRecycled &&
+                                                        canvasPt.x >= 0f && canvasPt.y >= 0f &&
+                                                        canvasPt.x < base.width.toFloat() && canvasPt.y < base.height.toFloat()
+                                                    if (insideImage) {
+                                                        isProcessingMagicWand = true
+                                                        coroutineScope.launch(Dispatchers.Default) {
+                                                            try {
+                                                                viewModel.saveUndoSnapshot()
+                                                                val flattened = viewModel.flattenForSelection()
+                                                                val src = flattened ?: viewModel.baseBitmap.value
+                                                                viewModel.maskSelectionTools?.magicWandSelect(
+                                                                    srcBitmap = src,
+                                                                    point = canvasPt,
+                                                                    tolerance = startTol,
+                                                                    expandPixels = startExp
+                                                                )
+                                                                withContext(Dispatchers.Main) {
+                                                                    triggerRedraw++
+                                                                }
+                                                            } finally {
+                                                                isProcessingMagicWand = false
                                                             }
-                                                        } finally {
-                                                            isProcessingMagicWand = false
                                                         }
                                                     }
                                                 }
@@ -769,26 +778,35 @@ fun EditorScreen(
                                 // 2. TEXT HANDLES INTERCEPTION: Check hit-testing on handles
                                 val firstChange = changes.first()
                                 val touchCanvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
+                                // NOTE: do NOT use the captured `selectedTextLayer` / `layers` compose vals
+                                // here. pointerInput(Unit) never restarts, so those would stay stale after
+                                // selection changes and all drags would silently no-op (only tap-select +
+                                // double-tap-to-edit, which use pendingBodyMoveLayer, would still work).
+                                // Always read fresh state from the ViewModel inside the gesture loop.
+                                val freshSelectedLayer = viewModel.selectedLayerId.value?.let { sid ->
+                                    viewModel.layers.value.find { it.id == sid } as? Layer.TextLayer
+                                }
 
                                 if (activeHandleType == null && pendingBodyMoveLayer == null) {
                                     val isJustDown = !firstChange.previousPressed && firstChange.pressed
                                     if (isJustDown) {
                                         panAccumulator = 0f
                                         var hitHandle = false
-                                        if (selectedTextLayer != null) {
-                                            val bounds = textRenderer.getTextBounds(selectedTextLayer)
+                                        val handleLayer = freshSelectedLayer
+                                        if (handleLayer != null) {
+                                            val bounds = textRenderer.getTextBounds(handleLayer)
                                             val textCenterX = bounds.centerX()
                                             val textCenterY = bounds.centerY()
 
                                             val chosenHandle = hitTestTextHandles(
                                                 touchCanvasPt,
-                                                selectedTextLayer,
+                                                handleLayer,
                                                 bounds,
                                                 viewModel.canvasState.scale
                                             )
 
-                                            val unrotatedPt = if (selectedTextLayer.rotation != 0f) {
-                                                val rad = Math.toRadians(-selectedTextLayer.rotation.toDouble())
+                                            val unrotatedPt = if (handleLayer.rotation != 0f) {
+                                                val rad = Math.toRadians(-handleLayer.rotation.toDouble())
                                                 val cosA = kotlin.math.cos(rad)
                                                 val sinA = kotlin.math.sin(rad)
                                                 val dx = (touchCanvasPt.x - textCenterX).toDouble()
@@ -804,7 +822,7 @@ fun EditorScreen(
                                             when (chosenHandle) {
                                                 TextHandleType.DELETE -> {
                                                     viewModel.saveUndoSnapshot()
-                                                    viewModel.deleteLayer(selectedTextLayer.id)
+                                                    viewModel.deleteLayer(handleLayer.id)
                                                     viewModel.selectLayer(null)
                                                     hitHandle = true
                                                     firstChange.consume()
@@ -817,7 +835,7 @@ fun EditorScreen(
                                                     initialTextCenterX = textCenterX
                                                     initialTextCenterY = textCenterY
                                                     initialTouchAngle = Math.toDegrees(kotlin.math.atan2((touchCanvasPt.y - textCenterY).toDouble(), (touchCanvasPt.x - textCenterX).toDouble())).toFloat()
-                                                    initialTextRotation = selectedTextLayer.rotation
+                                                    initialTextRotation = handleLayer.rotation
                                                     hitHandle = true
                                                     firstChange.consume()
                                                     continue
@@ -828,9 +846,9 @@ fun EditorScreen(
                                                     initialTextCenterX = textCenterX
                                                     initialTextCenterY = textCenterY
                                                     initialDragDist = kotlin.math.hypot(unrotatedPt.x - textCenterX, unrotatedPt.y - textCenterY)
-                                                    initialFontSize = selectedTextLayer.style.fontSize
-                                                    initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
-                                                    initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
+                                                    initialFontSize = handleLayer.style.fontSize
+                                                    initialBoxW = handleLayer.boxWidth ?: bounds.width()
+                                                    initialBoxH = handleLayer.boxHeight ?: bounds.height()
                                                     initialBoundsLeft = bounds.left
                                                     initialBoundsTop = bounds.top
                                                     hitHandle = true
@@ -840,13 +858,13 @@ fun EditorScreen(
                                                 TextHandleType.STRETCH_V -> {
                                                     activeHandleType = TextHandleType.STRETCH_V
                                                     viewModel.saveUndoSnapshot()
-                                                    initialTextX = selectedTextLayer.x
-                                                    initialTextY = selectedTextLayer.y
+                                                    initialTextX = handleLayer.x
+                                                    initialTextY = handleLayer.y
                                                     initialTextCenterX = textCenterX
                                                     initialTextCenterY = textCenterY
-                                                    initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
-                                                    initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
-                                                    initialMinH = textRenderer.getMinBoxHeight(selectedTextLayer)
+                                                    initialBoxW = handleLayer.boxWidth ?: bounds.width()
+                                                    initialBoxH = handleLayer.boxHeight ?: bounds.height()
+                                                    initialMinH = textRenderer.getMinBoxHeight(handleLayer)
                                                     initialBoundsLeft = bounds.left
                                                     initialBoundsTop = bounds.top
                                                     hitHandle = true
@@ -856,13 +874,13 @@ fun EditorScreen(
                                                 TextHandleType.STRETCH_H -> {
                                                     activeHandleType = TextHandleType.STRETCH_H
                                                     viewModel.saveUndoSnapshot()
-                                                    initialTextX = selectedTextLayer.x
-                                                    initialTextY = selectedTextLayer.y
+                                                    initialTextX = handleLayer.x
+                                                    initialTextY = handleLayer.y
                                                     initialTextCenterX = textCenterX
                                                     initialTextCenterY = textCenterY
-                                                    initialBoxW = selectedTextLayer.boxWidth ?: bounds.width()
-                                                    initialBoxH = selectedTextLayer.boxHeight ?: bounds.height()
-                                                    initialMinW = textRenderer.getMinBoxWidth(selectedTextLayer)
+                                                    initialBoxW = handleLayer.boxWidth ?: bounds.width()
+                                                    initialBoxH = handleLayer.boxHeight ?: bounds.height()
+                                                    initialMinW = textRenderer.getMinBoxWidth(handleLayer)
                                                     initialBoundsLeft = bounds.left
                                                     initialBoundsTop = bounds.top
                                                     hitHandle = true
@@ -873,7 +891,7 @@ fun EditorScreen(
                                             }
                                         }
                                         if (!hitHandle) {
-                                            val hitTextLayer = layers.reversed().filterIsInstance<Layer.TextLayer>().firstOrNull { layer ->
+                                            val hitTextLayer = viewModel.layers.value.reversed().filterIsInstance<Layer.TextLayer>().firstOrNull { layer ->
                                                 layer.isVisible && isPointInsideTextLayer(layer, touchCanvasPt, textRenderer)
                                             }
                                             if (hitTextLayer != null) {
@@ -910,8 +928,12 @@ fun EditorScreen(
                                 if (activeHandleType != null && firstChange.pressed) {
                                     event.changes.forEach { it.consume() }
                                     Logger.d("Text handle drag active: type=$activeHandleType, consumed touches=${event.changes.size}")
-                                    val unrotatedCurrentPt = if (selectedTextLayer != null && selectedTextLayer.rotation != 0f) {
-                                        val rad = Math.toRadians(-selectedTextLayer.rotation.toDouble())
+                                    // Fresh lookup: the captured compose val would be stale here.
+                                    val dragLayer = viewModel.selectedLayerId.value?.let { sid ->
+                                        viewModel.layers.value.find { it.id == sid } as? Layer.TextLayer
+                                    }
+                                    val unrotatedCurrentPt = if (dragLayer != null && dragLayer.rotation != 0f) {
+                                        val rad = Math.toRadians(-dragLayer.rotation.toDouble())
                                         val cosA = kotlin.math.cos(rad)
                                         val sinA = kotlin.math.sin(rad)
                                         val dx = (touchCanvasPt.x - initialTextCenterX).toDouble()
@@ -925,15 +947,15 @@ fun EditorScreen(
                                     }
                                     when (activeHandleType) {
                                         TextHandleType.RESIZE -> {
-                                            if (selectedTextLayer != null) {
+                                            if (dragLayer != null) {
                                                 val currentDist = kotlin.math.hypot(unrotatedCurrentPt.x - initialTextCenterX, unrotatedCurrentPt.y - initialTextCenterY)
                                                 if (initialDragDist > 0f) {
                                                     val scaleFactor = currentDist / initialDragDist
                                                     val newSize = (initialFontSize * scaleFactor).coerceIn(10f, 300f)
-                                                    val newBoxW = if (selectedTextLayer.boxWidth != null || selectedTextLayer.textContainerShape == com.mochits.app.model.TextContainerShape.OVAL) {
+                                                    val newBoxW = if (dragLayer.boxWidth != null || dragLayer.textContainerShape == com.mochits.app.model.TextContainerShape.OVAL) {
                                                         (initialBoxW * scaleFactor).coerceAtLeast(30f)
                                                     } else null
-                                                    val newBoxH = if (selectedTextLayer.boxHeight != null || selectedTextLayer.textContainerShape == com.mochits.app.model.TextContainerShape.OVAL) {
+                                                    val newBoxH = if (dragLayer.boxHeight != null || dragLayer.textContainerShape == com.mochits.app.model.TextContainerShape.OVAL) {
                                                         (initialBoxH * scaleFactor).coerceAtLeast(20f)
                                                     } else null
 
@@ -948,7 +970,7 @@ fun EditorScreen(
                                             }
                                         }
                                         TextHandleType.ROTATE -> {
-                                            if (selectedTextLayer != null) {
+                                            if (dragLayer != null) {
                                                 val currentAngle = Math.toDegrees(kotlin.math.atan2((touchCanvasPt.y - initialTextCenterY).toDouble(), (touchCanvasPt.x - initialTextCenterX).toDouble())).toFloat()
                                                 val deltaAngle = currentAngle - initialTouchAngle
                                                 var newRotation = (initialTextRotation + deltaAngle) % 360f
@@ -958,9 +980,10 @@ fun EditorScreen(
                                             }
                                         }
                                         TextHandleType.STRETCH_V -> {
-                                            if (selectedTextLayer != null) {
-                                                val maxCanvasHeight = baseBitmap?.height?.toFloat() ?: (project?.height?.toFloat() ?: 1920f)
-                                                val currentBoxW = selectedTextLayer.boxWidth
+                                            if (dragLayer != null) {
+                                                val baseH = viewModel.baseBitmap.value
+                                                val maxCanvasHeight = if (baseH != null && !baseH.isRecycled) baseH.height.toFloat() else (viewModel.project.value?.height?.toFloat() ?: 1920f)
+                                                val currentBoxW = dragLayer.boxWidth
                                                 val rawBoxH = unrotatedCurrentPt.y - initialTextY
                                                 val newBoxH = rawBoxH.coerceIn(initialMinH, maxCanvasHeight)
                                                 viewModel.updateSelectedTextLayerStretch(
@@ -974,9 +997,10 @@ fun EditorScreen(
                                             }
                                         }
                                         TextHandleType.STRETCH_H -> {
-                                            if (selectedTextLayer != null) {
-                                                val maxCanvasWidth = baseBitmap?.width?.toFloat() ?: (project?.width?.toFloat() ?: 1080f)
-                                                val currentBoxH = selectedTextLayer.boxHeight
+                                            if (dragLayer != null) {
+                                                val baseW = viewModel.baseBitmap.value
+                                                val maxCanvasWidth = if (baseW != null && !baseW.isRecycled) baseW.width.toFloat() else (viewModel.project.value?.width?.toFloat() ?: 1080f)
+                                                val currentBoxH = dragLayer.boxHeight
                                                 val distFromCenter = kotlin.math.abs(unrotatedCurrentPt.x - initialTextCenterX)
                                                 val rawBoxW = distFromCenter * 2f
                                                 val newBoxW = rawBoxW.coerceIn(initialMinW, maxCanvasWidth)
@@ -992,7 +1016,9 @@ fun EditorScreen(
                                             }
                                         }
                                         TextHandleType.BODY_MOVE -> {
-                                            if (selectedTextLayer != null) {
+                                            // dragLayer null-check not needed: position update targets the
+                                            // selected id; skip only if selection was cleared mid-drag.
+                                            if (dragLayer != null) {
                                                 val deltaX = touchCanvasPt.x - initialTouchCanvasPt.x
                                                 val deltaY = touchCanvasPt.y - initialTouchCanvasPt.y
                                                 viewModel.updateSelectedTextLayerPosition(
@@ -1050,6 +1076,10 @@ fun EditorScreen(
                                 if (activeHandleType == null) {
                                     val pressedList = changes.filter { it.pressed }
                                     if (pressedList.size >= 2) {
+                                        // Second finger down: this is a pinch, not a text tap.
+                                        // Drop any pending text tap so release doesn't mis-fire select.
+                                        pendingBodyMoveLayer = null
+                                        isBodyMoveDragging = false
                                         // Pinch zoom / pan gesture with 2+ fingers
                                         val p0 = pressedList[0].position
                                         val p1 = pressedList[1].position
@@ -1072,14 +1102,22 @@ fun EditorScreen(
                                         pressedList.forEach { it.consume() }
                                     } else if (pressedList.size == 1) {
                                         val c = pressedList[0]
-                                        val panDelta = c.position - c.previousPosition
-                                        val moved = panDelta.getDistance() > 1.5f
-                                        if (moved) {
-                                            panAccumulator += panDelta.getDistance()
-                                            Logger.d("Canvas Single-Finger Pan Transform: panDelta=$panDelta")
-                                            viewModel.canvasState.onGestureTransform(c.position, panDelta, 1f)
-                                            triggerRedraw++
+                                        // Touch started on a text body and hasn't passed the move
+                                        // threshold yet: hold still, don't pan the canvas underneath.
+                                        // Once it passes 15px the pending block above promotes it to
+                                        // BODY_MOVE; if released first it becomes tap-select below.
+                                        if (pendingBodyMoveLayer != null) {
                                             c.consume()
+                                        } else {
+                                            val panDelta = c.position - c.previousPosition
+                                            val moved = panDelta.getDistance() > 1.5f
+                                            if (moved) {
+                                                panAccumulator += panDelta.getDistance()
+                                                Logger.d("Canvas Single-Finger Pan Transform: panDelta=$panDelta")
+                                                viewModel.canvasState.onGestureTransform(c.position, panDelta, 1f)
+                                                triggerRedraw++
+                                                c.consume()
+                                            }
                                         }
                                     } else {
                                         // Finger released
@@ -1087,7 +1125,7 @@ fun EditorScreen(
                                         if (releasedChange != null) {
                                             if (panAccumulator <= 10f) {
                                                 val releaseCanvasPt = viewModel.canvasState.mapper.screenToCanvas(releasedChange.position.x, releasedChange.position.y)
-                                                val hitTextLayer = layers.reversed().filterIsInstance<Layer.TextLayer>().firstOrNull { layer ->
+                                                val hitTextLayer = viewModel.layers.value.reversed().filterIsInstance<Layer.TextLayer>().firstOrNull { layer ->
                                                     layer.isVisible && isPointInsideTextLayer(layer, releaseCanvasPt, textRenderer)
                                                 }
                                                 val now = System.currentTimeMillis()
@@ -1108,8 +1146,8 @@ fun EditorScreen(
                                                     val isDoubleTapCanvas = (lastTapLayerId == "CANVAS_BACKGROUND") && (now - lastTapTimestamp < 400L)
                                                     viewModel.selectLayer(null)
                                                     if (isDoubleTapCanvas) {
-                                                        baseBitmap?.let { bmp ->
-                                                            if (!bmp.isRecycled) {
+                                                        val bmp = viewModel.baseBitmap.value
+                                                        if (bmp != null && !bmp.isRecycled) {
                                                                 viewModel.canvasState.fitToWidth(
                                                                     viewportWidth = size.width.toFloat(),
                                                                     viewportHeight = size.height.toFloat(),
@@ -1117,7 +1155,6 @@ fun EditorScreen(
                                                                     imageHeight = bmp.height.toFloat(),
                                                                     focusCanvasY = releaseCanvasPt.y
                                                                 )
-                                                            }
                                                         }
                                                         lastTapTimestamp = 0L
                                                         lastTapLayerId = null

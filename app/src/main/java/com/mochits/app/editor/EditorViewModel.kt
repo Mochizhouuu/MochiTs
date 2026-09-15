@@ -96,8 +96,11 @@ class EditorViewModel @Inject constructor(
 
     suspend fun flattenForSelection(): Bitmap? {
         val base = baseBitmap.value ?: return null
-        if (!isFlattenedDirty && cachedFlattenedBitmap != null && !cachedFlattenedBitmap!!.isRecycled) {
-            return cachedFlattenedBitmap
+        val cached = cachedFlattenedBitmap
+        if (!isFlattenedDirty && cached != null && !cached.isRecycled &&
+            cached.width == base.width && cached.height == base.height
+        ) {
+            return cached
         }
         cachedFlattenedBitmap?.let { if (!it.isRecycled) it.recycle() }
         val flattened = exporter.exportToBitmap(base, layers.value)
@@ -275,6 +278,20 @@ data class HistoryManifest(
     val canRedo = MutableStateFlow(false)
 
     init {
+        // Magic Wand samples from a flattened composite. Any layer/base change must
+        // invalidate the cached bitmap, otherwise taps sample a stale image and the
+        // selection appears outside the tapped object.
+        viewModelScope.launch {
+            layers.collect { invalidateFlattenedCache() }
+        }
+        viewModelScope.launch {
+            baseBitmap.collect { bmp ->
+                if (bmp != null && !bmp.isRecycled) {
+                    canvasState.mapper.updateCanvasSize(bmp.width, bmp.height)
+                }
+                invalidateFlattenedCache()
+            }
+        }
         loadProject()
     }
 
@@ -780,9 +797,14 @@ data class HistoryManifest(
     fun setupCanvasSize(width: Int, height: Int) {
         val safeW = width.coerceIn(1, 32768)
         val safeH = height.coerceIn(1, 32768)
+        // Keep screen<->canvas mapping aligned with the real image size.
+        // Without this the mapper keeps the 1080x1920 default and clamps/translates
+        // taps to wrong pixels, so Magic Wand appears to select outside the target.
+        canvasState.mapper.updateCanvasSize(safeW, safeH)
         if (maskSelectionTools == null || maskSelectionTools?.width != safeW || maskSelectionTools?.height != safeH) {
             maskSelectionTools = MaskSelectionTools(safeW, safeH)
         }
+        invalidateFlattenedCache()
         val currentBmp = baseBitmap.value
         if (currentBmp == null || currentBmp.isRecycled || currentBmp.width != safeW || currentBmp.height != safeH) {
             try {
