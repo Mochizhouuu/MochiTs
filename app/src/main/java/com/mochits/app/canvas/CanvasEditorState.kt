@@ -16,6 +16,14 @@ class CanvasEditorState {
 
     var isTransformInitialized by mutableStateOf(false)
 
+    // Last drawn viewport size in screen pixels, written synchronously every
+    // frame from the Canvas draw scope. Plain vars (not State) so writing them
+    // never triggers recomposition. Used to place new layers at the visible
+    // center without relying on async cached values that can be one frame
+    // behind (or still hold wrong defaults before first layout).
+    var lastViewportWidth: Float = 0f
+    var lastViewportHeight: Float = 0f
+
     val mapper = PrecisionCoordinateMapper()
 
     fun updateTransform(newScale: Float, newOffsetX: Float, newOffsetY: Float) {

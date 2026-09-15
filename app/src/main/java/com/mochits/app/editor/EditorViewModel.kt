@@ -211,6 +211,16 @@ val defaultTextStyle = MutableStateFlow(TextStyleConfig())
     private val saveMutex = Mutex()
     private var lastSaveTimestamp = 0L
 
+    /**
+     * True only when the session started with an existing source file that could
+     * not be decoded (corrupt/unreadable). While true, saves must NOT write the
+     * base bitmap: the in-memory bitmap is only a blank fallback, and writing it
+     * would permanently overwrite the user's file with a blank canvas. Normal
+     * sessions are unaffected. Cleared as soon as a genuine base arrives
+     * (picked image, reloaded bitmap, inpaint result).
+     */
+    private var baseImageSuspect = false
+
     private fun recycleBitmapSafely(bitmap: Bitmap?) {
         bitmap?.let {
             if (!it.isRecycled) {
@@ -466,16 +476,12 @@ data class HistoryManifest(
                                     copy
                                 }
                             } else {
-                                Logger.e("Failed to decode base image, file may be corrupted")
-                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                    try { baseFile.delete() } catch (e: Exception) {}
-                                }
+                                Logger.e("Failed to decode base image at ${baseFile.absolutePath}, keeping file for retry")
                             }
                         } catch (t: Throwable) {
+                            // Never delete the user's file on transient errors (e.g. OOM):
+                            // deleting + later saving a blank fallback would destroy the image.
                             Logger.e("Error loading base bitmap: ${t.message}", t)
-                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                try { baseFile.delete() } catch (e: Exception) {}
-                            }
                         }
                     }
 
@@ -492,6 +498,11 @@ data class HistoryManifest(
 
                         loadHistoryFromDisk(proj.id)
                     } else {
+                        if (baseFile != null) {
+                            // A source file exists but could not be decoded. Work on a
+                            // blank fallback but never overwrite the user's file with it.
+                            baseImageSuspect = true
+                        }
                         val w = proj.width.coerceIn(1, 32768)
                         val h = proj.height.coerceIn(1, 32768)
                         setupCanvasSize(w, h)
@@ -524,7 +535,6 @@ data class HistoryManifest(
     fun autoSave() {
         val currentProj = project.value ?: return
         val currentBmp = baseBitmap.value
-        val currentLayers = layers.value
 
         val now = System.currentTimeMillis()
         if (now - lastSaveTimestamp < 500) {
@@ -535,8 +545,11 @@ data class HistoryManifest(
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             saveMutex.withLock {
                 try {
-                    saveBaseBitmapToDiskInternal(currentProj, currentBmp)
-                    val json = serializer.serialize(currentLayers)
+                    val layersToSave = persistImageLayersInternal(currentProj.id)
+                    if (!baseImageSuspect) {
+                        saveBaseBitmapToDiskInternal(currentProj.id, currentBmp)
+                    }
+                    val json = serializer.serialize(layersToSave)
                     val imageFile = File(context.filesDir, "projects/${currentProj.id}/base_image.png")
                     val updatedProj = currentProj.copy(
                         layersJson = json,
@@ -554,13 +567,15 @@ data class HistoryManifest(
     fun flushToDisk() {
         val currentProj = project.value ?: return
         val currentBmp = baseBitmap.value
-        val currentLayers = layers.value
 
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
             saveMutex.withLock {
                 try {
-                    saveBaseBitmapToDiskInternal(currentProj, currentBmp)
-                    val json = serializer.serialize(currentLayers)
+                    val layersToSave = persistImageLayersInternal(currentProj.id)
+                    if (!baseImageSuspect) {
+                        saveBaseBitmapToDiskInternal(currentProj.id, currentBmp)
+                    }
+                    val json = serializer.serialize(layersToSave)
                     val imageFile = File(context.filesDir, "projects/${currentProj.id}/base_image.png")
                     val updatedProj = currentProj.copy(
                         layersJson = json,
@@ -576,10 +591,10 @@ data class HistoryManifest(
         }
     }
 
-    private fun saveBaseBitmapToDiskInternal(proj: ProjectEntity, bmp: Bitmap?) {
+    private fun saveBaseBitmapToDiskInternal(projId: String, bmp: Bitmap?) {
         if (bmp == null || bmp.isRecycled) return
         try {
-            val projectDir = File(context.filesDir, "projects/${proj.id}").apply { mkdirs() }
+            val projectDir = File(context.filesDir, "projects/$projId").apply { mkdirs() }
             val imageFile = File(projectDir, "base_image.png")
             val tmpFile = File(projectDir, "base_image.png.tmp")
 
@@ -599,6 +614,96 @@ data class HistoryManifest(
             }
         } catch (e: Exception) {
             Logger.e("Error saving base bitmap to disk: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Persists in-memory image-layer bitmaps to the project folder and returns
+     * the layer list with valid [Layer.ImageLayer.imagePath] values.
+     *
+     * Without this, layers added via "Tambah Gambar" are serialized with
+     * imagePath=null, so after leaving/reopening the project those images come
+     * back empty (the picture looks corrupted/lost). Must be called on an IO
+     * thread while holding [saveMutex]. Also sweeps orphaned layer files.
+     */
+    private fun persistImageLayersInternal(projId: String): List<Layer> {
+        val current = layers.value
+
+        val referencedIds = mutableSetOf<String>()
+        current.filterIsInstance<Layer.ImageLayer>().forEach { referencedIds.add(it.id) }
+        synchronized(undoStack) {
+            (undoStack + redoStack).forEach { snap ->
+                snap.layers.filterIsInstance<Layer.ImageLayer>().forEach { referencedIds.add(it.id) }
+            }
+        }
+
+        var changed = false
+        val updated = current.map { layer ->
+            if (layer is Layer.ImageLayer) {
+                val bmp = layer.bitmap
+                val fileOk = layer.imagePath?.let { File(it).let { f -> f.exists() && f.length() > 0 } } == true
+                if (bmp != null && !bmp.isRecycled && !fileOk) {
+                    try {
+                        val dir = File(context.filesDir, "projects/$projId/layers").apply { mkdirs() }
+                        val file = File(dir, "layer_${layer.id}.png")
+                        val tmp = File(dir, "layer_${layer.id}.png.tmp")
+                        java.io.FileOutputStream(tmp).use { out ->
+                            bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                            out.flush()
+                        }
+                        if (tmp.exists() && tmp.length() > 0) {
+                            if (file.exists()) file.delete()
+                            if (!tmp.renameTo(file)) {
+                                tmp.copyTo(file, overwrite = true)
+                                tmp.delete()
+                            }
+                            changed = true
+                            layer.copy(imagePath = file.absolutePath)
+                        } else layer
+                    } catch (t: Throwable) {
+                        Logger.e("Error persisting image layer: ${t.message}", t)
+                        layer
+                    }
+                } else layer
+            } else layer
+        }
+        if (changed) {
+            layers.value = updated
+        }
+
+        try {
+            val dir = File(context.filesDir, "projects/$projId/layers")
+            dir.listFiles()?.forEach { f ->
+                val n = f.name
+                if (n.endsWith(".tmp")) {
+                    try { f.delete() } catch (_: Exception) {}
+                } else if (n.startsWith("layer_") && n.endsWith(".png")) {
+                    val id = n.removePrefix("layer_").removeSuffix(".png")
+                    if (id !in referencedIds) {
+                        try { f.delete() } catch (_: Exception) {}
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            Logger.e("Error sweeping orphan layer files: ${t.message}", t)
+        }
+
+        return if (changed) updated else current
+    }
+
+    /**
+     * Fills imagePath=null image layers (from snapshots taken before the bitmap
+     * was persisted) using the current layer list, matched by id.
+     */
+    private fun healImagePaths(snapshotLayers: List<Layer>): List<Layer> {
+        val pathsById = layers.value
+            .filterIsInstance<Layer.ImageLayer>()
+            .associate { it.id to it.imagePath }
+        if (pathsById.isEmpty()) return snapshotLayers
+        return snapshotLayers.map { layer ->
+            if (layer is Layer.ImageLayer && layer.imagePath == null) {
+                layer.copy(imagePath = pathsById[layer.id])
+            } else layer
         }
     }
 
@@ -638,7 +743,7 @@ data class HistoryManifest(
                 val validName = fileName
                 if (validName != null) referencedFiles.add(validName)
                 HistoryStepEntry(
-                    layersJson = serializer.serialize(snapshot.layers),
+                    layersJson = serializer.serialize(healImagePaths(snapshot.layers)),
                     bitmapFileName = fileName
                 )
             }
@@ -671,7 +776,7 @@ data class HistoryManifest(
                 val validName = fileName
                 if (validName != null) referencedFiles.add(validName)
                 HistoryStepEntry(
-                    layersJson = serializer.serialize(snapshot.layers),
+                    layersJson = serializer.serialize(healImagePaths(snapshot.layers)),
                     bitmapFileName = fileName
                 )
             }
@@ -784,6 +889,7 @@ data class HistoryManifest(
                                 copy
                             }
                             baseBitmap.value = loadedBmp
+                            baseImageSuspect = false
                             setupCanvasSize(loadedBmp.width, loadedBmp.height)
                         }
                     }
@@ -833,36 +939,27 @@ data class HistoryManifest(
                 val oldBitmap = baseBitmap.value
                 baseBitmap.value = bitmap
                 recycleBitmapSafely(oldBitmap)
+                baseImageSuspect = false
 
                 setupCanvasSize(bitmap.width, bitmap.height)
 
-                val projectDir = File(context.filesDir, "projects/$projectId").apply { mkdirs() }
-                val imageFile = File(projectDir, "base_image.png")
-                val tmpFile = File(projectDir, "base_image.png.tmp")
+                // Same base_image.png.tmp file as autoSave/flush: must hold the
+                // mutex or concurrent writes interleave into a corrupt PNG.
+                saveMutex.withLock {
+                    saveBaseBitmapToDiskInternal(projectId, bitmap)
 
-                java.io.FileOutputStream(tmpFile).use { out ->
-                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-                    out.flush()
-                }
-
-                if (tmpFile.exists() && tmpFile.length() > 0) {
-                    if (imageFile.exists()) imageFile.delete()
-                    if (!tmpFile.renameTo(imageFile)) {
-                        tmpFile.copyTo(imageFile, overwrite = true)
-                        tmpFile.delete()
+                    val currentProj = project.value
+                    if (currentProj != null) {
+                        val imageFile = File(context.filesDir, "projects/$projectId/base_image.png")
+                        val updated = currentProj.copy(
+                            width = bitmap.width,
+                            height = bitmap.height,
+                            thumbnailPath = if (imageFile.exists()) imageFile.absolutePath else currentProj.thumbnailPath,
+                            layersJson = serializer.serialize(layers.value)
+                        )
+                        project.value = updated
+                        repository.saveProject(updated)
                     }
-                }
-
-                val currentProj = project.value
-                if (currentProj != null) {
-                    val updated = currentProj.copy(
-                        width = bitmap.width,
-                        height = bitmap.height,
-                        thumbnailPath = imageFile.absolutePath,
-                        layersJson = serializer.serialize(layers.value)
-                    )
-                    project.value = updated
-                    repository.saveProject(updated)
                 }
             } catch (e: Exception) {
                 Logger.e("Error setting base image: ${e.message}", e)
@@ -982,6 +1079,7 @@ data class HistoryManifest(
                     when (val lamaResult = lamaInpaintEngine.inpaintLaMa(currentBase, tools.maskBitmap)) {
                         is Result.Success -> {
                             baseBitmap.value = lamaResult.data
+                            baseImageSuspect = false
                             tools.clearMask()
                             autoSave()
                         }
@@ -1017,6 +1115,7 @@ data class HistoryManifest(
         when (val result = inpaintEngine.inpaintTelea(currentBase, tools.maskBitmap)) {
             is Result.Success -> {
                 baseBitmap.value = result.data
+                baseImageSuspect = false
                 tools.clearMask()
                 autoSave()
             }
@@ -1065,8 +1164,23 @@ data class HistoryManifest(
         val proportionalFontSize = (canvasW * 0.035f).coerceIn(24f, 48f)
         val effectiveStyle = if (style.fontSize == 36f) style.copy(fontSize = proportionalFontSize) else style
 
-        val (posX, posY) = if (viewportWidth > 0f && viewportHeight > 0f) {
-            val centerCanvas = canvasState.mapper.screenToCanvas(viewportWidth / 2f, viewportHeight / 2f)
+        // Prefer the synchronously recorded viewport size (fresh every frame) over
+        // the passed-in values, which come from an async LaunchedEffect cache that
+        // can be one frame behind or still hold wrong defaults (e.g. after the
+        // bottom panel resizes the content or before first layout).
+        val vpW = canvasState.lastViewportWidth.takeIf { it > 0f } ?: viewportWidth
+        val vpH = canvasState.lastViewportHeight.takeIf { it > 0f } ?: viewportHeight
+
+        val (posX, posY) = if (vpW > 0f && vpH > 0f) {
+            val hasTransform = canvasState.isTransformInitialized ||
+                canvasState.scale != 1f || canvasState.offsetX != 0f || canvasState.offsetY != 0f
+            if (!hasTransform) {
+                // Cold start before the first frame: the mapper is still identity,
+                // so screenToCanvas would return a wrong point. Init it now with
+                // the same fit logic the draw scope uses.
+                canvasState.resetTransform(vpW, vpH, canvasW.toFloat(), canvasH.toFloat())
+            }
+            val centerCanvas = canvasState.mapper.screenToCanvas(vpW / 2f, vpH / 2f)
             Pair(centerCanvas.x, centerCanvas.y)
         } else {
             Pair(canvasW / 2f, canvasH / 2f)

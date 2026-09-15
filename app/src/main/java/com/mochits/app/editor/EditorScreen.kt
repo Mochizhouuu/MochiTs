@@ -1178,6 +1178,10 @@ fun EditorScreen(
                 val canvasWidth = size.width
                 val canvasHeight = size.height
 
+                // Record synchronously for addTextLayer placement (see CanvasEditorState).
+                viewModel.canvasState.lastViewportWidth = canvasWidth
+                viewModel.canvasState.lastViewportHeight = canvasHeight
+
                 baseBitmap?.let { bmp ->
                     if (!viewModel.canvasState.isTransformInitialized && bmp.width > 0 && bmp.height > 0) {
                         viewModel.canvasState.resetTransform(canvasWidth, canvasHeight, bmp.width.toFloat(), bmp.height.toFloat())
