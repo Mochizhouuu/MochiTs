@@ -3,6 +3,8 @@ package com.mochits.app.home
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.mochits.app.font.FontItem
+import com.mochits.app.font.FontRepository
 import com.mochits.app.project.ProjectEntity
 import com.mochits.app.project.ProjectRepository
 import com.mochits.app.settings.ExportSettingsRepository
@@ -13,6 +15,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -21,7 +25,9 @@ import javax.inject.Inject
 class HomeViewModel @Inject constructor(
     private val repository: ProjectRepository,
     private val exportSettingsRepository: ExportSettingsRepository,
-    val lamaModelManager: com.mochits.app.imaging.LaMaModelManager
+    val lamaModelManager: com.mochits.app.imaging.LaMaModelManager,
+    // Optional so existing callers/tests keep compiling; Hilt always provides it.
+    val fontRepository: FontRepository? = null
 ) : ViewModel() {
 
     private val _themeMode = MutableStateFlow(AppThemeMode.SYSTEM)
@@ -66,6 +72,32 @@ class HomeViewModel @Inject constructor(
 
     fun isFolderValid(uri: Uri?): Boolean {
         return exportSettingsRepository.isFolderValid(uri)
+    }
+
+    /** Custom (user-imported) fonts for the Font Manager in Settings. */
+    val customFonts: StateFlow<List<FontItem>> =
+        (fontRepository?.getAllFontsFlow() ?: flowOf(emptyList()))
+            .map { list -> list.filter { it.isCustom }.sortedBy { it.name.lowercase() } }
+            .catch { emit(emptyList()) }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList()
+            )
+
+    suspend fun importCustomFont(uri: Uri, fileName: String?): Result<FontItem> {
+        val repo = fontRepository
+            ?: return Result.failure(IllegalStateException("FontRepository tidak tersedia"))
+        return repo.importCustomFont(uri, fileName)
+    }
+
+    fun deleteCustomFont(item: FontItem) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                fontRepository?.deleteCustomFont(item)
+            } catch (_: Exception) {
+            }
+        }
     }
 
     val isLoading = MutableStateFlow(false)

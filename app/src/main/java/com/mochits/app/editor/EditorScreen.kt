@@ -276,6 +276,27 @@ fun EditorScreen(
     val textRenderer = remember { TextRenderer(context) }
     var triggerRedraw by remember { mutableIntStateOf(0) }
     var isMaskPanelCollapsed by remember { mutableStateOf(false) }
+    // Whether the erase mask currently holds a selection. Updated only on
+    // mask-mutating events (never per-recompose: hasMask() scans the bitmap).
+    var hasMaskState by remember { mutableStateOf(false) }
+    fun refreshMaskState() {
+        hasMaskState = viewModel.maskSelectionTools?.hasMask() == true
+    }
+
+    // Re-sync the erase status hint whenever the erase panel opens (mask may
+    // have changed via undo/redo while another panel was active).
+    LaunchedEffect(activePanel) {
+        if (activePanel == EditorPanel.ERASE || activePanel == EditorPanel.MASK || activePanel == EditorPanel.INPAINT) {
+            refreshMaskState()
+        }
+    }
+
+    // Inpaint clears the mask on success: refresh the hint when it finishes.
+    LaunchedEffect(isProcessingInpaint) {
+        if (!isProcessingInpaint) {
+            refreshMaskState()
+        }
+    }
 
     // Dialog & Dropdown Menu States
     var showAddMenu by remember { mutableStateOf(false) }
@@ -306,7 +327,12 @@ fun EditorScreen(
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
-        uri?.let { pickedUri ->
+        if (uri == null) {
+            // Picker cancelled: drop stale pending export or the next flow reuses it.
+            pendingExportSaveName = null
+            return@rememberLauncherForActivityResult
+        }
+        uri.let { pickedUri ->
             viewModel.saveExportFolderUri(pickedUri)
             val pendingName = pendingExportSaveName
             if (pendingName != null) {
@@ -398,14 +424,20 @@ fun EditorScreen(
                 actions = {
                     // Undo Button
                     IconButton(
-                        onClick = { viewModel.undo() },
+                        onClick = {
+                            viewModel.undo()
+                            refreshMaskState()
+                        },
                         enabled = canUndo
                     ) {
                         Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
                     }
                     // Redo Button
                     IconButton(
-                        onClick = { viewModel.redo() },
+                        onClick = {
+                            viewModel.redo()
+                            refreshMaskState()
+                        },
                         enabled = canRedo
                     ) {
                         Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo")
@@ -465,8 +497,15 @@ fun EditorScreen(
                         isDownloading = isDownloadingLaMaModel,
                         downloadProgress = lamaDownloadProgress,
                         isCollapsed = isMaskPanelCollapsed,
+                        hasMask = hasMaskState,
                         onToggleCollapse = { isMaskPanelCollapsed = !isMaskPanelCollapsed },
-                        onModeSelected = { viewModel.setMaskToolMode(it) },
+                        onModeSelected = {
+                            // ViewModel clears the mask only when actually switching tools.
+                            if (it != maskToolMode) {
+                                viewModel.setMaskToolMode(it)
+                                hasMaskState = false
+                            }
+                        },
                         onModelSelected = { viewModel.setInpaintModel(it) },
                         onSizeChange = { viewModel.setBrushSize(it) },
                         onToleranceChange = { viewModel.setMagicWandTolerance(it) },
@@ -477,11 +516,13 @@ fun EditorScreen(
                         onClear = {
                             viewModel.saveUndoSnapshot()
                             viewModel.maskSelectionTools?.clearMask()
+                            hasMaskState = false
                             triggerRedraw++
                         },
                         onInvert = {
                             viewModel.saveUndoSnapshot()
                             viewModel.maskSelectionTools?.invertMask()
+                            refreshMaskState()
                             triggerRedraw++
                         },
                         onRunErase = {
@@ -493,7 +534,9 @@ fun EditorScreen(
                         selectedLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer,
                         defaultStyle = defaultTextStyle,
                         onAddText = { text -> viewModel.addTextLayer(text, viewportWidth = currentViewportW, viewportHeight = currentViewportH) },
-                        onUpdateTextContent = { text -> viewModel.updateSelectedTextContent(text) },
+                        onUpdateTextContent = { text -> viewModel.updateSelectedTextContent(text, saveUndo = false) },
+                        onEditStart = { viewModel.saveUndoSnapshot() },
+                        onRequestAutosave = { viewModel.autoSave() },
                         onUpdateStyle = { style, saveUndo -> viewModel.updateSelectedTextLayerStyle(style, saveUndo = saveUndo) },
                         onUpdateContainerShape = { shape -> viewModel.updateSelectedTextLayerContainerShape(shape) },
                         autoFocus = shouldFocusTextField,
@@ -715,6 +758,8 @@ fun EditorScreen(
                                                 lastTouchCanvasPt = canvasPt
                                                 viewModel.maskSelectionTools?.startStroke(canvasPt, maskToolMode, brushSize)
                                                 isMaskDrawingActive = true
+                                                // Brush draws immediately; eraser may clear the last bit.
+                                                refreshMaskState()
                                                 triggerRedraw++
                                             } else if (isMaskDrawingActive) {
                                                 val canvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
@@ -754,6 +799,7 @@ fun EditorScreen(
                                                                     expandPixels = startExp
                                                                 )
                                                                 withContext(Dispatchers.Main) {
+                                                                    refreshMaskState()
                                                                     triggerRedraw++
                                                                 }
                                                             } finally {
@@ -768,6 +814,7 @@ fun EditorScreen(
                                             } else if (isMaskDrawingActive) {
                                                 viewModel.maskSelectionTools?.endStroke(lastTouchCanvasPt, maskToolMode, brushSize)
                                                 isMaskDrawingActive = false
+                                                refreshMaskState()
                                                 triggerRedraw++
                                             }
                                         }
@@ -1798,6 +1845,7 @@ fun EraseToolPanel(
     isDownloading: Boolean,
     downloadProgress: Float,
     isCollapsed: Boolean,
+    hasMask: Boolean = false,
     onToggleCollapse: () -> Unit,
     onModeSelected: (MaskToolMode) -> Unit,
     onModelSelected: (EditorViewModel.InpaintModel) -> Unit,
@@ -1833,6 +1881,30 @@ fun EraseToolPanel(
             }
 
             if (!isCollapsed) {
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Selection status hint: tells the user whether there is
+                // anything to erase yet.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .background(
+                                color = if (hasMask) Color(0xFF4CAF50) else MaterialTheme.colorScheme.outline,
+                                shape = androidx.compose.foundation.shape.CircleShape
+                            )
+                    )
+                    Text(
+                        text = if (hasMask) "Ada area terpilih — siap dihapus"
+                        else "Belum ada area terpilih",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Text("Alat Seleksi Area:", style = MaterialTheme.typography.bodySmall)
@@ -1910,7 +1982,7 @@ fun EraseToolPanel(
 
                     Button(
                         onClick = onRunErase,
-                        enabled = !isProcessing && !isDownloading
+                        enabled = !isProcessing && !isDownloading && hasMask
                     ) {
                         if (isProcessing) {
                             CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White)
@@ -1926,6 +1998,14 @@ fun EraseToolPanel(
 
                 Spacer(modifier = Modifier.height(6.dp))
                 if (mode == MaskToolMode.MAGIC_WAND) {
+                    if (!hasMask) {
+                        Text(
+                            text = "Ketuk objek pada gambar untuk menyeleksi area warna yang sama.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
                     Text("Toleransi Warna (Tolerance): ${magicWandTolerance.toInt()}%", style = MaterialTheme.typography.bodySmall)
                     Slider(
                         value = magicWandTolerance,
@@ -1934,15 +2014,9 @@ fun EraseToolPanel(
                     )
 
                     Spacer(modifier = Modifier.height(4.dp))
+                    // Local drag state: the expensive re-dilate runs only on
+                    // release, keeping the slider smooth on big masks.
                     var localExpandValue by remember(magicWandExpand) { mutableFloatStateOf(magicWandExpand) }
-
-                    DisposableEffect(Unit) {
-                        onDispose {
-                            if (localExpandValue != magicWandExpand) {
-                                onExpandChange?.invoke(localExpandValue)
-                            }
-                        }
-                    }
 
                     Text("Perluas Margin (Expand): ${localExpandValue.toInt()} px", style = MaterialTheme.typography.bodySmall)
                     Slider(
@@ -1977,13 +2051,28 @@ fun TextToolPanel(
     onUpdateStyle: (TextStyleConfig, Boolean) -> Unit,
     onUpdateContainerShape: ((com.mochits.app.model.TextContainerShape) -> Unit)? = null,
     autoFocus: Boolean = false,
-    onFocused: (() -> Unit)? = null
+    onFocused: (() -> Unit)? = null,
+    // Called once when a typing session starts (first keystroke after layer
+    // switch or external change). Wire to saveUndoSnapshot() so typing creates
+    // a single undo step instead of one heavy snapshot per character (which
+    // also wiped the redo stack on every keystroke).
+    onEditStart: (() -> Unit)? = null,
+    // Called on every keystroke; wire to a throttled autoSave() so typed text
+    // is durable without creating undo steps.
+    onRequestAutosave: (() -> Unit)? = null
 ) {
     var textInput by remember { mutableStateOf(selectedLayer?.text ?: "") }
     val focusRequester = remember { FocusRequester() }
+    // Tracks which layer already banked its session snapshot. Reset on external
+    // changes (undo, layer switch) so the next keystroke snapshots again.
+    var editSnapshotLayerId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(selectedLayer?.id, selectedLayer?.text) {
-        textInput = selectedLayer?.text ?: ""
+        val incoming = selectedLayer?.text ?: ""
+        if (incoming != textInput) {
+            textInput = incoming
+            editSnapshotLayerId = null
+        }
     }
 
     LaunchedEffect(autoFocus, selectedLayer?.id) {
@@ -2021,7 +2110,12 @@ fun TextToolPanel(
                     onValueChange = { newText ->
                         textInput = newText
                         if (selectedLayer != null) {
+                            if (editSnapshotLayerId != selectedLayer.id) {
+                                editSnapshotLayerId = selectedLayer.id
+                                onEditStart?.invoke()
+                            }
                             onUpdateTextContent?.invoke(newText)
+                            onRequestAutosave?.invoke()
                         }
                     },
                     label = { Text(if (selectedLayer != null) "Edit Teks" else "Teks Baru") },
@@ -2398,6 +2492,9 @@ fun EffectToolPanel(
                                             IconButton(
                                                 onClick = {
                                                     val lastPos = stops.lastOrNull()?.position ?: 1.0f
+                                                    // No room left: adding another stop at 1.0 would
+                                                    // duplicate the position and break the gradient.
+                                                    if (lastPos >= 1f) return@IconButton
                                                     val newPos = (lastPos + 0.1f).coerceAtMost(1.0f)
                                                     val newColor = stops.lastOrNull()?.color ?: AndroidColor.WHITE
                                                     val updatedStops = stops + com.mochits.app.model.ColorStop(color = newColor, position = newPos)
@@ -2694,7 +2791,9 @@ fun LayersToolPanel(
             }
 
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(layers) { layer ->
+                // Display front-first (canvas draw order is index 0 = back, last =
+                // front), so "Naik" (toward front) moves the row upward.
+                items(layers.reversed(), key = { it.id }) { layer ->
                     val isSelected = layer.id == selectedId
                     Card(
                         colors = CardDefaults.cardColors(
@@ -2720,12 +2819,13 @@ fun LayersToolPanel(
                                 Text(text = layer.name)
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                TextButton(onClick = { onMoveLayer(layer.id, -1) }) {
+                                // List is front-first: Naik = toward front = +1 in draw order.
+                                TextButton(onClick = { onMoveLayer(layer.id, 1) }) {
                                     Icon(Icons.Default.ArrowUpward, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(2.dp))
                                     Text("Naik", style = MaterialTheme.typography.labelSmall)
                                 }
-                                TextButton(onClick = { onMoveLayer(layer.id, 1) }) {
+                                TextButton(onClick = { onMoveLayer(layer.id, -1) }) {
                                     Icon(Icons.Default.ArrowDownward, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(2.dp))
                                     Text("Turun", style = MaterialTheme.typography.labelSmall)
@@ -2874,7 +2974,9 @@ fun FontToolPanel(
 
             Text("Ukuran Font: ${currentStyle.fontSize.toInt()} px", style = MaterialTheme.typography.bodyMedium)
             Slider(
-                value = currentStyle.fontSize,
+                // Range must cover the canvas resize-handle clamp (10..300); a
+                // narrower range crashes (M3 Slider requires value in range).
+                value = currentStyle.fontSize.coerceIn(10f, 300f),
                 onValueChange = {
                     onSliderDragStart()
                     onUpdateStyle(currentStyle.copy(fontSize = it), false)
@@ -2882,7 +2984,7 @@ fun FontToolPanel(
                 onValueChangeFinished = {
                     onSliderDragEnd()
                 },
-                valueRange = 12f..150f,
+                valueRange = 10f..300f,
                 modifier = Modifier.fillMaxWidth()
             )
 

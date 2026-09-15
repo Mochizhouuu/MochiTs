@@ -1495,7 +1495,12 @@ data class HistoryManifest(
         quality: Int = 100,
         onComplete: (Boolean) -> Unit
     ) {
-        val base = baseBitmap.value ?: return
+        // Must always invoke onComplete: callers already created the destination
+        // file and would otherwise leave a 0-byte orphan with no feedback.
+        val base = baseBitmap.value ?: run {
+            onComplete(false)
+            return
+        }
         viewModelScope.launch {
             isExporting.value = true
             val success = exporter.exportToFile(base, layers.value, outputFile, format, quality)

@@ -16,8 +16,11 @@ import kotlin.math.min
 class LaMaInpaintEngine(
     private val modelManager: LaMaModelManager
 ) {
+    @Volatile
     private var ortEnv: OrtEnvironment? = null
+    @Volatile
     private var ortSession: OrtSession? = null
+    private val sessionLock = Any()
 
     suspend fun inpaintLaMa(
         baseBitmap: Bitmap,
@@ -44,13 +47,17 @@ class LaMaInpaintEngine(
                 ortEnv = OrtEnvironment.getEnvironment()
             }
             val env = ortEnv ?: return@withContext Result.Error(IllegalStateException("Gagal membuat OrtEnvironment"))
-            if (ortSession == null) {
-                val opts = OrtSession.SessionOptions().apply {
-                    setIntraOpNumThreads(4)
+            // Guarded: concurrent inpaints must not create two sessions (native leak)
+            // and SessionOptions must be closed after use.
+            val session = synchronized(sessionLock) {
+                if (ortSession == null) {
+                    OrtSession.SessionOptions().use { opts ->
+                        opts.setIntraOpNumThreads(4)
+                        ortSession = env.createSession(modelFile.absolutePath, opts)
+                    }
                 }
-                ortSession = env.createSession(modelFile.absolutePath, opts)
-            }
-            val session = ortSession ?: return@withContext Result.Error(IllegalStateException("Gagal membuat OrtSession"))
+                ortSession
+            } ?: return@withContext Result.Error(IllegalStateException("Gagal membuat OrtSession"))
 
             val width = baseBitmap.width
             val height = baseBitmap.height
@@ -316,10 +323,12 @@ class LaMaInpaintEngine(
 
     fun close() {
         try {
-            ortSession?.close()
-            ortSession = null
-            ortEnv?.close()
-            ortEnv = null
+            synchronized(sessionLock) {
+                ortSession?.close()
+                ortSession = null
+                ortEnv?.close()
+                ortEnv = null
+            }
         } catch (_: Throwable) {}
     }
 }

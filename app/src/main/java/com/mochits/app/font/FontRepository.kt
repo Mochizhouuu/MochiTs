@@ -125,36 +125,39 @@ class FontRepository(
     }
 
     suspend fun importCustomFont(uri: Uri, rawFileName: String?): Result<FontItem> = withContext(Dispatchers.IO) {
+        var targetFile: File? = null
         try {
             val fileId = UUID.randomUUID().toString()
             val extension = when {
                 rawFileName?.lowercase()?.endsWith(".otf") == true -> ".otf"
                 else -> ".ttf"
             }
-            val targetFile = File(customFontsDir, "$fileId$extension")
+            targetFile = File(customFontsDir, "$fileId$extension").also { customFontsDir.mkdirs() }
+            val outFile = targetFile
+                ?: return@withContext Result.failure(Exception("Gagal menyiapkan file tujuan"))
 
             context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                FileOutputStream(targetFile).use { outputStream ->
+                FileOutputStream(outFile).use { outputStream ->
                     inputStream.copyTo(outputStream)
                 }
             } ?: return@withContext Result.failure(Exception("Gagal membaca file dari penyimpanan"))
 
             val typeface = try {
-                Typeface.createFromFile(targetFile)
+                Typeface.createFromFile(outFile)
             } catch (e: Exception) {
                 null
             }
 
             if (typeface == null) {
-                targetFile.delete()
+                try { outFile.delete() } catch (_: Exception) {}
                 return@withContext Result.failure(IllegalArgumentException("File yang dipilih bukan file font valid atau corrupt"))
             }
 
-            val displayName = rawFileName?.substringBeforeLast(".") ?: targetFile.nameWithoutExtension
+            val displayName = rawFileName?.substringBeforeLast(".") ?: outFile.nameWithoutExtension
             val entity = CustomFontEntity(
                 id = fileId,
                 displayName = displayName,
-                filePath = targetFile.absolutePath
+                filePath = outFile.absolutePath
             )
 
             customFontDao.insertCustomFont(entity)
@@ -163,10 +166,12 @@ class FontRepository(
                 name = displayName,
                 fontNameKey = displayName,
                 isCustom = true,
-                filePath = targetFile.absolutePath
+                filePath = outFile.absolutePath
             )
             Result.success(item)
         } catch (e: Exception) {
+            // Never leave a partial copy behind when copy/validation/insert fails.
+            try { targetFile?.delete() } catch (_: Exception) {}
             Result.failure(e)
         }
     }

@@ -3,6 +3,8 @@ package com.mochits.app.settings
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOff
@@ -47,7 +50,6 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val currentFolderUri by viewModel.defaultExportFolderUri.collectAsState()
-    val currentFolderName by viewModel.defaultExportFolderName.collectAsState()
     val formattedDetail by remember { mutableStateOf<String?>(null) }
     val currentTheme by viewModel.themeMode.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -82,7 +84,10 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            PrimaryTabRow(selectedTabIndex = selectedTab) {
+            ScrollableTabRow(
+                selectedTabIndex = selectedTab,
+                edgePadding = 8.dp
+            ) {
                 tabs.forEachIndexed { index, title ->
                     Tab(
                         selected = selectedTab == index,
@@ -92,10 +97,12 @@ fun SettingsScreen(
                 }
             }
 
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 when (selectedTab) {
                     0 -> {
@@ -164,7 +171,7 @@ fun SettingsScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column {
-                                        Text("Telea Fast Diffusion", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                                        Text("Telea (OpenCV)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
                                         Text("Bawaan Sistem (Aktif)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                     Badge(containerColor = MaterialTheme.colorScheme.primary) {
@@ -270,16 +277,26 @@ fun SettingsScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Ekspor dan impor preset gaya teks komik Anda (JSON):",
+                                text = "Simpan dan bagikan preset gaya teks komik (JSON).",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Text(
+                                    text = "Fitur ini segera hadir. Preset yang dibuat di editor nantinya bisa disimpan, diekspor, dan diimpor dari sini.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            }
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 OutlinedButton(
-                                    onClick = {
-                                        Toast.makeText(context, "Impor preset style berhasil.", Toast.LENGTH_SHORT).show()
-                                    },
+                                    onClick = { },
+                                    enabled = false,
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(10.dp)
                                 ) {
@@ -288,9 +305,8 @@ fun SettingsScreen(
                                     Text("Impor")
                                 }
                                 Button(
-                                    onClick = {
-                                        Toast.makeText(context, "Preset style berhasil diekspor.", Toast.LENGTH_SHORT).show()
-                                    },
+                                    onClick = { },
+                                    enabled = false,
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(10.dp)
                                 ) {
@@ -302,11 +318,29 @@ fun SettingsScreen(
                         }
                     }
                     3 -> {
+                        val coroutineScope = rememberCoroutineScope()
+                        val customFonts by viewModel.customFonts.collectAsState()
+                        var isImporting by remember { mutableStateOf(false) }
+                        var fontError by remember { mutableStateOf<String?>(null) }
+                        var fontToDelete by remember { mutableStateOf<com.mochits.app.font.FontItem?>(null) }
                         val fontPicker = rememberLauncherForActivityResult(
                             contract = ActivityResultContracts.GetContent()
                         ) { uri ->
-                            uri?.let {
-                                Toast.makeText(context, "Font kustom berhasil ditambahkan.", Toast.LENGTH_SHORT).show()
+                            if (uri != null) {
+                                isImporting = true
+                                fontError = null
+                                coroutineScope.launch {
+                                    val name = queryDisplayName(context, uri)
+                                    val result = viewModel.importCustomFont(uri, name)
+                                    isImporting = false
+                                    result
+                                        .onSuccess {
+                                            Toast.makeText(context, "Font \"${it.name}\" ditambahkan.", Toast.LENGTH_SHORT).show()
+                                        }
+                                        .onFailure { e ->
+                                            fontError = e.message ?: "Gagal mengimpor font."
+                                        }
+                                }
                             }
                         }
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -320,16 +354,102 @@ fun SettingsScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
                             Button(
                                 onClick = { fontPicker.launch("*/*") },
+                                enabled = !isImporting,
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(10.dp)
                             ) {
-                                Icon(Icons.Default.FontDownload, contentDescription = null)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Tambah Font TTF/OTF Baru")
+                                if (isImporting) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Mengimpor...")
+                                } else {
+                                    Icon(Icons.Default.FontDownload, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Tambah Font TTF/OTF Baru")
+                                }
                             }
+                            fontError?.let { err ->
+                                Text(
+                                    text = err,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                            Text(
+                                text = "Font kustom terpasang (${customFonts.size})",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (customFonts.isEmpty()) {
+                                Text(
+                                    text = "Belum ada font kustom. Font bawaan selalu tersedia di editor.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                                ) {
+                                    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                        customFonts.forEach { font ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = font.name,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                IconButton(
+                                                    onClick = { fontToDelete = font },
+                                                    modifier = Modifier.size(36.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Delete,
+                                                        contentDescription = "Hapus ${font.name}",
+                                                        tint = MaterialTheme.colorScheme.error
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        val doomedFont = fontToDelete
+                        if (doomedFont != null) {
+                            AlertDialog(
+                                onDismissRequest = { fontToDelete = null },
+                                title = { Text("Hapus Font") },
+                                text = { Text("Hapus \"${doomedFont.name}\" dari daftar font kustom? Layer teks yang memakainya akan kembali ke font default.") },
+                                confirmButton = {
+                                    TextButton(
+                                        onClick = {
+                                            viewModel.deleteCustomFont(doomedFont)
+                                            fontToDelete = null
+                                            Toast.makeText(context, "Font \"${doomedFont.name}\" dihapus.", Toast.LENGTH_SHORT).show()
+                                        }
+                                    ) {
+                                        Text("Hapus", color = MaterialTheme.colorScheme.error)
+                                    }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { fontToDelete = null }) {
+                                        Text("Batal")
+                                    }
+                                }
+                            )
                         }
                     }
                     4 -> {
@@ -487,9 +607,18 @@ fun DownloadErrorDialog(
     )
 }
 
+private fun queryDisplayName(context: Context, uri: Uri): String? {
+    return try {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        } ?: uri.lastPathSegment
+    } catch (_: Exception) {
+        uri.lastPathSegment
+    }
+}
+
 @Composable
-fun ThemeOptionCard(
-    label: String,
+fun ThemeOptionCard(    label: String,
     selected: Boolean,
     onClick: () -> Unit
 ) {
