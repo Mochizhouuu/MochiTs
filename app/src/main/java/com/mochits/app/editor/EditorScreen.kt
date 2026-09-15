@@ -71,7 +71,9 @@ private enum class TextHandleType {
 }
 
 private fun handleAnchors(bounds: RectF, scale: Float): List<Pair<TextHandleType, Offset>> {
-    val gap = 24f / scale
+    // Gap pill stretch dibuat lebih besar dari radius ikon resize (24/scale)
+    // agar jangkar tidak tumpang tindih pada kotak teks kecil/baru.
+    val gap = 40f / scale
     return listOf(
         TextHandleType.DELETE to Offset(bounds.left, bounds.top),
         TextHandleType.ROTATE to Offset(bounds.right, bounds.top),
@@ -100,13 +102,25 @@ private fun hitTestTextHandles(
     )
 
     val slop = 48f / scale
-    val slopSq = slop * slop
     val anchors = handleAnchors(bounds, scale)
 
+    // Handle sudut (DELETE/ROTATE/RESIZE) diberi bonus ~12 screen-px agar
+    // menang saat hasil seri: pada teks baru yang kecil, radius slop mencakup
+    // RESIZE sekaligus pill STRETCH, dan jarak-mentah bisa salah memilih
+    // STRETCH saat sentuhan sedikit meleset (efek: teks malah stretch, bukan
+    // membesar). Tap yang benar-benar tepat di pill tetap menang karena
+    // jarak pill-stretch ke sudut jauh lebih besar dari bonus ini.
+    val cornerBonus = 12f / scale
+    val cornerTypes = setOf(TextHandleType.DELETE, TextHandleType.ROTATE, TextHandleType.RESIZE)
+
     return anchors
-        .map { (type, pos) -> type to (local - pos).getDistanceSquared() }
-        .filter { it.second <= slopSq }
-        .minByOrNull { it.second }
+        .map { (type, pos) ->
+            val dist = (local - pos).getDistance()
+            val adjusted = if (type in cornerTypes) dist - cornerBonus else dist
+            Triple(type, dist, adjusted)
+        }
+        .filter { it.second <= slop }
+        .minByOrNull { it.third }
         ?.first
 }
 
@@ -399,8 +413,14 @@ fun EditorScreen(
     androidx.activity.compose.BackHandler(enabled = !isNavigatingBack) {
         if (!isNavigatingBack) {
             isNavigatingBack = true
-            viewModel.flushToDisk()
-            onNavigateBack()
+            // Tunggu save selesai dulu: navigasi langsung = teks terakhir hilang.
+            coroutineScope.launch {
+                try {
+                    viewModel.flushBlocking()
+                } finally {
+                    onNavigateBack()
+                }
+            }
         }
     }
 
@@ -413,8 +433,13 @@ fun EditorScreen(
                         onClick = {
                             if (!isNavigatingBack) {
                                 isNavigatingBack = true
-                                viewModel.flushToDisk()
-                                onNavigateBack()
+                                coroutineScope.launch {
+                                    try {
+                                        viewModel.flushBlocking()
+                                    } finally {
+                                        onNavigateBack()
+                                    }
+                                }
                             }
                         }
                     ) {
@@ -893,6 +918,9 @@ fun EditorScreen(
                                                     initialTextCenterX = textCenterX
                                                     initialTextCenterY = textCenterY
                                                     initialDragDist = kotlin.math.hypot(unrotatedPt.x - textCenterX, unrotatedPt.y - textCenterY)
+                                                        // Batas bawah agar resize teks mungil tidak meledak:
+                                                        // sentuhan di tengah kotak kecil bikin penyebut ~0.
+                                                        .coerceAtLeast(40f)
                                                     initialFontSize = handleLayer.style.fontSize
                                                     initialBoxW = handleLayer.boxWidth ?: bounds.width()
                                                     initialBoxH = handleLayer.boxHeight ?: bounds.height()
@@ -1450,7 +1478,7 @@ fun EditorScreen(
                                         drawContext.canvas.nativeCanvas.drawPath(rotateArrowPathCache, rotateArrowPaint)
 
                                         // 4. Vertical Stretch Handle (Bottom Center - Pill + ↕ Arrow Icon)
-                                        val stretchVPos = anchorsMap[TextHandleType.STRETCH_V] ?: Offset(bounds.centerX(), bounds.bottom + 24f / currentScale)
+                                        val stretchVPos = anchorsMap[TextHandleType.STRETCH_V] ?: Offset(bounds.centerX(), bounds.bottom + 40f / currentScale)
                                         val pillW = handleRadius * 1.6f
                                         val pillH = handleRadius * 0.9f
                                         val vArrowPaint = vArrowPaintCache.apply { strokeWidth = 2f / currentScale }
@@ -1467,7 +1495,7 @@ fun EditorScreen(
                                         drawContext.canvas.nativeCanvas.drawLine(stretchVPos.x, stretchVPos.y + arrowLenV, stretchVPos.x + 3f / currentScale, stretchVPos.y + arrowLenV - 3f / currentScale, vArrowPaint)
 
                                         // 5. Horizontal Stretch Handle (Right Center - Pill + ↔ Arrow Icon)
-                                        val stretchHPos = anchorsMap[TextHandleType.STRETCH_H] ?: Offset(bounds.right + 24f / currentScale, bounds.centerY())
+                                        val stretchHPos = anchorsMap[TextHandleType.STRETCH_H] ?: Offset(bounds.right + 40f / currentScale, bounds.centerY())
                                         val pillHW = handleRadius * 0.9f
                                         val pillHH = handleRadius * 1.6f
                                         val hArrowPaint = hArrowPaintCache.apply { strokeWidth = 2f / currentScale }

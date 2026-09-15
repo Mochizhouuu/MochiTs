@@ -209,7 +209,8 @@ val defaultTextStyle = MutableStateFlow(TextStyleConfig())
     val isExporting = MutableStateFlow(false)
 
     private val saveMutex = Mutex()
-    private var lastSaveTimestamp = 0L
+    private var pendingSaveJob: kotlinx.coroutines.Job? = null
+    val isSaving = MutableStateFlow(false)
 
     /**
      * True only when the session started with an existing source file that could
@@ -416,6 +417,11 @@ data class HistoryManifest(
 
     private fun restoreSnapshot(snapshot: HistorySnapshot) {
         layers.value = snapshot.layers
+        // Jaga seleksi agar tidak dangling setelah undo/redo.
+        val current = selectedLayerId.value
+        if (current != null && snapshot.layers.none { it.id == current }) {
+            selectedLayerId.value = snapshot.layers.lastOrNull()?.id
+        }
         invalidateFlattenedCache()
         val loadedBmp = snapshot.getOrLoadBitmap()
         if (loadedBmp != null) {
@@ -492,9 +498,7 @@ data class HistoryManifest(
                         setupCanvasSize(loadedBmp.width, loadedBmp.height)
 
                         val deserialized = serializer.deserialize(proj.layersJson)
-                        if (layers.value.isEmpty() && deserialized.isNotEmpty()) {
-                            layers.value = deserialized
-                        }
+                        applyLoadedLayers(deserialized, proj.id)
 
                         loadHistoryFromDisk(proj.id)
                     } else {
@@ -508,9 +512,7 @@ data class HistoryManifest(
                         setupCanvasSize(w, h)
 
                         val deserialized = serializer.deserialize(proj.layersJson)
-                        if (layers.value.isEmpty() && deserialized.isNotEmpty()) {
-                            layers.value = deserialized
-                        }
+                        applyLoadedLayers(deserialized, proj.id)
                     }
                 } else {
                     setupCanvasSize(1080, 1920)
@@ -532,61 +534,140 @@ data class HistoryManifest(
         }
     }
 
+    /**
+     * Debounced autosave: dijadwalkan 400ms setelah perubahan terakhir.
+     * Tidak ada lagi data yang dibuang seperti throttle lama (`return` kalau
+     * <500ms). Flush yang dipanggil saat keluar akan membatalkan debounce
+     * ini lalu menyimpan state TERBARU secara sinkron.
+     */
     fun autoSave() {
+        if (project.value == null) return
+        pendingSaveJob?.cancel()
+        pendingSaveJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.delay(400)
+            saveNow()
+        }
+    }
+
+    private suspend fun saveNow() {
         val currentProj = project.value ?: return
         val currentBmp = baseBitmap.value
-
-        val now = System.currentTimeMillis()
-        if (now - lastSaveTimestamp < 500) {
-            return
+        // Dipanggil dari coroutine yang sudah di-IO; kunci agar tidak balapan
+        // dengan flush/exit yang memakai file base_image.png.tmp yang sama.
+        saveMutex.withLock {
+            isSaving.value = true
+            try {
+                saveProjectInternal(currentProj, currentBmp)
+            } catch (e: Exception) {
+                Logger.e("Error in autoSave: ${e.message}", e)
+            } finally {
+                isSaving.value = false
+            }
         }
-        lastSaveTimestamp = now
+    }
 
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+    private suspend fun saveProjectInternal(currentProj: ProjectEntity, currentBmp: Bitmap?) {
+        val layersToSave = persistImageLayersInternal(currentProj.id)
+        if (!baseImageSuspect) {
+            saveBaseBitmapToDiskInternal(currentProj.id, currentBmp)
+        }
+        persistSelectedLayerInternal(currentProj.id, selectedLayerId.value)
+        val json = serializer.serialize(layersToSave)
+        val imageFile = File(context.filesDir, "projects/${currentProj.id}/base_image.png")
+        val updatedProj = currentProj.copy(
+            layersJson = json,
+            thumbnailPath = if (imageFile.exists()) imageFile.absolutePath else currentProj.thumbnailPath
+        )
+        project.value = updatedProj
+        repository.saveProject(updatedProj)
+        syncHistoryToDiskInternal(currentProj.id)
+    }
+
+    /**
+     * Fire-and-forget untuk ON_PAUSE/ON_STOP: batalkan debounce lalu simpan
+     * state terbaru segera (tanpa throttle). Dipanggil juga oleh UI saat back,
+     * tapi untuk navigasi gunakan [flushBlocking] agar sempat selesai.
+     */
+    fun flushToDisk() {
+        if (project.value == null) return
+        pendingSaveJob?.cancel()
+        pendingSaveJob = null
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
             saveMutex.withLock {
+                isSaving.value = true
                 try {
-                    val layersToSave = persistImageLayersInternal(currentProj.id)
-                    if (!baseImageSuspect) {
-                        saveBaseBitmapToDiskInternal(currentProj.id, currentBmp)
-                    }
-                    val json = serializer.serialize(layersToSave)
-                    val imageFile = File(context.filesDir, "projects/${currentProj.id}/base_image.png")
-                    val updatedProj = currentProj.copy(
-                        layersJson = json,
-                        thumbnailPath = if (imageFile.exists()) imageFile.absolutePath else currentProj.thumbnailPath
-                    )
-                    repository.saveProject(updatedProj)
-                    syncHistoryToDiskInternal(currentProj.id)
+                    val currentProj = project.value ?: return@withLock
+                    saveProjectInternal(currentProj, baseBitmap.value)
                 } catch (e: Exception) {
-                    Logger.e("Error in autoSave: ${e.message}", e)
+                    Logger.e("Error flushing project to disk: ${e.message}", e)
+                } finally {
+                    isSaving.value = false
                 }
             }
         }
     }
 
-    fun flushToDisk() {
-        val currentProj = project.value ?: return
-        val currentBmp = baseBitmap.value
-
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
+    /**
+     * Versi suspending: WAJIB dipakai sebelum `onNavigateBack()` agar tidak ada
+     * teks yang hilang karena navigasi jalan sebelum save selesai.
+     */
+    suspend fun flushBlocking() {
+        pendingSaveJob?.cancel()
+        pendingSaveJob = null
+        // NonCancellable agar tetap selesai walau scope pembatalan saat exit.
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
             saveMutex.withLock {
+                isSaving.value = true
                 try {
-                    val layersToSave = persistImageLayersInternal(currentProj.id)
-                    if (!baseImageSuspect) {
-                        saveBaseBitmapToDiskInternal(currentProj.id, currentBmp)
-                    }
-                    val json = serializer.serialize(layersToSave)
-                    val imageFile = File(context.filesDir, "projects/${currentProj.id}/base_image.png")
-                    val updatedProj = currentProj.copy(
-                        layersJson = json,
-                        thumbnailPath = if (imageFile.exists()) imageFile.absolutePath else currentProj.thumbnailPath
-                    )
-                    project.value = updatedProj
-                    repository.saveProject(updatedProj)
-                    syncHistoryToDiskInternal(currentProj.id)
+                    val currentProj = project.value ?: return@withLock
+                    saveProjectInternal(currentProj, baseBitmap.value)
                 } catch (e: Exception) {
                     Logger.e("Error flushing project to disk: ${e.message}", e)
+                } finally {
+                    isSaving.value = false
                 }
+            }
+        }
+    }
+
+    private fun selectedLayerFile(projId: String): File =
+        File(context.filesDir, "projects/$projId/selected_layer.txt")
+
+    private fun persistSelectedLayerInternal(projId: String, selectedId: String?) {
+        try {
+            val file = selectedLayerFile(projId)
+            file.parentFile?.mkdirs()
+            if (selectedId == null) {
+                if (file.exists()) file.delete()
+            } else {
+                file.writeText(selectedId)
+            }
+        } catch (t: Throwable) {
+            Logger.e("Error persisting selected layer: ${t.message}", t)
+        }
+    }
+
+    private fun readPersistedSelectedLayer(projId: String): String? {
+        return try {
+            val file = selectedLayerFile(projId)
+            if (!file.exists()) return null
+            file.readText().trim().takeIf { it.isNotEmpty() }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun applyLoadedLayers(deserialized: List<Layer>, projId: String) {
+        if (layers.value.isEmpty() && deserialized.isNotEmpty()) {
+            layers.value = deserialized
+        }
+        if (selectedLayerId.value == null && layers.value.isNotEmpty()) {
+            val persisted = readPersistedSelectedLayer(projId)
+            selectedLayerId.value = if (persisted != null && layers.value.any { it.id == persisted }) {
+                persisted
+            } else {
+                // Fallback: layer teratas tetap aktif agar tidak terasa hilang.
+                layers.value.last().id
             }
         }
     }
@@ -1020,6 +1101,12 @@ data class HistoryManifest(
         )
         layers.value = layers.value + newLayer
         selectedLayerId.value = newLayer.id
+        project.value?.id?.let { pid ->
+            val sid = newLayer.id
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                persistSelectedLayerInternal(pid, sid)
+            }
+        }
         autoSave()
     }
 
@@ -1203,6 +1290,12 @@ data class HistoryManifest(
         )
         layers.value = layers.value + newLayer
         selectedLayerId.value = newLayer.id
+        project.value?.id?.let { pid ->
+            val sid = newLayer.id
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                persistSelectedLayerInternal(pid, sid)
+            }
+        }
 
         autoSave()
     }
@@ -1441,6 +1534,13 @@ data class HistoryManifest(
 
     fun selectLayer(id: String?) {
         selectedLayerId.value = id
+        // Seleksi murah: tulis langsung agar tap terakhir tidak hilang walau
+        // user keluar <400ms sebelum debounce autoSave jalan. Save penuh
+        // (layersJson) tetap via flushBlocking saat exit.
+        val projId = project.value?.id ?: return
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            persistSelectedLayerInternal(projId, id)
+        }
     }
 
     fun moveLayer(id: String, direction: Int) {
