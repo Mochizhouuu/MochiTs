@@ -86,7 +86,25 @@ class EditorViewModel @Inject constructor(
     val eyedropperCanvasPt = MutableStateFlow<Offset?>(null)
     val sampledColorPreview = MutableStateFlow<Int?>(null)
     private var compositeBitmap: Bitmap? = null
+    private var cachedFlattenedBitmap: Bitmap? = null
+    private var isFlattenedDirty = true
     private var eyedropperTargetConsumer: ((Int) -> Unit)? = null
+
+    fun invalidateFlattenedCache() {
+        isFlattenedDirty = true
+    }
+
+    suspend fun flattenForSelection(): Bitmap? {
+        val base = baseBitmap.value ?: return null
+        if (!isFlattenedDirty && cachedFlattenedBitmap != null && !cachedFlattenedBitmap!!.isRecycled) {
+            return cachedFlattenedBitmap
+        }
+        cachedFlattenedBitmap?.let { if (!it.isRecycled) it.recycle() }
+        val flattened = exporter.exportToBitmap(base, layers.value)
+        cachedFlattenedBitmap = flattened
+        isFlattenedDirty = false
+        return flattened
+    }
 
     fun startEyedropper(onColorSelected: (Int) -> Unit) {
         val base = baseBitmap.value ?: return
@@ -371,6 +389,7 @@ data class HistoryManifest(
 
     private fun restoreSnapshot(snapshot: HistorySnapshot) {
         layers.value = snapshot.layers
+        invalidateFlattenedCache()
         val loadedBmp = snapshot.getOrLoadBitmap()
         if (loadedBmp != null) {
             baseBitmap.value = loadedBmp
@@ -833,11 +852,19 @@ data class HistoryManifest(
     }
 
     fun setActivePanel(panel: EditorPanel) {
+        if (activePanel.value == EditorPanel.ERASE || activePanel.value == EditorPanel.MASK || activePanel.value == EditorPanel.INPAINT) {
+            if (panel != EditorPanel.ERASE && panel != EditorPanel.MASK && panel != EditorPanel.INPAINT) {
+                maskSelectionTools?.clearMask()
+            }
+        }
         activePanel.value = if (activePanel.value == panel) EditorPanel.NONE else panel
     }
 
     fun setMaskToolMode(mode: MaskToolMode) {
-        maskToolMode.value = mode
+        if (maskToolMode.value != mode) {
+            maskSelectionTools?.clearMask()
+            maskToolMode.value = mode
+        }
     }
 
     fun setBrushSize(size: Float) {
@@ -984,6 +1011,7 @@ data class HistoryManifest(
 
         recycleBitmapSafely(baseBitmap.value)
         recycleBitmapSafely(compositeBitmap)
+        recycleBitmapSafely(cachedFlattenedBitmap)
 
         layers.value.filterIsInstance<Layer.ImageLayer>().forEach { layer ->
             recycleBitmapSafely(layer.bitmap)
