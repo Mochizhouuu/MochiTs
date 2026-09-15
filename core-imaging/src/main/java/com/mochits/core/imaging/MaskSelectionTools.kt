@@ -141,8 +141,8 @@ class MaskSelectionTools(
         if (srcBitmap == null || srcBitmap.isRecycled) return
         val startX = point.x.toInt()
         val startY = point.y.toInt()
-        // Map UI tolerance scale (0..100) to full RGB Euclidean distance (0..441.673f)
-        val mappedTolerance = (tolerance.coerceIn(0f, 100f) / 100f) * 441.673f
+        // Map UI tolerance scale (0..100) to RGB Euclidean distance threshold (0..255f)
+        val mappedTolerance = tolerance.coerceIn(0f, 100f) * 2.55f
         currentExpandPixels = expandPixels.coerceIn(0, 30)
         NativeBridge.magicWandSelectSafe(srcBitmap, rawMaskBitmap, startX, startY, mappedTolerance)
         applyExpandInternal()
