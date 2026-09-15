@@ -38,6 +38,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,6 +52,8 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private val MochiTsLogoFont = FontFamily(Font(com.mochits.app.R.font.bebas_neue))
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -116,7 +120,8 @@ fun HomeScreen(
                     Text(
                         text = "MochiTs",
                         style = MaterialTheme.typography.headlineMedium.copy(
-                            fontWeight = FontWeight.Bold,
+                            fontFamily = MochiTsLogoFont,
+                            fontWeight = FontWeight.Normal,
                             color = MaterialTheme.colorScheme.primary
                         )
                     )

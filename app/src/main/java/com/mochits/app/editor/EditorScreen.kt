@@ -1937,7 +1937,9 @@ fun EraseToolPanel(
 
                 Text("Alat Seleksi Area:", style = MaterialTheme.typography.bodySmall)
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     FilterChip(
@@ -1966,19 +1968,21 @@ fun EraseToolPanel(
 
                 Text("Model Inpaint:", style = MaterialTheme.typography.bodySmall)
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     FilterChip(
                         selected = selectedModel == EditorViewModel.InpaintModel.TELEA,
                         onClick = { onModelSelected(EditorViewModel.InpaintModel.TELEA) },
-                        label = { Text("Telea (OpenCV)") }
+                        label = { Text("Telea (Cepat)") }
                     )
                     FilterChip(
                         selected = selectedModel == EditorViewModel.InpaintModel.LAMA,
                         onClick = { onModelSelected(EditorViewModel.InpaintModel.LAMA) },
-                        label = { Text("LaMa (TFLite AI)") }
+                        label = { Text("LaMa (AI)") }
                     )
                 }
 
@@ -1999,28 +2003,30 @@ fun EraseToolPanel(
 
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = onClear) { Text("Clear Mask") }
-                        OutlinedButton(onClick = onInvert) { Text("Invert") }
-                    }
+                    OutlinedButton(onClick = onClear) { Text("Clear Mask") }
+                    OutlinedButton(onClick = onInvert) { Text("Invert") }
+                }
 
-                    Button(
-                        onClick = onRunErase,
-                        enabled = !isProcessing && !isDownloading && hasMask
-                    ) {
-                        if (isProcessing) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Memproses...")
-                        } else {
-                            Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Hapus / Inpaint")
-                        }
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = onRunErase,
+                    enabled = !isProcessing && !isDownloading && hasMask,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (isProcessing) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Memproses...")
+                    } else {
+                        Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Hapus / Inpaint")
                     }
                 }
 
@@ -2129,43 +2135,51 @@ fun TextToolPanel(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = textInput,
-                    onValueChange = { newText ->
-                        textInput = newText
-                        if (selectedLayer != null) {
-                            if (editSnapshotLayerId != selectedLayer.id) {
-                                editSnapshotLayerId = selectedLayer.id
-                                onEditStart?.invoke()
-                            }
-                            onUpdateTextContent?.invoke(newText)
-                            onRequestAutosave?.invoke()
+            Text(
+                text = if (selectedLayer != null) "Tool Teks (Edit Layer)" else "Tool Teks (Tambah Baru)",
+                style = MaterialTheme.typography.titleMedium
+            )
+            OutlinedTextField(
+                value = textInput,
+                onValueChange = { newText ->
+                    textInput = newText
+                    if (selectedLayer != null) {
+                        if (editSnapshotLayerId != selectedLayer.id) {
+                            editSnapshotLayerId = selectedLayer.id
+                            onEditStart?.invoke()
                         }
-                    },
-                    label = { Text(if (selectedLayer != null) "Edit Teks" else "Teks Baru") },
-                    maxLines = 3,
-                    modifier = Modifier
-                        .weight(1f)
-                        .focusRequester(focusRequester)
-                )
-                Button(
-                    onClick = {
-                        if (textInput.isNotBlank()) {
-                            if (selectedLayer != null) {
-                                onUpdateTextContent?.invoke(textInput)
-                            } else {
-                                onAddText(textInput)
-                                textInput = ""
-                            }
+                        onUpdateTextContent?.invoke(newText)
+                        onRequestAutosave?.invoke()
+                    }
+                },
+                label = { Text(if (selectedLayer != null) "Edit Teks" else "Teks Baru") },
+                placeholder = { Text("Ketik dialog di sini...") },
+                maxLines = 3,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester)
+            )
+            Button(
+                onClick = {
+                    if (textInput.isNotBlank()) {
+                        if (selectedLayer != null) {
+                            onUpdateTextContent?.invoke(textInput)
+                        } else {
+                            onAddText(textInput)
+                            textInput = ""
                         }
                     }
-                ) {
-                    Text(if (selectedLayer != null) "Simpan" else "Tambah")
-                }
+                },
+                enabled = textInput.isNotBlank(),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    if (selectedLayer != null) Icons.Default.Check else Icons.Default.Add,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(if (selectedLayer != null) "Simpan Perubahan" else "Tambah Teks ke Kanvas")
             }
 
             Text("Alignment Teks:", style = MaterialTheme.typography.bodyMedium)
@@ -2222,57 +2236,55 @@ fun SimpleColorPickerRow(
 ) {
     var showCustomHexDialog by remember { mutableStateOf(false) }
     var hexInput by remember { mutableStateOf("") }
+    var isHexError by remember { mutableStateOf(false) }
 
-    val colors = listOf(
-        AndroidColor.BLACK,
-        AndroidColor.WHITE,
-        AndroidColor.RED,
-        AndroidColor.BLUE,
-        AndroidColor.GREEN,
-        AndroidColor.YELLOW,
-        AndroidColor.MAGENTA,
-        AndroidColor.CYAN
-    )
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically
+    val colors = com.mochits.app.ui.color.ColorUtils.defaultPresetColors
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
     ) {
-        colors.forEach { c ->
+        items(colors) { c ->
             Box(
                 modifier = Modifier
-                    .size(28.dp)
+                    .size(38.dp)
                     .background(Color(c), shape = androidx.compose.foundation.shape.CircleShape)
-                    .padding(2.dp)
+                    .border(
+                        width = if (selectedColor == c) 2.5.dp else 1.dp,
+                        color = if (selectedColor == c) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                        shape = androidx.compose.foundation.shape.CircleShape
+                    )
+                    .clickable { onColorSelected(c) },
+                contentAlignment = Alignment.Center
             ) {
-                IconButton(
-                    onClick = { onColorSelected(c) },
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    if (selectedColor == c) {
-                        Icon(
-                            Icons.Default.Check,
-                            contentDescription = null,
-                            tint = if (c == AndroidColor.WHITE || c == AndroidColor.YELLOW || c == AndroidColor.CYAN) Color.Black else Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
+                if (selectedColor == c) {
+                    Icon(
+                        Icons.Default.Check,
+                        contentDescription = null,
+                        tint = if (com.mochits.app.ui.color.ColorUtils.isLightColor(c)) Color.Black else Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
         }
-
-        IconButton(
-            onClick = {
-                hexInput = String.format("#%06X", 0xFFFFFF and selectedColor)
-                showCustomHexDialog = true
-            },
-            modifier = Modifier.size(28.dp)
-        ) {
-            Icon(
-                Icons.Default.Palette,
-                contentDescription = "Custom Hex",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp)
-            )
+        item {
+            IconButton(
+                onClick = {
+                    hexInput = String.format("#%06X", 0xFFFFFF and selectedColor)
+                    isHexError = false
+                    showCustomHexDialog = true
+                },
+                modifier = Modifier
+                    .size(38.dp)
+                    .background(MaterialTheme.colorScheme.primaryContainer, shape = androidx.compose.foundation.shape.CircleShape)
+            ) {
+                Icon(
+                    Icons.Default.Palette,
+                    contentDescription = "Custom Hex",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 
@@ -2283,8 +2295,22 @@ fun SimpleColorPickerRow(
             text = {
                 OutlinedTextField(
                     value = hexInput,
-                    onValueChange = { hexInput = it },
+                    onValueChange = {
+                        hexInput = it
+                        isHexError = try {
+                            AndroidColor.parseColor(it)
+                            false
+                        } catch (_: Throwable) {
+                            true
+                        }
+                    },
                     label = { Text("Hex Color (contoh: #FF5722)") },
+                    supportingText = {
+                        if (isHexError) {
+                            Text("Format salah, contoh valid: #FF5722", color = MaterialTheme.colorScheme.error)
+                        }
+                    },
+                    isError = isHexError,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -2297,6 +2323,7 @@ fun SimpleColorPickerRow(
                             onColorSelected(parsed)
                             showCustomHexDialog = false
                         } catch (_: Throwable) {
+                            isHexError = true
                         }
                     }
                 ) {

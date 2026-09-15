@@ -1,11 +1,35 @@
 package com.mochits.app.ui.color
 
 import android.graphics.Bitmap
+import android.graphics.Color
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
 object ColorUtils {
+
+    /**
+     * Palet preset tunggal untuk seluruh fitur effect (warna teks, gradient,
+     * stroke, shadow). Abu-abu tua & muda diletakkan berdampingan dengan
+     * hitam dan putih.
+     */
+    val defaultPresetColors: List<Int> = listOf(
+        Color.BLACK,
+        Color.DKGRAY, // abu-abu tua (#444444)
+        Color.LTGRAY, // abu-abu muda (#CCCCCC)
+        Color.WHITE,
+        Color.RED,
+        Color.BLUE,
+        Color.GREEN,
+        Color.YELLOW,
+        Color.MAGENTA,
+        Color.CYAN
+    )
+
+    /** True jika warna terang (ikon cek di atasnya harus gelap agar terbaca). */
+    fun isLightColor(color: Int): Boolean {
+        return (Color.red(color) * 0.299 + Color.green(color) * 0.587 + Color.blue(color) * 0.114) > 180
+    }
 
     fun colorToHsv(color: Int): FloatArray {
         val r = ((color ushr 16) and 0xFF) / 255f

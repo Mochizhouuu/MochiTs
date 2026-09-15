@@ -1,6 +1,5 @@
 package com.mochits.app.ui.color
 
-import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,16 +23,7 @@ fun ColorPickerRow(
     selectedColor: Int,
     onColorSelected: (Int) -> Unit,
     onEyedropperClick: () -> Unit,
-    presetColors: List<Int> = listOf(
-        AndroidColor.BLACK,
-        AndroidColor.WHITE,
-        AndroidColor.RED,
-        AndroidColor.BLUE,
-        AndroidColor.GREEN,
-        AndroidColor.YELLOW,
-        AndroidColor.MAGENTA,
-        AndroidColor.CYAN
-    ),
+    presetColors: List<Int> = ColorUtils.defaultPresetColors,
     modifier: Modifier = Modifier
 ) {
     var showPickerDialog by remember { mutableStateOf(false) }
@@ -73,19 +63,20 @@ fun ColorPickerRow(
             )
         }
 
-        // 3. Preset Colors Row
+        // 3. Preset Colors Row (scrollable + target sentuh lega untuk jari)
         LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             items(presetColors) { c ->
                 val isSelected = (selectedColor and 0x00FFFFFF) == (c and 0x00FFFFFF)
                 Box(
                     modifier = Modifier
-                        .size(30.dp)
+                        .size(38.dp)
                         .background(Color(c), CircleShape)
                         .border(
-                            width = if (isSelected) 2.dp else 1.dp,
+                            width = if (isSelected) 2.5.dp else 1.dp,
                             color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                             shape = CircleShape
                         )
@@ -93,12 +84,11 @@ fun ColorPickerRow(
                     contentAlignment = Alignment.Center
                 ) {
                     if (isSelected) {
-                        val isLight = (AndroidColor.red(c) * 0.299 + AndroidColor.green(c) * 0.587 + AndroidColor.blue(c) * 0.114) > 180
                         Icon(
                             imageVector = Icons.Default.Check,
                             contentDescription = null,
-                            tint = if (isLight) Color.Black else Color.White,
-                            modifier = Modifier.size(16.dp)
+                            tint = if (ColorUtils.isLightColor(c)) Color.Black else Color.White,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
