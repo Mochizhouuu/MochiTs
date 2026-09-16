@@ -23,6 +23,7 @@ import com.mochits.app.model.MaskToolMode
 import com.mochits.app.ui.color.ColorUtils
 import androidx.compose.ui.geometry.Offset
 import com.mochits.app.model.TextStyleConfig
+import com.mochits.app.model.TextStylePreset
 import com.mochits.app.project.ProjectEntity
 import com.mochits.app.project.ProjectRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -45,6 +46,8 @@ class EditorViewModel @Inject constructor(
     val exportSettingsRepository: ExportSettingsRepository,
     val fontRepository: FontRepository,
     val lamaModelManager: com.mochits.app.imaging.LaMaModelManager,
+    val stylePresetRepository: com.mochits.app.style.StylePresetRepository =
+        com.mochits.app.style.StylePresetRepository(context),
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -201,6 +204,79 @@ class EditorViewModel @Inject constructor(
     }
 
 val defaultTextStyle = MutableStateFlow(TextStyleConfig())
+
+    /** Bentuk kontainer default untuk teks baru (diubah saat preset dipakai tanpa seleksi). */
+    val defaultTextShape = MutableStateFlow(com.mochits.app.model.TextContainerShape.BOX)
+
+    /** Daftar preset gaya (bawaan + simpanan pengguna). Flow repo yang hot. */
+    val stylePresets: StateFlow<List<TextStylePreset>> = stylePresetRepository.presets
+
+    /**
+     * Simpan kombinasi Font + Alignment + Shape saat ini sebagai preset.
+     * Sumbernya layer teks terpilih, atau gaya default bila tidak ada seleksi.
+     */
+    fun saveStylePreset(name: String): TextStylePreset? {
+        val cleanName = name.trim().take(40)
+        if (cleanName.isEmpty()) return null
+        val selected = selectedLayerId.value?.let { sid ->
+            layers.value.find { it.id == sid } as? Layer.TextLayer
+        }
+        val preset = if (selected != null) {
+            TextStylePreset(
+                name = cleanName,
+                fontName = selected.style.fontName,
+                fontStyle = selected.style.fontStyle,
+                alignment = selected.style.alignment,
+                shape = selected.textContainerShape
+            )
+        } else {
+            val style = defaultTextStyle.value
+            TextStylePreset(
+                name = cleanName,
+                fontName = style.fontName,
+                fontStyle = style.fontStyle,
+                alignment = style.alignment,
+                shape = defaultTextShape.value
+            )
+        }
+        return stylePresetRepository.savePreset(preset)
+    }
+
+    /**
+     * Pakai preset: ke layer teks terpilih (satu langkah undo), atau sebagai
+     * default untuk teks baru bila tidak ada layer terpilih.
+     */
+    fun applyStylePreset(preset: TextStylePreset) {
+        val selected = selectedLayerId.value?.let { sid ->
+            layers.value.find { it.id == sid } as? Layer.TextLayer
+        }
+        if (selected == null) {
+            defaultTextStyle.value = defaultTextStyle.value.copy(
+                fontName = preset.fontName,
+                fontStyle = preset.fontStyle,
+                alignment = preset.alignment
+            )
+            defaultTextShape.value = preset.shape
+            return
+        }
+        val newStyle = selected.style.copy(
+            fontName = preset.fontName,
+            fontStyle = preset.fontStyle,
+            alignment = preset.alignment
+        )
+        if (selected.textContainerShape != preset.shape) {
+            // Ganti style tanpa snapshot; updateSelectedTextLayerContainerShape
+            // membuat snapshot + autosave sendiri (satu langkah undo).
+            updateSelectedTextLayerStyle(newStyle, saveUndo = false)
+            updateSelectedTextLayerContainerShape(preset.shape)
+        } else {
+            updateSelectedTextLayerStyle(newStyle, saveUndo = true)
+        }
+    }
+
+    fun deleteStylePreset(id: String): Boolean {
+        return stylePresetRepository.deletePreset(id)
+    }
 
     var maskSelectionTools: MaskSelectionTools? = null
         private set
@@ -1280,14 +1356,15 @@ data class HistoryManifest(
         val finalX = posX - (textWidth / 2f)
         val finalY = posY - (textHeight / 2f)
 
-        val newLayer = Layer.TextLayer(
-            id = UUID.randomUUID().toString(),
-            name = "Text ${layers.value.size + 1}",
-            x = finalX,
-            y = finalY,
-            text = text,
-            style = effectiveStyle
-        )
+    val newLayer = Layer.TextLayer(
+    id = UUID.randomUUID().toString(),
+    name = "Text ${layers.value.size + 1}",
+    x = finalX,
+    y = finalY,
+    text = text,
+    style = effectiveStyle,
+    textContainerShape = defaultTextShape.value
+    )
         layers.value = layers.value + newLayer
         selectedLayerId.value = newLayer.id
         project.value?.id?.let { pid ->

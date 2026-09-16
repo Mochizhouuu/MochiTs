@@ -2,7 +2,10 @@ package com.mochits.app.editor
 
 import androidx.room.Room
 import com.mochits.app.model.Layer
+import com.mochits.app.model.TextAlignment
+import com.mochits.app.model.TextContainerShape
 import com.mochits.app.model.TextStyleConfig
+import com.mochits.app.model.TextStylePreset
 import com.mochits.app.project.MochiTsDatabase
 import com.mochits.app.project.ProjectDao
 import com.mochits.app.project.ProjectRepository
@@ -556,6 +559,90 @@ class EditorViewModelTest {
         bounds = viewModel.textRenderer.getTextBounds(layer)
         assertEquals(anchorX, bounds.centerX(), 2f)
         assertEquals(anchorY, bounds.centerY(), 2f)
+    }
+
+    @Test
+    fun testSaveAndApplyStylePreset_roundTripToSelectedLayer() {
+        viewModel.addTextLayer("Preset Round Trip")
+        val layerId = viewModel.selectedLayerId.value
+        assertNotNull(layerId)
+
+        var layer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        viewModel.updateSelectedTextLayerStyle(
+            layer.style.copy(
+                fontName = "Serif",
+                fontStyle = "Bold",
+                alignment = TextAlignment.RIGHT
+            ),
+            saveUndo = false
+        )
+        viewModel.updateSelectedTextLayerContainerShape(TextContainerShape.OVAL)
+
+        val saved = viewModel.saveStylePreset("Gaya Saya")
+        assertNotNull(saved)
+        assertEquals("Serif", saved!!.fontName)
+        assertEquals("Bold", saved.fontStyle)
+        assertEquals(TextAlignment.RIGHT, saved.alignment)
+        assertEquals(TextContainerShape.OVAL, saved.shape)
+        assertTrue(viewModel.stylePresets.value.any { it.id == saved.id })
+
+        // Reset to something else, then re-apply the preset.
+        layer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        viewModel.updateSelectedTextLayerStyle(
+            layer.style.copy(
+                fontName = "Default",
+                fontStyle = "Regular",
+                alignment = TextAlignment.CENTER
+            ),
+            saveUndo = false
+        )
+        viewModel.updateSelectedTextLayerContainerShape(TextContainerShape.BOX)
+
+        viewModel.applyStylePreset(saved)
+
+        layer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        assertEquals("Serif", layer.style.fontName)
+        assertEquals("Bold", layer.style.fontStyle)
+        assertEquals(TextAlignment.RIGHT, layer.style.alignment)
+        assertEquals(TextContainerShape.OVAL, layer.textContainerShape)
+
+        viewModel.deleteStylePreset(saved.id)
+    }
+
+    @Test
+    fun testApplyStylePreset_withoutSelection_updatesDefaultForNewText() {
+        viewModel.addTextLayer("Preset Default Anchor")
+        viewModel.selectLayer(null)
+
+        viewModel.applyStylePreset(
+            TextStylePreset(
+                name = "Default Oval",
+                fontName = "Monospace",
+                fontStyle = "Italic",
+                alignment = TextAlignment.LEFT,
+                shape = TextContainerShape.OVAL
+            )
+        )
+
+        viewModel.addTextLayer("Baru Dari Preset")
+        val layerId = viewModel.selectedLayerId.value
+        assertNotNull(layerId)
+        val layer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        assertEquals("Monospace", layer.style.fontName)
+        assertEquals("Italic", layer.style.fontStyle)
+        assertEquals(TextAlignment.LEFT, layer.style.alignment)
+        assertEquals(TextContainerShape.OVAL, layer.textContainerShape)
+    }
+
+    @Test
+    fun testDeleteStylePreset_removesCustomPreset() {
+        viewModel.addTextLayer("Preset Hapus")
+        val saved = viewModel.saveStylePreset("Sementara")
+        assertNotNull(saved)
+        assertTrue(viewModel.stylePresets.value.any { it.id == saved!!.id })
+
+        assertTrue(viewModel.deleteStylePreset(saved.id))
+        org.junit.Assert.assertFalse(viewModel.stylePresets.value.any { it.id == saved.id })
     }
 
     @Test

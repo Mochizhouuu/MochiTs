@@ -248,8 +248,9 @@ fun EditorScreen(
     val isDownloadingLaMaModel by viewModel.isDownloadingLaMaModel.collectAsState()
     val lamaDownloadProgress by viewModel.lamaDownloadProgress.collectAsState()
     val userMessage by viewModel.userMessage.collectAsState()
-    val defaultTextStyle by viewModel.defaultTextStyle.collectAsState()
-    val allFonts by viewModel.allFonts.collectAsState()
+val defaultTextStyle by viewModel.defaultTextStyle.collectAsState()
+val stylePresets by viewModel.stylePresets.collectAsState()
+val allFonts by viewModel.allFonts.collectAsState()
     val canUndo by viewModel.canUndo.collectAsState()
     val canRedo by viewModel.canRedo.collectAsState()
     val isEyedropperActive by viewModel.isEyedropperActive.collectAsState()
@@ -576,6 +577,13 @@ fun EditorScreen(
                         onImportCustomFont = { fontImportLauncher.launch("*/*") },
                         onSliderDragStart = { viewModel.onSliderDragStart() },
                         onSliderDragEnd = { viewModel.onSliderDragEnd() }
+                    )
+                    EditorPanel.STYLE -> StylePresetPanel(
+                        presets = stylePresets,
+                        selectedLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer,
+                        onApplyPreset = { preset -> viewModel.applyStylePreset(preset) },
+                        onSavePreset = { name -> viewModel.saveStylePreset(name) },
+                        onDeletePreset = { id -> viewModel.deleteStylePreset(id) }
                     )
                     EditorPanel.EFFECT -> EffectToolPanel(
                         selectedLayer = layers.find { it.id == selectedLayerId },
@@ -1864,6 +1872,12 @@ fun EditorBottomBar(
             icon = { Icon(Icons.Default.FontDownload, contentDescription = "Font") },
             label = { Text("Font") }
         )
+        NavigationBarItem(
+            selected = activePanel == EditorPanel.STYLE,
+            onClick = { onPanelSelect(EditorPanel.STYLE) },
+            icon = { Icon(Icons.Default.Style, contentDescription = "Style") },
+            label = { Text("Style") }
+        )
     }
 }
 
@@ -3069,6 +3083,101 @@ fun FontToolPanel(
                         onClick = { onCapitalizationTransform("titlecase") },
                         label = { Text("Title Case") }
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun StylePresetPanel(
+    presets: List<com.mochits.app.model.TextStylePreset>,
+    selectedLayer: Layer.TextLayer?,
+    onApplyPreset: (com.mochits.app.model.TextStylePreset) -> Unit,
+    onSavePreset: ((String) -> com.mochits.app.model.TextStylePreset?)? = null,
+    onDeletePreset: ((String) -> Boolean)? = null
+) {
+    var presetName by remember { mutableStateOf("") }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        tonalElevation = 6.dp,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(14.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("Preset Style", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = if (selectedLayer != null)
+                    "Ketuk preset untuk dipakai ke teks terpilih."
+                else
+                    "Tidak ada teks terpilih — preset dipakai sebagai gaya teks baru.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            OutlinedTextField(
+                value = presetName,
+                onValueChange = { presetName = it },
+                label = { Text("Nama preset baru") },
+                placeholder = { Text("cth. Judul Bab") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Button(
+                onClick = {
+                    if (presetName.isNotBlank()) {
+                        onSavePreset?.invoke(presetName)
+                        presetName = ""
+                    }
+                },
+                enabled = presetName.isNotBlank(),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    if (selectedLayer != null) "Simpan Gaya Teks Ini"
+                    else "Simpan Gaya Default Ini"
+                )
+            }
+
+            presets.forEach { preset ->
+                Surface(
+                    tonalElevation = 2.dp,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onApplyPreset(preset) }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(preset.name, style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                text = "${preset.fontName} • ${preset.fontStyle} • " +
+                                    "${preset.alignment.name.lowercase().replaceFirstChar { it.titlecase() }} • " +
+                                    (if (preset.shape == com.mochits.app.model.TextContainerShape.OVAL) "Oval" else "Kotak") +
+                                    (if (preset.isBuiltIn) " • Bawaan" else ""),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (!preset.isBuiltIn) {
+                            IconButton(onClick = { onDeletePreset?.invoke(preset.id) }) {
+                                Icon(Icons.Default.Delete, contentDescription = "Hapus preset")
+                            }
+                        } else {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
+                        }
+                    }
                 }
             }
         }

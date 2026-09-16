@@ -54,4 +54,12 @@ object AppModule {
     ): LaMaModelManager {
         return LaMaModelManager(context)
     }
+
+    @Provides
+    @Singleton
+    fun provideStylePresetRepository(
+        @ApplicationContext context: Context
+    ): com.mochits.app.style.StylePresetRepository {
+        return com.mochits.app.style.StylePresetRepository(context)
+    }
 }

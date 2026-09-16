@@ -26,6 +26,7 @@ enum class EditorPanel {
     TEXT,
     EFFECT,
     FONT,
+    STYLE,
     LAYERS,
     SETTINGS
 }
@@ -33,6 +34,21 @@ enum class EditorPanel {
 data class ColorStop(
     val color: Int = Color.BLACK,
     val position: Float = 0f
+)
+
+/**
+ * Preset gaya teks: kombinasi Font + Alignment + Shape yang bisa disimpan
+ * dan dipakai ulang dari panel Style tanpa mengatur satu per satu.
+ * Ukuran font sengaja tidak ikut — skala diatur via handle resize.
+ */
+data class TextStylePreset(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val name: String,
+    val fontName: String = "Default",
+    val fontStyle: String = "Regular", // "Regular", "Bold", "Italic", "BoldItalic"
+    val alignment: TextAlignment = TextAlignment.CENTER,
+    val shape: TextContainerShape = TextContainerShape.BOX,
+    val isBuiltIn: Boolean = false
 )
 
 data class TextStyleConfig(
