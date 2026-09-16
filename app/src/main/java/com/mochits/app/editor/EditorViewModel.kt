@@ -213,6 +213,9 @@ val defaultTextStyle = MutableStateFlow(TextStyleConfig())
     /** Daftar preset gaya (bawaan + simpanan pengguna). Flow repo yang hot. */
     val stylePresets: StateFlow<List<TextStylePreset>> = stylePresetRepository.presets
 
+    /** ID preset yang disematkan ke paling atas. */
+    val pinnedPresetIds: StateFlow<List<String>> = stylePresetRepository.pinnedPresetIds
+
     /**
      * Simpan kombinasi Font + Alignment + Shape saat ini sebagai preset.
      * Sumbernya layer teks terpilih, atau gaya default bila tidak ada seleksi.
@@ -278,6 +281,12 @@ val defaultTextStyle = MutableStateFlow(TextStyleConfig())
 
     fun deleteStylePreset(id: String): Boolean {
         return stylePresetRepository.deletePreset(id)
+    }
+
+    /** Sematkan/lepas preset dari urutan paling atas. */
+    fun togglePinnedPreset(id: String): Boolean {
+        val pinned = stylePresetRepository.pinnedPresetIds.value.contains(id)
+        return stylePresetRepository.setPresetPinned(id, !pinned)
     }
 
     var maskSelectionTools: MaskSelectionTools? = null

@@ -250,6 +250,7 @@ fun EditorScreen(
     val userMessage by viewModel.userMessage.collectAsState()
 val defaultTextStyle by viewModel.defaultTextStyle.collectAsState()
 val stylePresets by viewModel.stylePresets.collectAsState()
+val pinnedPresetIds by viewModel.pinnedPresetIds.collectAsState()
 val allFonts by viewModel.allFonts.collectAsState()
     val canUndo by viewModel.canUndo.collectAsState()
     val canRedo by viewModel.canRedo.collectAsState()
@@ -583,7 +584,9 @@ val allFonts by viewModel.allFonts.collectAsState()
                         selectedLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer,
                         onApplyPreset = { preset -> viewModel.applyStylePreset(preset) },
                         onSavePreset = { name -> viewModel.saveStylePreset(name) },
-                        onDeletePreset = { id -> viewModel.deleteStylePreset(id) }
+                        onDeletePreset = { id -> viewModel.deleteStylePreset(id) },
+                        pinnedIds = pinnedPresetIds.toSet(),
+                        onTogglePin = { id -> viewModel.togglePinnedPreset(id) }
                     )
                     EditorPanel.EFFECT -> EffectToolPanel(
                         selectedLayer = layers.find { it.id == selectedLayerId },
@@ -3095,7 +3098,9 @@ fun StylePresetPanel(
     selectedLayer: Layer.TextLayer?,
     onApplyPreset: (com.mochits.app.model.TextStylePreset) -> Unit,
     onSavePreset: ((String) -> com.mochits.app.model.TextStylePreset?)? = null,
-    onDeletePreset: ((String) -> Boolean)? = null
+    onDeletePreset: ((String) -> Boolean)? = null,
+    pinnedIds: Set<String> = emptySet(),
+    onTogglePin: ((String) -> Boolean)? = null
 ) {
     var presetName by remember { mutableStateOf("") }
 
@@ -3170,11 +3175,22 @@ fun StylePresetPanel(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        if (!preset.isBuiltIn) {
-                            IconButton(onClick = { onDeletePreset?.invoke(preset.id) }) {
+                        if (onTogglePin != null) {
+                            val pinned = pinnedIds.contains(preset.id)
+                            IconButton(onClick = { onTogglePin.invoke(preset.id) }) {
+                                Icon(
+                                    Icons.Default.PushPin,
+                                    contentDescription = if (pinned) "Lepas preset" else "Sematkan ke atas",
+                                    tint = if (pinned) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        if (onDeletePreset != null) {
+                            IconButton(onClick = { onDeletePreset.invoke(preset.id) }) {
                                 Icon(Icons.Default.Delete, contentDescription = "Hapus preset")
                             }
-                        } else {
+                        } else if (preset.isBuiltIn) {
                             Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
                         }
                     }

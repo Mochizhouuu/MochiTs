@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FontDownload
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Style
 import androidx.compose.material3.*
@@ -270,6 +271,65 @@ fun SettingsScreen(
                         }
                     }
                     2 -> {
+                        val styleEntryPoint = remember {
+                            dagger.hilt.android.EntryPointAccessors.fromApplication(
+                                context.applicationContext,
+                                StylePresetEntryPoint::class.java
+                            )
+                        }
+                        val styleRepo = remember { styleEntryPoint.stylePresetRepository() }
+                        val stylePresets by styleRepo.presets.collectAsState()
+                        val hiddenBuiltIns by styleRepo.hiddenBuiltInIds.collectAsState()
+                        val pinnedIds by styleRepo.pinnedPresetIds.collectAsState()
+                        val styleScope = rememberCoroutineScope()
+                        var isImportingPresets by remember { mutableStateOf(false) }
+                        var presetToDelete by remember { mutableStateOf<com.mochits.app.model.TextStylePreset?>(null) }
+
+                        val importPresetPicker = rememberLauncherForActivityResult(
+                            contract = ActivityResultContracts.GetContent()
+                        ) { uri ->
+                            if (uri != null) {
+                                isImportingPresets = true
+                                styleScope.launch {
+                                    val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                        runCatching {
+                                            context.contentResolver.openInputStream(uri)?.use { stream ->
+                                                stream.bufferedReader().readText()
+                                            } ?: throw IllegalArgumentException("File tidak bisa dibaca.")
+                                        }.mapCatching { json -> styleRepo.importPresetsJson(json) }
+                                    }
+                                    isImportingPresets = false
+                                    result
+                                        .onSuccess { count ->
+                                            Toast.makeText(context, "$count preset Style diimpor.", Toast.LENGTH_SHORT).show()
+                                        }
+                                        .onFailure { e ->
+                                            Toast.makeText(context, e.message ?: "Gagal mengimpor preset.", Toast.LENGTH_LONG).show()
+                                        }
+                                }
+                            }
+                        }
+                        val exportPresetPicker = rememberLauncherForActivityResult(
+                            contract = ActivityResultContracts.CreateDocument("application/json")
+                        ) { uri ->
+                            if (uri != null) {
+                                styleScope.launch {
+                                    val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                        runCatching {
+                                            context.contentResolver.openOutputStream(uri)?.use { stream ->
+                                                stream.write(styleRepo.exportCustomsJson().toByteArray())
+                                            } ?: throw IllegalStateException("Tujuan tidak bisa ditulis.")
+                                        }.isSuccess
+                                    }
+                                    Toast.makeText(
+                                        context,
+                                        if (ok) "Preset Style diekspor." else "Gagal mengekspor preset.",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }
+                        }
+
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(
                                 text = "Manajemen Style Presets",
@@ -277,36 +337,33 @@ fun SettingsScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Simpan dan bagikan preset gaya teks komik (JSON).",
+                                text = "Preset buatanmu di editor muncul di sini. Sematkan yang sering dipakai agar selalu paling atas, atau bagikan sebagai file JSON.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                            ) {
-                                Text(
-                                    text = "Fitur ini segera hadir. Preset yang dibuat di editor nantinya bisa disimpan, diekspor, dan diimpor dari sini.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(16.dp)
-                                )
-                            }
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 OutlinedButton(
-                                    onClick = { },
-                                    enabled = false,
+                                    onClick = { importPresetPicker.launch("application/json") },
+                                    enabled = !isImportingPresets,
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(10.dp)
                                 ) {
-                                    Icon(Icons.Default.Download, contentDescription = null)
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Impor")
+                                    if (isImportingPresets) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(18.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Mengimpor...")
+                                    } else {
+                                        Icon(Icons.Default.Download, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Impor")
+                                    }
                                 }
                                 Button(
-                                    onClick = { },
-                                    enabled = false,
+                                    onClick = { exportPresetPicker.launch("mochits-style-presets.json") },
+                                    enabled = stylePresets.any { !it.isBuiltIn },
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(10.dp)
                                 ) {
@@ -315,6 +372,146 @@ fun SettingsScreen(
                                     Text("Ekspor")
                                 }
                             }
+                            Text(
+                                text = "Semua preset (${stylePresets.size})",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (stylePresets.isEmpty()) {
+                                Text(
+                                    text = "Belum ada preset. Buat preset baru dari menu Style di editor.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                                ) {
+                                    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                        stylePresets.forEach { preset ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = preset.name,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                    Text(
+                                                        text = if (preset.isBuiltIn) {
+                                                            "Bawaan • ${preset.fontName} ${preset.fontStyle}"
+                                                        } else {
+                                                            "${preset.fontName} ${preset.fontStyle} • ${preset.alignment} • ${preset.shape}"
+                                                        },
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                if (preset.isBuiltIn) {
+                                                    Text(
+                                                        text = "Bawaan",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.padding(end = 8.dp)
+                                                    )
+                                                }
+                                                val isPinned = pinnedIds.contains(preset.id)
+                                                IconButton(
+                                                    onClick = {
+                                                        styleRepo.setPresetPinned(preset.id, !isPinned)
+                                                    },
+                                                    modifier = Modifier.size(36.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.PushPin,
+                                                        contentDescription = if (isPinned) {
+                                                            "Lepas ${preset.name} dari atas"
+                                                        } else {
+                                                            "Sematkan ${preset.name} ke atas"
+                                                        },
+                                                        tint = if (isPinned) {
+                                                            MaterialTheme.colorScheme.primary
+                                                        } else {
+                                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                                        }
+                                                    )
+                                                }
+                                                IconButton(
+                                                    onClick = { presetToDelete = preset },
+                                                    modifier = Modifier.size(36.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Delete,
+                                                        contentDescription = "Hapus ${preset.name}",
+                                                        tint = MaterialTheme.colorScheme.error
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (hiddenBuiltIns.isNotEmpty()) {
+                                OutlinedButton(
+                                    onClick = {
+                                        styleRepo.restoreAllBuiltIns()
+                                        Toast.makeText(context, "Preset bawaan dikembalikan.", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Kembalikan preset bawaan (${hiddenBuiltIns.size})")
+                                }
+                            }
+                        }
+                        val doomedPreset = presetToDelete
+                        if (doomedPreset != null) {
+                            AlertDialog(
+                                onDismissRequest = { presetToDelete = null },
+                                title = { Text("Hapus Preset") },
+                                text = {
+                                    Text(
+                                        if (doomedPreset.isBuiltIn) {
+                                            "Sembunyikan preset bawaan \"${doomedPreset.name}\"? Bisa dikembalikan lagi lewat tombol di bawah daftar."
+                                        } else {
+                                            "Hapus preset \"${doomedPreset.name}\"? Layer teks yang sudah memakainya tidak berubah."
+                                        }
+                                    )
+                                },
+                                confirmButton = {
+                                    TextButton(
+                                        onClick = {
+                                            styleRepo.deletePreset(doomedPreset.id)
+                                            presetToDelete = null
+                                            Toast.makeText(
+                                                context,
+                                                if (doomedPreset.isBuiltIn) {
+                                                    "Preset \"${doomedPreset.name}\" disembunyikan."
+                                                } else {
+                                                    "Preset \"${doomedPreset.name}\" dihapus."
+                                                },
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    ) {
+                                        Text("Hapus", color = MaterialTheme.colorScheme.error)
+                                    }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { presetToDelete = null }) {
+                                        Text("Batal")
+                                    }
+                                }
+                            )
                         }
                     }
                     3 -> {
@@ -605,6 +802,13 @@ fun DownloadErrorDialog(
             }
         }
     )
+}
+
+/** Akses singleton repo preset dari layar Pengaturan (tanpa ViewModel baru). */
+@dagger.hilt.EntryPoint
+@dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
+interface StylePresetEntryPoint {
+    fun stylePresetRepository(): com.mochits.app.style.StylePresetRepository
 }
 
 private fun queryDisplayName(context: Context, uri: Uri): String? {
