@@ -252,6 +252,7 @@ val defaultTextStyle by viewModel.defaultTextStyle.collectAsState()
 val stylePresets by viewModel.stylePresets.collectAsState()
 val pinnedPresetIds by viewModel.pinnedPresetIds.collectAsState()
 val allFonts by viewModel.allFonts.collectAsState()
+val favoriteFontKeys by viewModel.favoriteFontKeys.collectAsState()
     val canUndo by viewModel.canUndo.collectAsState()
     val canRedo by viewModel.canRedo.collectAsState()
     val isEyedropperActive by viewModel.isEyedropperActive.collectAsState()
@@ -577,7 +578,9 @@ val allFonts by viewModel.allFonts.collectAsState()
                         onCapitalizationTransform = { transformType -> viewModel.applyCapitalizationTransform(transformType) },
                         onImportCustomFont = { fontImportLauncher.launch("*/*") },
                         onSliderDragStart = { viewModel.onSliderDragStart() },
-                        onSliderDragEnd = { viewModel.onSliderDragEnd() }
+                        onSliderDragEnd = { viewModel.onSliderDragEnd() },
+                        favoriteKeys = favoriteFontKeys,
+                        onToggleFavorite = { key -> viewModel.toggleFontFavorite(key) }
                     )
                     EditorPanel.STYLE -> StylePresetPanel(
                         presets = stylePresets,
@@ -1850,37 +1853,56 @@ fun EditorBottomBar(
     activePanel: EditorPanel,
     onPanelSelect: (EditorPanel) -> Unit
 ) {
-    NavigationBar {
-        NavigationBarItem(
+    // Bar geser horizontal (seperti menu Effect): menu baru bisa ditambah
+    // tanpa mengecilkan ikon yang sudah ada.
+    Surface(
+        tonalElevation = 3.dp,
+        color = MaterialTheme.colorScheme.surfaceContainer
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            NavigationBarItem(
             selected = activePanel == EditorPanel.ERASE || activePanel == EditorPanel.MASK || activePanel == EditorPanel.INPAINT,
             onClick = { onPanelSelect(EditorPanel.ERASE) },
             icon = { Icon(Icons.Default.CleaningServices, contentDescription = "Erase") },
-            label = { Text("Erase") }
+            label = { Text("Erase") },
+            modifier = Modifier.widthIn(min = 72.dp)
         )
         NavigationBarItem(
             selected = activePanel == EditorPanel.TEXT,
             onClick = { onPanelSelect(EditorPanel.TEXT) },
             icon = { Icon(Icons.Default.TextFields, contentDescription = "Text") },
-            label = { Text("Text") }
+            label = { Text("Text") },
+            modifier = Modifier.widthIn(min = 72.dp)
         )
         NavigationBarItem(
             selected = activePanel == EditorPanel.EFFECT,
             onClick = { onPanelSelect(EditorPanel.EFFECT) },
             icon = { Icon(Icons.Default.AutoAwesome, contentDescription = "Effect") },
-            label = { Text("Effect") }
+            label = { Text("Effect") },
+            modifier = Modifier.widthIn(min = 72.dp)
         )
         NavigationBarItem(
             selected = activePanel == EditorPanel.FONT,
             onClick = { onPanelSelect(EditorPanel.FONT) },
             icon = { Icon(Icons.Default.FontDownload, contentDescription = "Font") },
-            label = { Text("Font") }
+            label = { Text("Font") },
+            modifier = Modifier.widthIn(min = 72.dp)
         )
         NavigationBarItem(
             selected = activePanel == EditorPanel.STYLE,
             onClick = { onPanelSelect(EditorPanel.STYLE) },
             icon = { Icon(Icons.Default.Style, contentDescription = "Style") },
-            label = { Text("Style") }
+            label = { Text("Style") },
+            modifier = Modifier.widthIn(min = 72.dp)
         )
+        }
     }
 }
 
@@ -2942,17 +2964,24 @@ fun FontToolPanel(
     onCapitalizationTransform: ((String) -> Unit)? = null,
     onImportCustomFont: () -> Unit,
     onSliderDragStart: () -> Unit = {},
-    onSliderDragEnd: () -> Unit = {}
+    onSliderDragEnd: () -> Unit = {},
+    favoriteKeys: Set<String> = emptySet(),
+    onToggleFavorite: ((String) -> Unit)? = null
 ) {
     var searchQuery by remember { mutableStateOf("") }
+    var showFavoritesOnly by remember { mutableStateOf(false) }
     val currentStyle = selectedLayer?.style ?: defaultStyle
 
-    val filteredFonts = remember(allFonts, searchQuery) {
-        if (searchQuery.isBlank()) {
+    val filteredFonts = remember(allFonts, searchQuery, showFavoritesOnly, favoriteKeys) {
+        var list = if (searchQuery.isBlank()) {
             allFonts
         } else {
             allFonts.filter { it.name.contains(searchQuery, ignoreCase = true) }
         }
+        if (showFavoritesOnly) {
+            list = list.filter { favoriteKeys.contains(it.fontNameKey) }
+        }
+        list
     }
 
     Surface(
@@ -3001,18 +3030,53 @@ fun FontToolPanel(
             )
 
             Text("Pilih Font (${filteredFonts.size} tersedia):", style = MaterialTheme.typography.bodyMedium)
+            if (onToggleFavorite != null && favoriteKeys.isNotEmpty()) {
+                FilterChip(
+                    selected = showFavoritesOnly,
+                    onClick = { showFavoritesOnly = !showFavoritesOnly },
+                    label = { Text("Favorit (${favoriteKeys.size})") },
+                    leadingIcon = {
+                        Icon(
+                            if (showFavoritesOnly) Icons.Default.Star else Icons.Default.StarBorder,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                )
+            }
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 items(filteredFonts) { fontItem ->
                     val isSelected = currentStyle.fontName.equals(fontItem.name, ignoreCase = true)
+                    val isFavorite = favoriteKeys.contains(fontItem.fontNameKey)
                     FilterChip(
                         selected = isSelected,
                         onClick = {
                             onUpdateStyle(currentStyle.copy(fontName = fontItem.name), true)
                         },
                         label = { Text(text = fontItem.name, maxLines = 1) },
+                        leadingIcon = if (onToggleFavorite != null) {
+                            {
+                                IconButton(
+                                    onClick = { onToggleFavorite.invoke(fontItem.fontNameKey) },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
+                                        contentDescription = if (isFavorite) {
+                                            "Hapus ${fontItem.name} dari favorit"
+                                        } else {
+                                            "Favoritkan ${fontItem.name}"
+                                        },
+                                        tint = if (isFavorite) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        } else null,
                         trailingIcon = if (fontItem.isCustom) {
                             {
                                 Surface(

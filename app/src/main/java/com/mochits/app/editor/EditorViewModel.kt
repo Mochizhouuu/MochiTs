@@ -53,12 +53,27 @@ class EditorViewModel @Inject constructor(
         com.mochits.app.style.StylePresetRepository(context)
 ) : ViewModel() {
 
-    val allFonts: StateFlow<List<FontItem>> = fontRepository.getAllFontsFlow()
-        .stateIn(
+    /** fontNameKey yang difavoritkan pengguna. */
+    val favoriteFontKeys: StateFlow<Set<String>> = fontRepository.favoriteFontKeys
+
+    /** Daftar font dengan favorit di urutan paling atas. */
+    val allFonts: StateFlow<List<FontItem>> = kotlinx.coroutines.flow.combine(
+        fontRepository.getAllFontsFlow(),
+        fontRepository.favoriteFontKeys
+    ) { fonts, favs ->
+        val (favorites, rest) = fonts.partition { favs.contains(it.fontNameKey) }
+        favorites.sortedBy { it.name } + rest
+    }.stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+    /** Tandai/lepas favorit font. */
+    fun toggleFontFavorite(fontNameKey: String): Boolean {
+        val favorite = !fontRepository.favoriteFontKeys.value.contains(fontNameKey)
+        return fontRepository.setFontFavorite(fontNameKey, favorite)
+    }
 
     val projectId: String = checkNotNull(savedStateHandle["projectId"])
 

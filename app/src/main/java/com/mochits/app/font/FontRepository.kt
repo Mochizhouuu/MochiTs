@@ -6,6 +6,9 @@ import android.graphics.Typeface
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -30,6 +33,40 @@ class FontRepository(
     }
 
     private val builtInFontsCache = mutableListOf<FontItem>()
+
+    private val favoritesPrefs by lazy {
+        context.getSharedPreferences(PREFS_FAVORITES, Context.MODE_PRIVATE)
+    }
+    private val _favoriteFontKeys = MutableStateFlow(loadFavoriteKeys())
+    /** fontNameKey yang difavoritkan; tampil paling atas di daftar font. */
+    val favoriteFontKeys: StateFlow<Set<String>> = _favoriteFontKeys.asStateFlow()
+
+    fun setFontFavorite(fontNameKey: String, favorite: Boolean): Boolean {
+        if (fontNameKey.isBlank()) return false
+        val favs = loadFavoriteKeys().toMutableSet()
+        if (favorite) favs.add(fontNameKey) else favs.remove(fontNameKey)
+        try {
+            favoritesPrefs.edit().putStringSet(KEY_FAVORITE_KEYS, favs).apply()
+        } catch (t: Throwable) {
+            Logger.e("Error saving font favorites: ${t.message}", t)
+        }
+        _favoriteFontKeys.value = favs
+        return true
+    }
+
+    private fun loadFavoriteKeys(): Set<String> {
+        return try {
+            favoritesPrefs.getStringSet(KEY_FAVORITE_KEYS, null)?.toSet() ?: emptySet()
+        } catch (t: Throwable) {
+            Logger.e("Error loading font favorites: ${t.message}", t)
+            emptySet()
+        }
+    }
+
+    companion object {
+        private const val PREFS_FAVORITES = "mochits_font_favorites"
+        private const val KEY_FAVORITE_KEYS = "favorite_keys"
+    }
 
     private fun extractBuiltInFontsIfNeeded() {
         val existingFontFiles = builtInFontsDir.listFiles()?.filter {
@@ -187,5 +224,6 @@ class FontRepository(
         if (match != null) {
             customFontDao.deleteCustomFont(match.id)
         }
+        setFontFavorite(fontItem.fontNameKey, false)
     }
 }
