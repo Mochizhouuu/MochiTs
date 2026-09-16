@@ -75,7 +75,9 @@ data class TextStyleConfig(
     val gradientEndColor: Int = Color.WHITE,
     val gradientStops: List<ColorStop> = emptyList(),
     val gradientDirection: String = "HORIZONTAL", // "HORIZONTAL", "VERTICAL"
-    val gradientAngle: Float = 0f // Angle in degrees (0-360)
+    val gradientAngle: Float = 0f, // Angle in degrees (0-360)
+    val motionBlurRadius: Float = 0f, // 0 = mati; px uji searah sudut
+    val motionBlurAngle: Float = 0f // Arah blur derajat (0-360), konvensi sama dgn gradientAngle
 ) {
     fun calculateGradientPoints(x: Float, y: Float, width: Float, height: Float): FloatArray {
         val cx = x + width / 2f

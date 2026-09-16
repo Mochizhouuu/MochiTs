@@ -2409,7 +2409,8 @@ private enum class EffectType {
     OPACITY,
     TEXT_COLOR,
     STROKE,
-    DROP_SHADOW
+    DROP_SHADOW,
+    MOTION_BLUR
 }
 
 @Composable
@@ -2452,7 +2453,7 @@ fun EffectToolPanel(
             } else {
                 val availableEffects = remember(selectedLayer) {
                     if (selectedLayer is Layer.TextLayer) {
-                        listOf(EffectType.OPACITY, EffectType.TEXT_COLOR, EffectType.STROKE, EffectType.DROP_SHADOW)
+                        listOf(EffectType.OPACITY, EffectType.TEXT_COLOR, EffectType.STROKE, EffectType.DROP_SHADOW, EffectType.MOTION_BLUR)
                     } else {
                         listOf(EffectType.OPACITY)
                     }
@@ -2481,6 +2482,9 @@ fun EffectToolPanel(
                                  selectedLayer.style.shadowDx != 0f ||
                                  selectedLayer.style.shadowDy != 0f)
                             } else false
+                            EffectType.MOTION_BLUR -> if (selectedLayer is Layer.TextLayer) {
+                                selectedLayer.style.motionBlurRadius > 0f
+                            } else false
                         }
 
                         val (icon, title) = when (effect) {
@@ -2488,6 +2492,7 @@ fun EffectToolPanel(
                             EffectType.TEXT_COLOR -> Icons.Default.Palette to "Warna Teks"
                             EffectType.STROKE -> Icons.Default.FormatPaint to "Stroke"
                             EffectType.DROP_SHADOW -> Icons.Default.WbSunny to "Drop Shadow"
+                            EffectType.MOTION_BLUR -> Icons.Default.BlurLinear to "Motion Blur"
                         }
 
                         Card(
@@ -2847,6 +2852,42 @@ fun EffectToolPanel(
                                             onSliderDragEnd()
                                         },
                                         valueRange = -30f..30f
+                                    )
+                                }
+                            }
+                            EffectType.MOTION_BLUR -> {
+                                if (selectedLayer is Layer.TextLayer) {
+                                    val currentStyle = selectedLayer.style
+
+                                    Text("Kekuatan: ${currentStyle.motionBlurRadius.toInt()} px", style = MaterialTheme.typography.bodySmall)
+                                    Slider(
+                                        value = currentStyle.motionBlurRadius,
+                                        onValueChange = {
+                                            onSliderDragStart()
+                                            onUpdateStyle(currentStyle.copy(motionBlurRadius = it), false)
+                                        },
+                                        onValueChangeFinished = {
+                                            onSliderDragEnd()
+                                        },
+                                        valueRange = 0f..25f
+                                    )
+
+                                    Text("Arah: ${currentStyle.motionBlurAngle.toInt()}°", style = MaterialTheme.typography.bodySmall)
+                                    Slider(
+                                        value = currentStyle.motionBlurAngle,
+                                        onValueChange = {
+                                            onSliderDragStart()
+                                            onUpdateStyle(currentStyle.copy(motionBlurAngle = it), false)
+                                        },
+                                        onValueChangeFinished = {
+                                            onSliderDragEnd()
+                                        },
+                                        valueRange = 0f..360f
+                                    )
+                                    Text(
+                                        text = "0° horizontal, 90° vertikal — sama seperti sudut gradient.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }

@@ -3,6 +3,7 @@ import com.mochits.app.util.Logger
 
 import java.io.File
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -12,6 +13,7 @@ import com.mochits.app.model.Layer
 import com.mochits.app.model.TextAlignment
 import com.mochits.app.model.TextContainerShape
 import com.mochits.app.model.TextStyleConfig
+import kotlin.math.ceil
 import kotlin.math.sqrt
 
 data class RenderedLine(
@@ -577,10 +579,36 @@ class TextRenderer(private val context: Context) {
             }
         } else null
 
-        layoutResult.lines.forEachIndexed { i, line ->
+        if (style.motionBlurRadius > 0f) {
+            drawMotionBlurSmear(
+                canvas, x, y, layoutResult, style,
+                paint, glowPaint, shadowPaint, strokePaint
+            )
+        }
+        drawTextRuns(
+            canvas, layoutResult.lines, x, y,
+            layoutResult.topOffset, layoutResult.lineHeight, fontMetrics,
+            paint, glowPaint, shadowPaint, strokePaint
+        )
+    }
+
+    private fun drawTextRuns(
+        canvas: Canvas,
+        lines: List<RenderedLine>,
+        x: Float,
+        y: Float,
+        topOffset: Float,
+        lineHeight: Float,
+        fontMetrics: Paint.FontMetrics,
+        paint: Paint,
+        glowPaint: Paint?,
+        shadowPaint: Paint?,
+        strokePaint: Paint?
+    ) {
+        lines.forEachIndexed { i, line ->
             if (line.text.isNotEmpty()) {
                 val lineX = x + line.xOffset
-                val baselineY = y + layoutResult.topOffset + (i * layoutResult.lineHeight) - fontMetrics.top
+                val baselineY = y + topOffset + (i * lineHeight) - fontMetrics.top
 
                 glowPaint?.let { canvas.drawText(line.text, lineX, baselineY, it) }
                 shadowPaint?.let { canvas.drawText(line.text, lineX, baselineY, it) }
@@ -588,6 +616,66 @@ class TextRenderer(private val context: Context) {
                 canvas.drawText(line.text, lineX, baselineY, paint)
             }
         }
+    }
+
+    private var motionBlurBitmap: Bitmap? = null
+    private val motionBlurUpscalePaint = Paint().apply { isFilterBitmap = true }
+
+    /**
+     * Smear motion blur searah [TextStyleConfig.motionBlurAngle].
+     * Teks digambar ke bitmap offscreen, diblur manual ([MotionBlur],
+     * tanpa API 31+), lalu ditempel kembali; teks tajam digambar di
+     * atasnya oleh pemanggil agar tetap terbaca.
+     */
+    private fun drawMotionBlurSmear(
+        canvas: Canvas,
+        x: Float,
+        y: Float,
+        layoutResult: TextLayoutResult,
+        style: TextStyleConfig,
+        paint: Paint,
+        glowPaint: Paint?,
+        shadowPaint: Paint?,
+        strokePaint: Paint?
+    ) {
+        val radius = style.motionBlurRadius
+        if (radius <= 0f) return
+        val textW = (layoutResult.maxX - layoutResult.minX).coerceAtLeast(1f)
+        val textH = (layoutResult.lines.size * layoutResult.lineHeight).coerceAtLeast(1f)
+        val pad = ceil(radius.toDouble()).toInt() + 4
+        val bw = (textW + 2 * pad).toInt().coerceAtLeast(1)
+        val bh = (textH + 2 * pad).toInt().coerceAtLeast(1)
+        // Kerja di bitmap kecil agar slider tetap mulus, upscale saat ditempel.
+        val down = minOf(1f, 512f / maxOf(bw, bh).toFloat())
+        val ww = maxOf(1, (bw * down).toInt())
+        val hh = maxOf(1, (bh * down).toInt())
+
+        var bmp = motionBlurBitmap
+        if (bmp == null || bmp.isRecycled || bmp.width != ww || bmp.height != hh) {
+            try { bmp?.recycle() } catch (_: Exception) {}
+            bmp = Bitmap.createBitmap(ww, hh, Bitmap.Config.ARGB_8888)
+            motionBlurBitmap = bmp
+        }
+        val work = bmp ?: return
+        work.eraseColor(Color.TRANSPARENT)
+
+        val off = Canvas(work)
+        off.scale(down, down)
+        off.translate(-(x + layoutResult.minX) + pad, -(y + layoutResult.topOffset) + pad)
+        drawTextRuns(
+            off, layoutResult.lines, x, y,
+            layoutResult.topOffset, layoutResult.lineHeight,
+            paint.fontMetrics, paint, glowPaint, shadowPaint, strokePaint
+        )
+
+        val px = IntArray(ww * hh)
+        work.getPixels(px, 0, ww, 0, 0, ww, hh)
+        val blurred = MotionBlur.blurDirectional(px, ww, hh, style.motionBlurAngle, radius * down)
+        work.setPixels(blurred, 0, ww, 0, 0, ww, hh)
+
+        val left = (x + layoutResult.minX) - pad
+        val top = (y + layoutResult.topOffset) - pad
+        canvas.drawBitmap(work, null, RectF(left, top, left + bw, top + bh), motionBlurUpscalePaint)
     }
 
     fun getTextBounds(
