@@ -253,6 +253,7 @@ val stylePresets by viewModel.stylePresets.collectAsState()
 val pinnedPresetIds by viewModel.pinnedPresetIds.collectAsState()
 val allFonts by viewModel.allFonts.collectAsState()
 val favoriteFontKeys by viewModel.favoriteFontKeys.collectAsState()
+val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
     val canUndo by viewModel.canUndo.collectAsState()
     val canRedo by viewModel.canRedo.collectAsState()
     val isEyedropperActive by viewModel.isEyedropperActive.collectAsState()
@@ -1294,7 +1295,7 @@ val favoriteFontKeys by viewModel.favoriteFontKeys.collectAsState()
                 val redraw = triggerRedraw
                 // Redraw juga saat hasil blur gambar siap (cache di ViewModel).
                 @Suppress("UNUSED_VARIABLE")
-                val imageFx = viewModel.imageEffectRevision.collectAsState().value
+                val imageFx = imageEffectRevision
                 val canvasWidth = size.width
                 val canvasHeight = size.height
 
@@ -2962,7 +2963,7 @@ fun EffectToolPanel(
                                             onSliderDragEnd()
                                         },
                                         modifier = Modifier.fillMaxWidth(),
-                                        shape = RoundedCornerShape(10.dp)
+                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
                                     ) {
                                         Text("Atur Ulang Tone")
                                     }
