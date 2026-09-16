@@ -37,14 +37,14 @@ class StylePresetRepositoryTest {
         val saved = repository.savePreset(
             TextStylePreset(
                 id = "test-preset-simpan",
-                name = "  Gaya Uji  ",
+                name = "  Style Uji  ",
                 fontName = "Serif",
                 fontStyle = "Bold",
                 alignment = TextAlignment.RIGHT,
                 shape = TextContainerShape.OVAL
             )
         )
-        assertEquals("Gaya Uji", saved.name)
+        assertEquals("Style Uji", saved.name)
         assertFalse(saved.isBuiltIn)
 
         val found = repository.getPreset("test-preset-simpan")

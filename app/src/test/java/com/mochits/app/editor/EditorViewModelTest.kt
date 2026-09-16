@@ -578,7 +578,7 @@ class EditorViewModelTest {
         )
         viewModel.updateSelectedTextLayerContainerShape(TextContainerShape.OVAL)
 
-        val saved = checkNotNull(viewModel.saveStylePreset("Gaya Saya"))
+        val saved = checkNotNull(viewModel.saveStylePreset("Style Saya"))
         assertEquals("Serif", saved.fontName)
         assertEquals("Bold", saved.fontStyle)
         assertEquals(TextAlignment.RIGHT, saved.alignment)

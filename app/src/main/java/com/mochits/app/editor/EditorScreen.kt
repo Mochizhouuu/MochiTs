@@ -3116,7 +3116,7 @@ fun StylePresetPanel(
                 text = if (selectedLayer != null)
                     "Ketuk preset untuk dipakai ke teks terpilih."
                 else
-                    "Tidak ada teks terpilih — preset dipakai sebagai gaya teks baru.",
+                    "Tidak ada teks terpilih — preset dipakai sebagai style teks baru.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -3142,8 +3142,8 @@ fun StylePresetPanel(
                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    if (selectedLayer != null) "Simpan Gaya Teks Ini"
-                    else "Simpan Gaya Default Ini"
+                    if (selectedLayer != null) "Simpan Style Teks Ini"
+                    else "Simpan Style Default Ini"
                 )
             }
 
