@@ -46,9 +46,11 @@ class EditorViewModel @Inject constructor(
     val exportSettingsRepository: ExportSettingsRepository,
     val fontRepository: FontRepository,
     val lamaModelManager: com.mochits.app.imaging.LaMaModelManager,
+    savedStateHandle: SavedStateHandle,
+    // Param terakhir + default agar pemanggil posisional lama (termasuk test)
+    // tetap kompil tanpa perubahan. Binding Hilt disediakan di AppModule.
     val stylePresetRepository: com.mochits.app.style.StylePresetRepository =
-        com.mochits.app.style.StylePresetRepository(context),
-    savedStateHandle: SavedStateHandle
+        com.mochits.app.style.StylePresetRepository(context)
 ) : ViewModel() {
 
     val allFonts: StateFlow<List<FontItem>> = fontRepository.getAllFontsFlow()

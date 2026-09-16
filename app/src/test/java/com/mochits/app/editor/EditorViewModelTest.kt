@@ -578,9 +578,8 @@ class EditorViewModelTest {
         )
         viewModel.updateSelectedTextLayerContainerShape(TextContainerShape.OVAL)
 
-        val saved = viewModel.saveStylePreset("Gaya Saya")
-        assertNotNull(saved)
-        assertEquals("Serif", saved!!.fontName)
+        val saved = checkNotNull(viewModel.saveStylePreset("Gaya Saya"))
+        assertEquals("Serif", saved.fontName)
         assertEquals("Bold", saved.fontStyle)
         assertEquals(TextAlignment.RIGHT, saved.alignment)
         assertEquals(TextContainerShape.OVAL, saved.shape)
@@ -637,9 +636,8 @@ class EditorViewModelTest {
     @Test
     fun testDeleteStylePreset_removesCustomPreset() {
         viewModel.addTextLayer("Preset Hapus")
-        val saved = viewModel.saveStylePreset("Sementara")
-        assertNotNull(saved)
-        assertTrue(viewModel.stylePresets.value.any { it.id == saved!!.id })
+        val saved = checkNotNull(viewModel.saveStylePreset("Sementara"))
+        assertTrue(viewModel.stylePresets.value.any { it.id == saved.id })
 
         assertTrue(viewModel.deleteStylePreset(saved.id))
         org.junit.Assert.assertFalse(viewModel.stylePresets.value.any { it.id == saved.id })
