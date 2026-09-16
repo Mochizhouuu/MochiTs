@@ -673,6 +673,13 @@ val favoriteFontKeys by viewModel.favoriteFontKeys.collectAsState()
             var isBodyMoveDragging by remember { mutableStateOf(false) }
 
             var panAccumulator by remember { mutableFloatStateOf(0f) }
+            // Tap-vs-pan yang tahan jitter: jumlah jarak per-event (panAccumulator)
+            // bisa jebol >10px hanya dari getar jari, apalagi di layar 120Hz.
+            // Sebagai jaring pengaman, lacak juga simpangan MAKSIMUM dari titik
+            // tekan; ketukan asli tidak pernah jauh dari titik tekannya.
+            var gestureDownPt by remember { mutableStateOf(Offset.Zero) }
+            var gestureMaxDisplacement by remember { mutableFloatStateOf(0f) }
+            var gestureMultiTouch by remember { mutableStateOf(false) }
 
             val outlinePaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; isAntiAlias = true; color = AndroidColor.RED } }
             val maskPaintCache = remember { AndroidPaint().apply { colorFilter = android.graphics.PorterDuffColorFilter(AndroidColor.argb(64, 255, 0, 0), android.graphics.PorterDuff.Mode.SRC_IN) } }
@@ -877,6 +884,9 @@ val favoriteFontKeys by viewModel.favoriteFontKeys.collectAsState()
                                     val isJustDown = !firstChange.previousPressed && firstChange.pressed
                                     if (isJustDown) {
                                         panAccumulator = 0f
+                                        gestureDownPt = firstChange.position
+                                        gestureMaxDisplacement = 0f
+                                        gestureMultiTouch = false
                                         var hitHandle = false
                                         val handleLayer = freshSelectedLayer
                                         if (handleLayer != null) {
@@ -1190,6 +1200,7 @@ val favoriteFontKeys by viewModel.favoriteFontKeys.collectAsState()
                                         val panDelta = center - prevCenter
 
                                         panAccumulator += panDelta.getDistance()
+                                        gestureMultiTouch = true
                                         Logger.d("Canvas Multi-Finger Gesture Transform: panDelta=$panDelta, zoomFactor=$zoomFactor")
                                         viewModel.canvasState.onGestureTransform(center, panDelta, zoomFactor)
                                         triggerRedraw++
@@ -1207,6 +1218,10 @@ val favoriteFontKeys by viewModel.favoriteFontKeys.collectAsState()
                                             val moved = panDelta.getDistance() > 1.5f
                                             if (moved) {
                                                 panAccumulator += panDelta.getDistance()
+                                                val displacement = (c.position - gestureDownPt).getDistance()
+                                                if (displacement > gestureMaxDisplacement) {
+                                                    gestureMaxDisplacement = displacement
+                                                }
                                                 Logger.d("Canvas Single-Finger Pan Transform: panDelta=$panDelta")
                                                 viewModel.canvasState.onGestureTransform(c.position, panDelta, 1f)
                                                 triggerRedraw++
@@ -1217,7 +1232,9 @@ val favoriteFontKeys by viewModel.favoriteFontKeys.collectAsState()
                                         // Finger released
                                         val releasedChange = changes.find { it.previousPressed && !it.pressed }
                                         if (releasedChange != null) {
-                                            if (panAccumulator <= 10f) {
+                                            val isTap = panAccumulator <= 10f ||
+                                                (!gestureMultiTouch && gestureMaxDisplacement <= 24f)
+                                            if (isTap) {
                                                 val releaseCanvasPt = viewModel.canvasState.mapper.screenToCanvas(releasedChange.position.x, releasedChange.position.y)
                                                 val hitTextLayer = viewModel.layers.value.reversed().filterIsInstance<Layer.TextLayer>().firstOrNull { layer ->
                                                     layer.isVisible && isPointInsideTextLayer(layer, releaseCanvasPt, textRenderer)
@@ -1241,12 +1258,17 @@ val favoriteFontKeys by viewModel.favoriteFontKeys.collectAsState()
                                                     viewModel.selectLayer(null)
                                                     if (isDoubleTapCanvas) {
                                                         val bmp = viewModel.baseBitmap.value
-                                                        if (bmp != null && !bmp.isRecycled) {
+                                                        val hasBmp = bmp != null && !bmp.isRecycled
+                                                        // Kanvas transparan/proyek baru bisa tanpa bitmap;
+                                                        // pakai dimensi proyek agar double-tap tetap berfungsi.
+                                                        val imgW = if (hasBmp) bmp!!.width.toFloat() else project?.width?.toFloat()
+                                                        val imgH = if (hasBmp) bmp!!.height.toFloat() else project?.height?.toFloat()
+                                                        if (imgW != null && imgH != null && imgW > 0f && imgH > 0f) {
                                                                 viewModel.canvasState.fitToWidth(
                                                                     viewportWidth = size.width.toFloat(),
                                                                     viewportHeight = size.height.toFloat(),
-                                                                    imageWidth = bmp.width.toFloat(),
-                                                                    imageHeight = bmp.height.toFloat(),
+                                                                    imageWidth = imgW,
+                                                                    imageHeight = imgH,
                                                                     focusCanvasY = releaseCanvasPt.y
                                                                 )
                                                         }
