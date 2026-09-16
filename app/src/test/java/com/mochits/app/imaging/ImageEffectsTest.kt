@@ -44,8 +44,8 @@ class ImageEffectsTest {
         val b = px and 0xFF
         assertEquals(r, g)
         assertEquals(g, b)
-        // Luminansi merah murni ~76.
-        assertTrue(r in 60..90)
+        // Luminansi merah murni = 255 * 0.213 ≈ 54 (koefisien grayscale Android).
+        assertTrue(r in 45..65)
     }
 
     @Test
