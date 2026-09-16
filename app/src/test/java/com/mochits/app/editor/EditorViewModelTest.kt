@@ -496,6 +496,69 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun testResizeWithCenterAnchor_keepsVisualCenterFixed() {
+        viewModel.addTextLayer("Center Anchor Test")
+        val layerId = viewModel.selectedLayerId.value
+        assertNotNull(layerId)
+
+        viewModel.updateSelectedTextLayerResize(
+            fontSize = 40f,
+            boxWidth = 200f,
+            boxHeight = 100f,
+            saveUndo = true
+        )
+
+        var layer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        var bounds = viewModel.textRenderer.getTextBounds(layer)
+        val anchorX = bounds.centerX()
+        val anchorY = bounds.centerY()
+
+        // Simulate corner-handle drag: 1.5x scale anchored at drag-start center.
+        viewModel.updateSelectedTextLayerResize(
+            fontSize = 60f,
+            boxWidth = 300f,
+            boxHeight = 150f,
+            anchorCenterX = anchorX,
+            anchorCenterY = anchorY,
+            saveUndo = false
+        )
+
+        layer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        assertEquals(60f, layer.style.fontSize, 0.01f)
+        bounds = viewModel.textRenderer.getTextBounds(layer)
+        assertEquals(anchorX, bounds.centerX(), 0.5f)
+        assertEquals(anchorY, bounds.centerY(), 0.5f)
+    }
+
+    @Test
+    fun testResizeWithCenterAnchor_naturalSizeLayer_keepsVisualCenterFixed() {
+        viewModel.addTextLayer("Hi")
+        val layerId = viewModel.selectedLayerId.value
+        assertNotNull(layerId)
+
+        var layer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        var bounds = viewModel.textRenderer.getTextBounds(layer)
+        val anchorX = bounds.centerX()
+        val anchorY = bounds.centerY()
+        val grownSize = (layer.style.fontSize * 1.5f).coerceAtMost(300f)
+
+        viewModel.updateSelectedTextLayerResize(
+            fontSize = grownSize,
+            boxWidth = null,
+            boxHeight = null,
+            anchorCenterX = anchorX,
+            anchorCenterY = anchorY,
+            saveUndo = false
+        )
+
+        layer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        assertEquals(grownSize, layer.style.fontSize, 0.01f)
+        bounds = viewModel.textRenderer.getTextBounds(layer)
+        assertEquals(anchorX, bounds.centerX(), 2f)
+        assertEquals(anchorY, bounds.centerY(), 2f)
+    }
+
+    @Test
     fun testRotateTopRightHandle_calculatesAngleFromTopRightCornerAcrossRotations() {
         viewModel.addTextLayer("Top Right Rotate Test")
         val layerId = viewModel.selectedLayerId.value

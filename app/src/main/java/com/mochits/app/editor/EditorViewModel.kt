@@ -1466,6 +1466,8 @@ data class HistoryManifest(
         fontSize: Float,
         boxWidth: Float?,
         boxHeight: Float?,
+        anchorCenterX: Float? = null,
+        anchorCenterY: Float? = null,
         saveUndo: Boolean = true
     ) {
         if (saveUndo) {
@@ -1474,10 +1476,34 @@ data class HistoryManifest(
         val selectedId = selectedLayerId.value ?: return
         layers.value = layers.value.map { layer ->
             if (layer.id == selectedId && layer is Layer.TextLayer) {
+                val newStyle = layer.style.copy(fontSize = fontSize)
+                var newX = layer.x
+                var newY = layer.y
+                if (anchorCenterX != null && anchorCenterY != null) {
+                    // Ukur bounds baru lalu geser x,y supaya titik tengah visual
+                    // tetap di posisi awal gesture. Tanpa ini bounds berjangkar
+                    // kiri-atas (left=x, top=y) sehingga teks membesar melar
+                    // ke kanan-bawah, bukan diam di tempat.
+                    val measured = textRenderer.getTextBounds(
+                        text = layer.text,
+                        style = newStyle,
+                        x = 0f,
+                        y = 0f,
+                        shape = layer.textContainerShape,
+                        boxWidth = boxWidth,
+                        boxHeight = boxHeight
+                    )
+                    // center(x) = x + c (c = titik tengah saat x=0), jadi ini
+                    // tepat untuk box maupun ukuran natural/reflow.
+                    newX = anchorCenterX - measured.centerX()
+                    newY = anchorCenterY - measured.centerY()
+                }
                 layer.copy(
-                    style = layer.style.copy(fontSize = fontSize),
+                    style = newStyle,
                     boxWidth = boxWidth,
-                    boxHeight = boxHeight
+                    boxHeight = boxHeight,
+                    x = newX,
+                    y = newY
                 )
             } else {
                 layer

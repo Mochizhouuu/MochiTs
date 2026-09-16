@@ -1038,6 +1038,11 @@ fun EditorScreen(
                                                         fontSize = newSize,
                                                         boxWidth = newBoxW,
                                                         boxHeight = newBoxH,
+                                                        // Jangkar tengah awal drag supaya kalimat
+                                                        // membesar/mengecil di tempat, bukan melar
+                                                        // ke kanan-bawah.
+                                                        anchorCenterX = initialTextCenterX,
+                                                        anchorCenterY = initialTextCenterY,
                                                         saveUndo = false
                                                     )
                                                     triggerRedraw++
