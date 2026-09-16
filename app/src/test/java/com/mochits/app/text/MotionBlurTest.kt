@@ -31,9 +31,9 @@ class MotionBlurTest {
         val out = MotionBlur.blurDirectional(pixels, w, 1, 0f, 1f)
         // radius 1 -> 3 taps: tiap piksel merata-ratakan dirinya + tetangga.
         assertEquals(0, alpha(out[0]))
-        assertEquals(85, alpha(out[1]), 1)
-        assertEquals(85, alpha(out[2]), 1)
-        assertEquals(85, alpha(out[3]), 1)
+        assertEquals(85, alpha(out[1]))
+        assertEquals(85, alpha(out[2]))
+        assertEquals(85, alpha(out[3]))
         assertEquals(0, alpha(out[4]))
     }
 
