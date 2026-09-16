@@ -31,7 +31,13 @@ data class LayerJsonDto(
     val textContainerShape: TextContainerShape? = null,
     val boxWidth: Float? = null,
     val boxHeight: Float? = null,
-    val imagePath: String? = null
+    val imagePath: String? = null,
+    // Efek gambar (nullable agar JSON lama tetap terbaca).
+    val grayscale: Float? = null,
+    val brightness: Float? = null,
+    val contrast: Float? = null,
+    val motionBlurRadius: Float? = null,
+    val motionBlurAngle: Float? = null
 )
 
 class LayerSerializer {
@@ -70,7 +76,12 @@ class LayerSerializer {
                     opacity = layer.opacity,
                     isVisible = layer.isVisible,
                     isLocked = layer.isLocked,
-                    imagePath = layer.imagePath
+                    imagePath = layer.imagePath,
+                    grayscale = layer.grayscale,
+                    brightness = layer.brightness,
+                    contrast = layer.contrast,
+                    motionBlurRadius = layer.motionBlurRadius,
+                    motionBlurAngle = layer.motionBlurAngle
                 )
             }
         }
@@ -132,7 +143,12 @@ class LayerSerializer {
                     isVisible = dto.isVisible,
                     isLocked = dto.isLocked,
                     bitmap = imageBitmap,
-                    imagePath = dto.imagePath
+                    imagePath = dto.imagePath,
+                    grayscale = dto.grayscale ?: 0f,
+                    brightness = dto.brightness ?: 0f,
+                    contrast = dto.contrast ?: 1f,
+                    motionBlurRadius = dto.motionBlurRadius ?: 0f,
+                    motionBlurAngle = dto.motionBlurAngle ?: 0f
                 )
             }
         }

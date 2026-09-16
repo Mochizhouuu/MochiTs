@@ -597,7 +597,8 @@ val favoriteFontKeys by viewModel.favoriteFontKeys.collectAsState()
                         onUpdateStyle = { style, saveUndo -> viewModel.updateSelectedTextLayerStyle(style, saveUndo = saveUndo) },
                         onSliderDragStart = { viewModel.onSliderDragStart() },
                         onSliderDragEnd = { viewModel.onSliderDragEnd() },
-                        onStartEyedropper = { onColorSelected -> viewModel.startEyedropper(onColorSelected) }
+                        onStartEyedropper = { onColorSelected -> viewModel.startEyedropper(onColorSelected) },
+                        onUpdateImageLayer = { updated -> viewModel.updateImageLayer(updated, false) }
                     )
                     EditorPanel.LAYERS -> LayersToolPanel(
                         layers = layers,
@@ -1291,6 +1292,9 @@ val favoriteFontKeys by viewModel.favoriteFontKeys.collectAsState()
             ) {
                 @Suppress("UNUSED_VARIABLE")
                 val redraw = triggerRedraw
+                // Redraw juga saat hasil blur gambar siap (cache di ViewModel).
+                @Suppress("UNUSED_VARIABLE")
+                val imageFx = viewModel.imageEffectRevision.collectAsState().value
                 val canvasWidth = size.width
                 val canvasHeight = size.height
 
@@ -1557,13 +1561,15 @@ val favoriteFontKeys by viewModel.favoriteFontKeys.collectAsState()
                                     drawContext.canvas.nativeCanvas.restoreToCount(count)
                                 }
                                 is Layer.ImageLayer -> {
-                                    layer.bitmap?.let { imgBmp ->
-                                        if (!imgBmp.isRecycled) {
-                                            val imgPaint = alphaPaintCache.apply {
-                                                alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
-                                            }
-                                            drawContext.canvas.nativeCanvas.drawBitmap(imgBmp, layer.x, layer.y, imgPaint)
+                                    val imgBmp = viewModel.resolveImageBitmap(layer)
+                                    if (imgBmp != null && !imgBmp.isRecycled) {
+                                        val imgPaint = alphaPaintCache.apply {
+                                            alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
+                                            colorFilter = com.mochits.app.imaging.ImageEffects.imageColorFilter(
+                                                layer.grayscale, layer.brightness, layer.contrast
+                                            )
                                         }
+                                        drawContext.canvas.nativeCanvas.drawBitmap(imgBmp, layer.x, layer.y, imgPaint)
                                     }
                                 }
                             }
@@ -2410,7 +2416,9 @@ private enum class EffectType {
     TEXT_COLOR,
     STROKE,
     DROP_SHADOW,
-    MOTION_BLUR
+    MOTION_BLUR,
+    IMAGE_TONE,
+    IMAGE_MOTION_BLUR
 }
 
 @Composable
@@ -2420,7 +2428,8 @@ fun EffectToolPanel(
     onUpdateStyle: (TextStyleConfig, Boolean) -> Unit,
     onSliderDragStart: () -> Unit = {},
     onSliderDragEnd: () -> Unit = {},
-    onStartEyedropper: ((Int) -> Unit) -> Unit = {}
+    onStartEyedropper: ((Int) -> Unit) -> Unit = {},
+    onUpdateImageLayer: ((Layer.ImageLayer) -> Unit)? = null
 ) {
     var expandedEffect by remember(selectedLayer?.id) { mutableStateOf<EffectType?>(null) }
 
@@ -2454,6 +2463,8 @@ fun EffectToolPanel(
                 val availableEffects = remember(selectedLayer) {
                     if (selectedLayer is Layer.TextLayer) {
                         listOf(EffectType.OPACITY, EffectType.TEXT_COLOR, EffectType.STROKE, EffectType.DROP_SHADOW, EffectType.MOTION_BLUR)
+                    } else if (selectedLayer is Layer.ImageLayer) {
+                        listOf(EffectType.OPACITY, EffectType.IMAGE_TONE, EffectType.IMAGE_MOTION_BLUR)
                     } else {
                         listOf(EffectType.OPACITY)
                     }
@@ -2485,6 +2496,14 @@ fun EffectToolPanel(
                             EffectType.MOTION_BLUR -> if (selectedLayer is Layer.TextLayer) {
                                 selectedLayer.style.motionBlurRadius > 0f
                             } else false
+                            EffectType.IMAGE_TONE -> if (selectedLayer is Layer.ImageLayer) {
+                                selectedLayer.grayscale > 0f ||
+                                selectedLayer.brightness != 0f ||
+                                selectedLayer.contrast != 1f
+                            } else false
+                            EffectType.IMAGE_MOTION_BLUR -> if (selectedLayer is Layer.ImageLayer) {
+                                selectedLayer.motionBlurRadius > 0f
+                            } else false
                         }
 
                         val (icon, title) = when (effect) {
@@ -2493,6 +2512,8 @@ fun EffectToolPanel(
                             EffectType.STROKE -> Icons.Default.FormatPaint to "Stroke"
                             EffectType.DROP_SHADOW -> Icons.Default.WbSunny to "Drop Shadow"
                             EffectType.MOTION_BLUR -> Icons.Default.BlurLinear to "Motion Blur"
+                            EffectType.IMAGE_TONE -> Icons.Default.Tune to "Tone"
+                            EffectType.IMAGE_MOTION_BLUR -> Icons.Default.BlurLinear to "Motion Blur"
                         }
 
                         Card(
@@ -2886,6 +2907,96 @@ fun EffectToolPanel(
                                     )
                                     Text(
                                         text = "0° horizontal, 90° vertikal — sama seperti sudut gradient.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            EffectType.IMAGE_TONE -> {
+                                if (selectedLayer is Layer.ImageLayer && onUpdateImageLayer != null) {
+                                    Text("Grayscale: ${(selectedLayer.grayscale * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                                    Slider(
+                                        value = selectedLayer.grayscale,
+                                        onValueChange = {
+                                            onSliderDragStart()
+                                            onUpdateImageLayer(selectedLayer.copy(grayscale = it))
+                                        },
+                                        onValueChangeFinished = {
+                                            onSliderDragEnd()
+                                        },
+                                        valueRange = 0f..1f
+                                    )
+
+                                    Text("Brightness: ${(selectedLayer.brightness * 100).toInt()}", style = MaterialTheme.typography.bodySmall)
+                                    Slider(
+                                        value = selectedLayer.brightness,
+                                        onValueChange = {
+                                            onSliderDragStart()
+                                            onUpdateImageLayer(selectedLayer.copy(brightness = it))
+                                        },
+                                        onValueChangeFinished = {
+                                            onSliderDragEnd()
+                                        },
+                                        valueRange = -1f..1f
+                                    )
+
+                                    Text("Contrast: ${(selectedLayer.contrast * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                                    Slider(
+                                        value = selectedLayer.contrast,
+                                        onValueChange = {
+                                            onSliderDragStart()
+                                            onUpdateImageLayer(selectedLayer.copy(contrast = it))
+                                        },
+                                        onValueChangeFinished = {
+                                            onSliderDragEnd()
+                                        },
+                                        valueRange = 0f..2f
+                                    )
+
+                                    OutlinedButton(
+                                        onClick = {
+                                            onSliderDragStart()
+                                            onUpdateImageLayer(
+                                                selectedLayer.copy(grayscale = 0f, brightness = 0f, contrast = 1f)
+                                            )
+                                            onSliderDragEnd()
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Text("Atur Ulang Tone")
+                                    }
+                                }
+                            }
+                            EffectType.IMAGE_MOTION_BLUR -> {
+                                if (selectedLayer is Layer.ImageLayer && onUpdateImageLayer != null) {
+                                    Text("Kekuatan: ${selectedLayer.motionBlurRadius.toInt()} px", style = MaterialTheme.typography.bodySmall)
+                                    Slider(
+                                        value = selectedLayer.motionBlurRadius,
+                                        onValueChange = {
+                                            onSliderDragStart()
+                                            onUpdateImageLayer(selectedLayer.copy(motionBlurRadius = it))
+                                        },
+                                        onValueChangeFinished = {
+                                            onSliderDragEnd()
+                                        },
+                                        valueRange = 0f..25f
+                                    )
+
+                                    Text("Arah: ${selectedLayer.motionBlurAngle.toInt()}°", style = MaterialTheme.typography.bodySmall)
+                                    Slider(
+                                        value = selectedLayer.motionBlurAngle,
+                                        onValueChange = {
+                                            onSliderDragStart()
+                                            onUpdateImageLayer(selectedLayer.copy(motionBlurAngle = it))
+                                        },
+                                        onValueChangeFinished = {
+                                            onSliderDragEnd()
+                                        },
+                                        valueRange = 0f..360f
+                                    )
+                                    Text(
+                                        text = "Diproses di background; pratinjau muncul sesaat setelah slider dilepas.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )

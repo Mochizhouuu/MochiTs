@@ -15,6 +15,7 @@ import com.mochits.app.canvas.CanvasEditorState
 import com.mochits.core.imaging.InpaintEngine
 import com.mochits.core.imaging.MaskSelectionTools
 import com.mochits.core.imaging.Result
+import com.mochits.app.imaging.ImageEffects
 import com.mochits.app.imaging.LaMaInpaintEngine
 import com.mochits.app.imaging.LaMaModelManager
 import com.mochits.app.model.EditorPanel
@@ -123,7 +124,12 @@ class EditorViewModel @Inject constructor(
             return cached
         }
         cachedFlattenedBitmap?.let { if (!it.isRecycled) it.recycle() }
-        val flattened = exporter.exportToBitmap(base, layers.value)
+        prepareImageEffects(layers.value)
+        val flattened = exporter.exportToBitmap(
+            base,
+            layers.value,
+            imageBitmapFor = { resolveImageBitmap(it) }
+        )
         cachedFlattenedBitmap = flattened
         isFlattenedDirty = false
         return flattened
@@ -143,7 +149,12 @@ class EditorViewModel @Inject constructor(
 
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
             try {
-                val comp = exporter.exportToBitmap(base, layers.value)
+                prepareImageEffects(layers.value)
+                val comp = exporter.exportToBitmap(
+                    base,
+                    layers.value,
+                    imageBitmapFor = { resolveImageBitmap(it) }
+                )
                 compositeBitmap = comp
                 val compColor = ColorUtils.samplePixelColor(comp, initialPt.x, initialPt.y) ?: initialColor
                 sampledColorPreview.value = compColor
@@ -1459,6 +1470,121 @@ data class HistoryManifest(
         }
     }
 
+    // ---------- Efek gambar (ImageLayer) ----------
+
+    private data class ImageBlurEntry(
+        val srcBitmap: Bitmap,
+        val radius: Float,
+        val angle: Float,
+        val result: Bitmap
+    )
+
+    private val imageBlurCache = mutableMapOf<String, ImageBlurEntry>()
+    private val imageBlurJobs = mutableMapOf<String, kotlinx.coroutines.Job>()
+
+    /** Bertambah tiap hasil blur gambar siap; pemicu redraw kanvas. */
+    val imageEffectRevision = MutableStateFlow(0)
+
+    /**
+     * Update parameter efek satu ImageLayer. Pola undo sama seperti teks:
+     * snapshot di drag-start (onSliderDragStart), autosave di drag-end.
+     */
+    fun updateImageLayer(updated: Layer.ImageLayer, saveUndo: Boolean = true) {
+        if (saveUndo) {
+            saveUndoSnapshot()
+        }
+        layers.value = layers.value.map { layer ->
+            if (layer.id == updated.id && layer is Layer.ImageLayer) updated else layer
+        }
+        if (saveUndo) {
+            autoSave()
+        }
+        invalidateFlattenedCache()
+        refreshImageMotionBlur(updated)
+    }
+
+    /**
+     * Bitmap yang ditampilkan/diekspor untuk layer gambar:
+     * hasil motion blur bila aktif dan siap, oreginal bila belum/tidak.
+     */
+    fun resolveImageBitmap(layer: Layer.ImageLayer): Bitmap? {
+        val src = layer.bitmap ?: return null
+        if (src.isRecycled) return null
+        if (layer.motionBlurRadius <= 0f) return src
+        val entry = imageBlurCache[layer.id]
+        if (entry != null && entry.srcBitmap === src && !entry.result.isRecycled &&
+            entry.radius == layer.motionBlurRadius && entry.angle == layer.motionBlurAngle
+        ) {
+            return entry.result
+        }
+        return src
+    }
+
+    /** Pastikan cache blur sesuai parameter; dipanggil tiap update + sebelum ekspor. */
+    fun refreshImageMotionBlur(layer: Layer.ImageLayer) {
+        imageBlurJobs.remove(layer.id)?.cancel()
+        val src = layer.bitmap
+        if (src == null || src.isRecycled || layer.motionBlurRadius <= 0f) {
+            if (layer.motionBlurRadius <= 0f) {
+                imageBlurCache.remove(layer.id)?.let { recycleBlurEntry(it) }
+            }
+            return
+        }
+        val cached = imageBlurCache[layer.id]
+        if (cached != null && cached.srcBitmap === src && !cached.result.isRecycled &&
+            cached.radius == layer.motionBlurRadius && cached.angle == layer.motionBlurAngle
+        ) {
+            return
+        }
+        val radius = layer.motionBlurRadius
+        val angle = layer.motionBlurAngle
+        imageBlurJobs[layer.id] = viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            val blurred = ImageEffects.motionBlurredBitmap(src, radius, angle) ?: return@launch
+            val current = layers.value.find { it.id == layer.id } as? Layer.ImageLayer ?: run {
+                try { blurred.recycle() } catch (_: Exception) {}
+                return@launch
+            }
+            if (current.bitmap !== src || current.motionBlurRadius != radius || current.motionBlurAngle != angle) {
+                try { blurred.recycle() } catch (_: Exception) {}
+                return@launch
+            }
+            imageBlurCache[layer.id]?.let { recycleBlurEntry(it) }
+            imageBlurCache[layer.id] = ImageBlurEntry(src, radius, angle, blurred)
+            imageEffectRevision.value += 1
+            invalidateFlattenedCache()
+        }
+    }
+
+    /** Hitung semua blur yang tertunda; dipanggil sebelum ekspor/flatten. */
+    suspend fun prepareImageEffects(layers: List<Layer>) {
+        layers.filterIsInstance<Layer.ImageLayer>()
+            .filter { it.motionBlurRadius > 0f && it.bitmap != null && !it.bitmap!!.isRecycled }
+            .forEach { layer ->
+                val src = layer.bitmap!!
+                val cached = imageBlurCache[layer.id]
+                val valid = cached != null && cached.srcBitmap === src && !cached.result.isRecycled &&
+                    cached.radius == layer.motionBlurRadius && cached.angle == layer.motionBlurAngle
+                if (!valid) {
+                    val blurred = ImageEffects.motionBlurredBitmap(src, layer.motionBlurRadius, layer.motionBlurAngle)
+                    if (blurred != null) {
+                        imageBlurCache[layer.id]?.let { recycleBlurEntry(it) }
+                        imageBlurCache[layer.id] = ImageBlurEntry(src, layer.motionBlurRadius, layer.motionBlurAngle, blurred)
+                    }
+                }
+            }
+    }
+
+    private fun recycleBlurEntry(entry: ImageBlurEntry) {
+        try {
+            if (!entry.result.isRecycled) entry.result.recycle()
+        } catch (_: Exception) {}
+    }
+
+    private fun clearImageBlurCache(id: String) {
+        imageBlurJobs.remove(id)?.cancel()
+        imageBlurCache.remove(id)?.let { recycleBlurEntry(it) }
+    }
+
     fun updateSelectedTextLayerPosition(newX: Float, newY: Float, saveUndo: Boolean = true) {
         if (saveUndo) {
             saveUndoSnapshot()
@@ -1701,6 +1827,7 @@ data class HistoryManifest(
 
     fun deleteLayer(id: String) {
         saveUndoSnapshot()
+        clearImageBlurCache(id)
         layers.value = layers.value.filter { it.id != id }
         if (selectedLayerId.value == id) {
             selectedLayerId.value = null
@@ -1732,7 +1859,15 @@ data class HistoryManifest(
         }
         viewModelScope.launch {
             isExporting.value = true
-            val success = exporter.exportToFile(base, layers.value, outputFile, format, quality)
+            prepareImageEffects(layers.value)
+            val success = exporter.exportToFile(
+                base,
+                layers.value,
+                outputFile,
+                format,
+                quality,
+                imageBitmapFor = { resolveImageBitmap(it) }
+            )
             isExporting.value = false
             onComplete(success)
         }

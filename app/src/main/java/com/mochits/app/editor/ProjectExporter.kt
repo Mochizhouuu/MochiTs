@@ -3,6 +3,7 @@ package com.mochits.app.editor
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import com.mochits.app.imaging.ImageEffects
 import com.mochits.app.model.Layer
 import com.mochits.app.text.TextRenderer
 import kotlinx.coroutines.Dispatchers
@@ -16,7 +17,8 @@ class ProjectExporter(private val context: Context) {
 
     suspend fun exportToBitmap(
         baseBitmap: Bitmap,
-        layers: List<Layer>
+        layers: List<Layer>,
+        imageBitmapFor: ((Layer.ImageLayer) -> Bitmap?)? = null
     ): Bitmap = withContext(Dispatchers.Default) {
         // Guard dulu di level Kotlin: tanpa ini, drawBitmap(bitmap recycled)
         // menembus ke native dan meng-abort seluruh Test Executor (exit 134,
@@ -60,13 +62,16 @@ class ProjectExporter(private val context: Context) {
                         canvas.restoreToCount(count)
                     }
                     is Layer.ImageLayer -> {
-                        layer.bitmap?.let { imgBmp ->
-                            if (!imgBmp.isRecycled) {
-                                val imgPaint = android.graphics.Paint().apply {
-                                    alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
-                                }
-                                canvas.drawBitmap(imgBmp, layer.x, layer.y, imgPaint)
+                        val imgBmp = imageBitmapFor?.invoke(layer)?.takeIf { !it.isRecycled }
+                            ?: layer.bitmap?.takeIf { !it.isRecycled }
+                        if (imgBmp != null) {
+                            val imgPaint = android.graphics.Paint().apply {
+                                alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
+                                colorFilter = ImageEffects.imageColorFilter(
+                                    layer.grayscale, layer.brightness, layer.contrast
+                                )
                             }
+                            canvas.drawBitmap(imgBmp, layer.x, layer.y, imgPaint)
                         }
                     }
                 }
@@ -81,10 +86,11 @@ class ProjectExporter(private val context: Context) {
         layers: List<Layer>,
         outputFile: File,
         format: Bitmap.CompressFormat = Bitmap.CompressFormat.PNG,
-        quality: Int = 100
+        quality: Int = 100,
+        imageBitmapFor: ((Layer.ImageLayer) -> Bitmap?)? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            val bmp = exportToBitmap(baseBitmap, layers)
+            val bmp = exportToBitmap(baseBitmap, layers, imageBitmapFor)
             FileOutputStream(outputFile).use { out ->
                 bmp.compress(format, quality, out)
             }

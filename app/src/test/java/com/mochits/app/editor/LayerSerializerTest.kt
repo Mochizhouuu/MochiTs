@@ -203,4 +203,58 @@ class LayerSerializerTest {
         assertNull("Negative boxWidth should be sanitized to null", layer.boxWidth)
         assertNull("Zero boxHeight should be sanitized to null", layer.boxHeight)
     }
+
+    @Test
+    fun testSerializeAndDeserialize_imageEffects() {
+        val imageLayer = Layer.ImageLayer(
+            id = "img_fx",
+            name = "Image 1",
+            grayscale = 0.5f,
+            brightness = 0.1f,
+            contrast = 1.2f,
+            motionBlurRadius = 8f,
+            motionBlurAngle = 45f
+        )
+
+        val json = serializer.serialize(listOf(imageLayer))
+        val deserialized = serializer.deserialize(json)
+
+        assertEquals(1, deserialized.size)
+        val layer = deserialized[0] as Layer.ImageLayer
+        assertEquals(0.5f, layer.grayscale, 0.001f)
+        assertEquals(0.1f, layer.brightness, 0.001f)
+        assertEquals(1.2f, layer.contrast, 0.001f)
+        assertEquals(8f, layer.motionBlurRadius, 0.001f)
+        assertEquals(45f, layer.motionBlurAngle, 0.001f)
+    }
+
+    @Test
+    fun testDeserializeLegacyImageJson_defaultsEffects() {
+        val legacyJson = """
+            [
+              {
+                "id": "img_legacy",
+                "type": "IMAGE",
+                "name": "Old Image",
+                "x": 0.0,
+                "y": 0.0,
+                "rotation": 0.0,
+                "scaleX": 1.0,
+                "scaleY": 1.0,
+                "opacity": 1.0,
+                "isVisible": true,
+                "isLocked": false,
+                "imagePath": null
+              }
+            ]
+        """.trimIndent()
+
+        val deserialized = serializer.deserialize(legacyJson)
+        assertEquals(1, deserialized.size)
+        val layer = deserialized[0] as Layer.ImageLayer
+        assertEquals(0f, layer.grayscale, 0.001f)
+        assertEquals(0f, layer.brightness, 0.001f)
+        assertEquals(1f, layer.contrast, 0.001f)
+        assertEquals(0f, layer.motionBlurRadius, 0.001f)
+    }
 }

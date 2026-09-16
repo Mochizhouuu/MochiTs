@@ -128,7 +128,13 @@ sealed class Layer(
         override val isVisible: Boolean = true,
         override val isLocked: Boolean = false,
         val bitmap: Bitmap? = null,
-        val imagePath: String? = null
+        val imagePath: String? = null,
+        // Efek gambar (dirender via ImageEffects; terpisah dari efek teks).
+        val grayscale: Float = 0f, // 0..1 (0 = warna asli)
+        val brightness: Float = 0f, // -1..1 (0 = normal)
+        val contrast: Float = 1f, // 0..2 (1 = normal)
+        val motionBlurRadius: Float = 0f, // 0 = mati
+        val motionBlurAngle: Float = 0f // derajat, konvensi sama dgn teks
     ) : Layer(id, name, x, y, rotation, scaleX, scaleY, opacity, isVisible, isLocked)
 
     data class TextLayer(
