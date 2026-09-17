@@ -25,6 +25,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 
@@ -258,7 +259,7 @@ fun ColorPickerRow(
                         // Loupe 4x melayang di atas, mengikuti sumbu X pointer.
                         if (svPicking) {
                             val loupeSize = 96.dp
-                            val loupeX = ((hsv[1] * maxWidth) - loupeSize / 2)
+                            val loupeX = (maxWidth * hsv[1] - loupeSize / 2)
                                 .coerceIn(0.dp, maxWidth - loupeSize)
                             SvLoupe(
                                 pickSat = hsv[1],
@@ -374,7 +375,8 @@ private fun SvLoupe(
             for (i in 0 until cells) {
                 val s = (pickSat + ((i + 0.5f) / cells - 0.5f) / zoom).coerceIn(0f, 1f)
                 val v = (pickVal + (0.5f - (j + 0.5f) / cells) / zoom).coerceIn(0f, 1f)
-                val c = Color.White.lerp(pure, s) * v
+                val mixed = lerp(Color.White, pure, s)
+                val c = Color(mixed.red * v, mixed.green * v, mixed.blue * v, 1f)
                 drawRect(
                     color = c,
                     topLeft = Offset(i * cw, j * ch),
