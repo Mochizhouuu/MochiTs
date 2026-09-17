@@ -134,7 +134,9 @@ sealed class Layer(
         val brightness: Float = 0f, // -1..1 (0 = normal)
         val contrast: Float = 1f, // 0..2 (1 = normal)
         val motionBlurRadius: Float = 0f, // 0 = mati
-        val motionBlurAngle: Float = 0f // derajat, konvensi sama dgn teks
+        val motionBlurAngle: Float = 0f, // derajat, konvensi sama dgn teks
+        val glowColor: Int = Color.TRANSPARENT,
+        val glowRadius: Float = 0f // 0 = mati
     ) : Layer(id, name, x, y, rotation, scaleX, scaleY, opacity, isVisible, isLocked)
 
     data class TextLayer(

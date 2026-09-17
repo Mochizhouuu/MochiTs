@@ -229,6 +229,24 @@ class LayerSerializerTest {
     }
 
     @Test
+    fun testSerializeAndDeserialize_imageGlow() {
+        val imageLayer = Layer.ImageLayer(
+            id = "img_glow",
+            name = "Image Glow",
+            glowColor = android.graphics.Color.YELLOW,
+            glowRadius = 12f
+        )
+
+        val json = serializer.serialize(listOf(imageLayer))
+        val deserialized = serializer.deserialize(json)
+
+        assertEquals(1, deserialized.size)
+        val layer = deserialized[0] as Layer.ImageLayer
+        assertEquals(android.graphics.Color.YELLOW, layer.glowColor)
+        assertEquals(12f, layer.glowRadius, 0.001f)
+    }
+
+    @Test
     fun testDeserializeLegacyImageJson_defaultsEffects() {
         val legacyJson = """
             [

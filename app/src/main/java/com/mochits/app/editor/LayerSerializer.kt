@@ -37,7 +37,9 @@ data class LayerJsonDto(
     val brightness: Float? = null,
     val contrast: Float? = null,
     val motionBlurRadius: Float? = null,
-    val motionBlurAngle: Float? = null
+    val motionBlurAngle: Float? = null,
+    val glowColor: Int? = null,
+    val glowRadius: Float? = null
 )
 
 class LayerSerializer {
@@ -81,7 +83,9 @@ class LayerSerializer {
                     brightness = layer.brightness,
                     contrast = layer.contrast,
                     motionBlurRadius = layer.motionBlurRadius,
-                    motionBlurAngle = layer.motionBlurAngle
+                    motionBlurAngle = layer.motionBlurAngle,
+                    glowColor = layer.glowColor,
+                    glowRadius = layer.glowRadius
                 )
             }
         }
@@ -148,7 +152,9 @@ class LayerSerializer {
                     brightness = dto.brightness ?: 0f,
                     contrast = dto.contrast ?: 1f,
                     motionBlurRadius = dto.motionBlurRadius ?: 0f,
-                    motionBlurAngle = dto.motionBlurAngle ?: 0f
+                    motionBlurAngle = dto.motionBlurAngle ?: 0f,
+                    glowColor = dto.glowColor ?: android.graphics.Color.TRANSPARENT,
+                    glowRadius = dto.glowRadius ?: 0f
                 )
             }
         }

@@ -1564,8 +1564,20 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                 is Layer.ImageLayer -> {
                                     val imgBmp = viewModel.resolveImageBitmap(layer)
                                     if (imgBmp != null && !imgBmp.isRecycled) {
+                                        val layerAlpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
+                                        viewModel.resolveImageGlow(layer)?.let { (glowBmp, pad) ->
+                                            if (!glowBmp.isRecycled) {
+                                                val glowPaint = alphaPaintCache.apply {
+                                                    alpha = layerAlpha
+                                                    colorFilter = null
+                                                }
+                                                drawContext.canvas.nativeCanvas.drawBitmap(
+                                                    glowBmp, layer.x - pad, layer.y - pad, glowPaint
+                                                )
+                                            }
+                                        }
                                         val imgPaint = alphaPaintCache.apply {
-                                            alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
+                                            alpha = layerAlpha
                                             colorFilter = com.mochits.app.imaging.ImageEffects.imageColorFilter(
                                                 layer.grayscale, layer.brightness, layer.contrast
                                             )
@@ -2418,8 +2430,10 @@ private enum class EffectType {
     STROKE,
     DROP_SHADOW,
     MOTION_BLUR,
+    GLOW,
     IMAGE_TONE,
-    IMAGE_MOTION_BLUR
+    IMAGE_MOTION_BLUR,
+    IMAGE_GLOW
 }
 
 @Composable
@@ -2463,9 +2477,9 @@ fun EffectToolPanel(
             } else {
                 val availableEffects = remember(selectedLayer) {
                     if (selectedLayer is Layer.TextLayer) {
-                        listOf(EffectType.OPACITY, EffectType.TEXT_COLOR, EffectType.STROKE, EffectType.DROP_SHADOW, EffectType.MOTION_BLUR)
+                        listOf(EffectType.OPACITY, EffectType.TEXT_COLOR, EffectType.STROKE, EffectType.DROP_SHADOW, EffectType.MOTION_BLUR, EffectType.GLOW)
                     } else if (selectedLayer is Layer.ImageLayer) {
-                        listOf(EffectType.OPACITY, EffectType.IMAGE_TONE, EffectType.IMAGE_MOTION_BLUR)
+                        listOf(EffectType.OPACITY, EffectType.IMAGE_TONE, EffectType.IMAGE_MOTION_BLUR, EffectType.IMAGE_GLOW)
                     } else {
                         listOf(EffectType.OPACITY)
                     }
@@ -2497,6 +2511,10 @@ fun EffectToolPanel(
                             EffectType.MOTION_BLUR -> if (selectedLayer is Layer.TextLayer) {
                                 selectedLayer.style.motionBlurRadius > 0f
                             } else false
+                            EffectType.GLOW -> if (selectedLayer is Layer.TextLayer) {
+                                selectedLayer.style.glowColor != AndroidColor.TRANSPARENT &&
+                                selectedLayer.style.glowRadius > 0f
+                            } else false
                             EffectType.IMAGE_TONE -> if (selectedLayer is Layer.ImageLayer) {
                                 selectedLayer.grayscale > 0f ||
                                 selectedLayer.brightness != 0f ||
@@ -2504,6 +2522,10 @@ fun EffectToolPanel(
                             } else false
                             EffectType.IMAGE_MOTION_BLUR -> if (selectedLayer is Layer.ImageLayer) {
                                 selectedLayer.motionBlurRadius > 0f
+                            } else false
+                            EffectType.IMAGE_GLOW -> if (selectedLayer is Layer.ImageLayer) {
+                                selectedLayer.glowColor != AndroidColor.TRANSPARENT &&
+                                selectedLayer.glowRadius > 0f
                             } else false
                         }
 
@@ -2513,8 +2535,10 @@ fun EffectToolPanel(
                             EffectType.STROKE -> Icons.Default.FormatPaint to "Stroke"
                             EffectType.DROP_SHADOW -> Icons.Default.WbSunny to "Drop Shadow"
                             EffectType.MOTION_BLUR -> Icons.Default.BlurLinear to "Motion Blur"
+                            EffectType.GLOW -> Icons.Default.BlurCircular to "Glow"
                             EffectType.IMAGE_TONE -> Icons.Default.Tune to "Tone"
                             EffectType.IMAGE_MOTION_BLUR -> Icons.Default.BlurLinear to "Motion Blur"
+                            EffectType.IMAGE_GLOW -> Icons.Default.BlurCircular to "Glow"
                         }
 
                         Card(
@@ -2913,6 +2937,38 @@ fun EffectToolPanel(
                                     )
                                 }
                             }
+                            EffectType.GLOW -> {
+                                if (selectedLayer is Layer.TextLayer) {
+                                    val currentStyle = selectedLayer.style
+
+                                    Text("Warna Glow:", style = MaterialTheme.typography.bodySmall)
+                                    ColorPickerRow(
+                                        selectedColor = currentStyle.glowColor,
+                                        onColorSelected = { col ->
+                                            onUpdateStyle(currentStyle.copy(glowColor = col), true)
+                                        },
+                                        onEyedropperClick = {
+                                            onStartEyedropper { sampledCol ->
+                                                onUpdateStyle(currentStyle.copy(glowColor = sampledCol), true)
+                                            }
+                                        }
+                                    )
+
+                                    Text("Radius: ${currentStyle.glowRadius.toInt()} px", style = MaterialTheme.typography.bodySmall)
+                                    Slider(
+                                        value = currentStyle.glowRadius,
+                                        onValueChange = {
+                                            onSliderDragStart()
+                                            val glowCol = if (it > 0f && currentStyle.glowColor == AndroidColor.TRANSPARENT) AndroidColor.WHITE else currentStyle.glowColor
+                                            onUpdateStyle(currentStyle.copy(glowRadius = it, glowColor = glowCol), false)
+                                        },
+                                        onValueChangeFinished = {
+                                            onSliderDragEnd()
+                                        },
+                                        valueRange = 0f..30f
+                                    )
+                                }
+                            }
                             EffectType.IMAGE_TONE -> {
                                 if (selectedLayer is Layer.ImageLayer && onUpdateImageLayer != null) {
                                     Text("Grayscale: ${(selectedLayer.grayscale * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
@@ -2995,6 +3051,45 @@ fun EffectToolPanel(
                                             onSliderDragEnd()
                                         },
                                         valueRange = 0f..360f
+                                    )
+                                    Text(
+                                        text = "Diproses di background; pratinjau muncul sesaat setelah slider dilepas.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            EffectType.IMAGE_GLOW -> {
+                                if (selectedLayer is Layer.ImageLayer && onUpdateImageLayer != null) {
+                                    Text("Warna Glow:", style = MaterialTheme.typography.bodySmall)
+                                    ColorPickerRow(
+                                        selectedColor = selectedLayer.glowColor,
+                                        onColorSelected = { col ->
+                                            onSliderDragStart()
+                                            onUpdateImageLayer(selectedLayer.copy(glowColor = col))
+                                            onSliderDragEnd()
+                                        },
+                                        onEyedropperClick = {
+                                            onStartEyedropper { sampledCol ->
+                                                onSliderDragStart()
+                                                onUpdateImageLayer(selectedLayer.copy(glowColor = sampledCol))
+                                                onSliderDragEnd()
+                                            }
+                                        }
+                                    )
+
+                                    Text("Radius: ${selectedLayer.glowRadius.toInt()} px", style = MaterialTheme.typography.bodySmall)
+                                    Slider(
+                                        value = selectedLayer.glowRadius,
+                                        onValueChange = {
+                                            onSliderDragStart()
+                                            val glowCol = if (it > 0f && selectedLayer.glowColor == AndroidColor.TRANSPARENT) AndroidColor.WHITE else selectedLayer.glowColor
+                                            onUpdateImageLayer(selectedLayer.copy(glowRadius = it, glowColor = glowCol))
+                                        },
+                                        onValueChangeFinished = {
+                                            onSliderDragEnd()
+                                        },
+                                        valueRange = 0f..30f
                                     )
                                     Text(
                                         text = "Diproses di background; pratinjau muncul sesaat setelah slider dilepas.",

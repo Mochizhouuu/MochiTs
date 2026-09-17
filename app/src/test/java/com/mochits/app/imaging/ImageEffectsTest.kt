@@ -91,4 +91,27 @@ class ImageEffectsTest {
         val src = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888)
         assertNull(ImageEffects.motionBlurredBitmap(src, 0f, 45f))
     }
+
+    @Test
+    fun outerGlow_inactiveParamsReturnNull() = runBlocking {
+        val src = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888)
+        src.eraseColor(Color.RED)
+        assertNull(ImageEffects.outerGlowBitmap(src, Color.YELLOW, 0f))
+        assertNull(ImageEffects.outerGlowBitmap(src, Color.TRANSPARENT, 8f))
+    }
+
+    @Test
+    fun outerGlow_spreadsBeyondShape() = runBlocking {
+        val src = Bitmap.createBitmap(21, 21, Bitmap.Config.ARGB_8888)
+        src.eraseColor(Color.TRANSPARENT)
+        src.setPixel(10, 10, Color.WHITE)
+        val (glow, pad) = ImageEffects.outerGlowBitmap(src, Color.YELLOW, 4f)!!
+        // Glow mencakup padding di sekeliling bentuk asal.
+        assertTrue(pad >= 4f)
+        assertEquals(21 + 2 * pad.toInt(), glow.width)
+        // Titik di luar bentuk asal ikut bercahaya kuning.
+        val edge = glow.getPixel((10 + pad.toInt() + 3), (10 + pad.toInt()))
+        assertTrue(Color.alpha(edge) > 0)
+        assertTrue((edge and 0x00FFFFFF) != 0)
+    }
 }

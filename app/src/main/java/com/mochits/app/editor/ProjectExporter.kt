@@ -18,7 +18,8 @@ class ProjectExporter(private val context: Context) {
     suspend fun exportToBitmap(
         baseBitmap: Bitmap,
         layers: List<Layer>,
-        imageBitmapFor: ((Layer.ImageLayer) -> Bitmap?)? = null
+        imageBitmapFor: ((Layer.ImageLayer) -> Bitmap?)? = null,
+        imageGlowFor: ((Layer.ImageLayer) -> Pair<Bitmap, Float>?)? = null
     ): Bitmap = withContext(Dispatchers.Default) {
         // Guard dulu di level Kotlin: tanpa ini, drawBitmap(bitmap recycled)
         // menembus ke native dan meng-abort seluruh Test Executor (exit 134,
@@ -65,8 +66,17 @@ class ProjectExporter(private val context: Context) {
                         val imgBmp = imageBitmapFor?.invoke(layer)?.takeIf { !it.isRecycled }
                             ?: layer.bitmap?.takeIf { !it.isRecycled }
                         if (imgBmp != null) {
+                            val layerAlpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
+                            imageGlowFor?.invoke(layer)?.let { (glowBmp, pad) ->
+                                if (!glowBmp.isRecycled) {
+                                    val glowPaint = android.graphics.Paint().apply {
+                                        alpha = layerAlpha
+                                    }
+                                    canvas.drawBitmap(glowBmp, layer.x - pad, layer.y - pad, glowPaint)
+                                }
+                            }
                             val imgPaint = android.graphics.Paint().apply {
-                                alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
+                                alpha = layerAlpha
                                 colorFilter = ImageEffects.imageColorFilter(
                                     layer.grayscale, layer.brightness, layer.contrast
                                 )
@@ -87,10 +97,11 @@ class ProjectExporter(private val context: Context) {
         outputFile: File,
         format: Bitmap.CompressFormat = Bitmap.CompressFormat.PNG,
         quality: Int = 100,
-        imageBitmapFor: ((Layer.ImageLayer) -> Bitmap?)? = null
+        imageBitmapFor: ((Layer.ImageLayer) -> Bitmap?)? = null,
+        imageGlowFor: ((Layer.ImageLayer) -> Pair<Bitmap, Float>?)? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            val bmp = exportToBitmap(baseBitmap, layers, imageBitmapFor)
+            val bmp = exportToBitmap(baseBitmap, layers, imageBitmapFor, imageGlowFor)
             FileOutputStream(outputFile).use { out ->
                 bmp.compress(format, quality, out)
             }

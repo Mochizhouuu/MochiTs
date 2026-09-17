@@ -128,7 +128,8 @@ class EditorViewModel @Inject constructor(
         val flattened = exporter.exportToBitmap(
             base,
             layers.value,
-            imageBitmapFor = { resolveImageBitmap(it) }
+            imageBitmapFor = { resolveImageBitmap(it) },
+                    imageGlowFor = { resolveImageGlow(it) }
         )
         cachedFlattenedBitmap = flattened
         isFlattenedDirty = false
@@ -153,7 +154,8 @@ class EditorViewModel @Inject constructor(
                 val comp = exporter.exportToBitmap(
                     base,
                     layers.value,
-                    imageBitmapFor = { resolveImageBitmap(it) }
+                    imageBitmapFor = { resolveImageBitmap(it) },
+                    imageGlowFor = { resolveImageGlow(it) }
                 )
                 compositeBitmap = comp
                 val compColor = ColorUtils.samplePixelColor(comp, initialPt.x, initialPt.y) ?: initialColor
@@ -1501,6 +1503,7 @@ data class HistoryManifest(
         }
         invalidateFlattenedCache()
         refreshImageMotionBlur(updated)
+        refreshImageGlow(updated)
     }
 
     /**
@@ -1555,22 +1558,25 @@ data class HistoryManifest(
         }
     }
 
-    /** Hitung semua blur yang tertunda; dipanggil sebelum ekspor/flatten. */
+    /** Hitung semua blur/glow yang tertunda; dipanggil sebelum ekspor/flatten. */
     suspend fun prepareImageEffects(layers: List<Layer>) {
         layers.filterIsInstance<Layer.ImageLayer>()
-            .filter { it.motionBlurRadius > 0f && it.bitmap != null && !it.bitmap!!.isRecycled }
+            .filter { it.bitmap != null && !it.bitmap!!.isRecycled }
             .forEach { layer ->
                 val src = layer.bitmap!!
-                val cached = imageBlurCache[layer.id]
-                val valid = cached != null && cached.srcBitmap === src && !cached.result.isRecycled &&
-                    cached.radius == layer.motionBlurRadius && cached.angle == layer.motionBlurAngle
-                if (!valid) {
-                    val blurred = ImageEffects.motionBlurredBitmap(src, layer.motionBlurRadius, layer.motionBlurAngle)
-                    if (blurred != null) {
-                        imageBlurCache[layer.id]?.let { recycleBlurEntry(it) }
-                        imageBlurCache[layer.id] = ImageBlurEntry(src, layer.motionBlurRadius, layer.motionBlurAngle, blurred)
+                if (layer.motionBlurRadius > 0f) {
+                    val cached = imageBlurCache[layer.id]
+                    val valid = cached != null && cached.srcBitmap === src && !cached.result.isRecycled &&
+                        cached.radius == layer.motionBlurRadius && cached.angle == layer.motionBlurAngle
+                    if (!valid) {
+                        val blurred = ImageEffects.motionBlurredBitmap(src, layer.motionBlurRadius, layer.motionBlurAngle)
+                        if (blurred != null) {
+                            imageBlurCache[layer.id]?.let { recycleBlurEntry(it) }
+                            imageBlurCache[layer.id] = ImageBlurEntry(src, layer.motionBlurRadius, layer.motionBlurAngle, blurred)
+                        }
                     }
                 }
+                prepareImageGlow(layer)
             }
     }
 
@@ -1580,9 +1586,98 @@ data class HistoryManifest(
         } catch (_: Exception) {}
     }
 
+    private data class ImageGlowEntry(
+        val srcBitmap: Bitmap,
+        val color: Int,
+        val radius: Float,
+        val result: Bitmap,
+        val pad: Float
+    )
+
+    private val imageGlowCache = mutableMapOf<String, ImageGlowEntry>()
+    private val imageGlowJobs = mutableMapOf<String, kotlinx.coroutines.Job>()
+
+    /** Bitmap glow + padding full-res px; null bila glow mati/belum siap. */
+    fun resolveImageGlow(layer: Layer.ImageLayer): Pair<Bitmap, Float>? {
+        val src = layer.bitmap ?: return null
+        if (src.isRecycled) return null
+        if (layer.glowRadius <= 0f || layer.glowColor == android.graphics.Color.TRANSPARENT) return null
+        val entry = imageGlowCache[layer.id]
+        if (entry != null && entry.srcBitmap === src && !entry.result.isRecycled &&
+            entry.color == layer.glowColor && entry.radius == layer.glowRadius
+        ) {
+            return entry.result to entry.pad
+        }
+        return null
+    }
+
+    private fun refreshImageGlow(layer: Layer.ImageLayer) {
+        imageGlowJobs.remove(layer.id)?.cancel()
+        val src = layer.bitmap
+        if (src == null || src.isRecycled ||
+            layer.glowRadius <= 0f || layer.glowColor == android.graphics.Color.TRANSPARENT
+        ) {
+            if (layer.glowRadius <= 0f || layer.glowColor == android.graphics.Color.TRANSPARENT) {
+                imageGlowCache.remove(layer.id)?.let {
+                    try { if (!it.result.isRecycled) it.result.recycle() } catch (_: Exception) {}
+                }
+            }
+            return
+        }
+        val cached = imageGlowCache[layer.id]
+        if (cached != null && cached.srcBitmap === src && !cached.result.isRecycled &&
+            cached.color == layer.glowColor && cached.radius == layer.glowRadius
+        ) {
+            return
+        }
+        val color = layer.glowColor
+        val radius = layer.glowRadius
+        imageGlowJobs[layer.id] = viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            val glow = ImageEffects.outerGlowBitmap(src, color, radius) ?: return@launch
+            val current = layers.value.find { it.id == layer.id } as? Layer.ImageLayer ?: run {
+                try { glow.first.recycle() } catch (_: Exception) {}
+                return@launch
+            }
+            if (current.bitmap !== src || current.glowColor != color || current.glowRadius != radius) {
+                try { glow.first.recycle() } catch (_: Exception) {}
+                return@launch
+            }
+            imageGlowCache[layer.id]?.let {
+                try { if (!it.result.isRecycled) it.result.recycle() } catch (_: Exception) {}
+            }
+            imageGlowCache[layer.id] = ImageGlowEntry(src, color, radius, glow.first, glow.second)
+            imageEffectRevision.value += 1
+            invalidateFlattenedCache()
+        }
+    }
+
+    private suspend fun prepareImageGlow(layer: Layer.ImageLayer) {
+        val src = layer.bitmap ?: return
+        if (src.isRecycled || layer.glowRadius <= 0f ||
+            layer.glowColor == android.graphics.Color.TRANSPARENT
+        ) return
+        val cached = imageGlowCache[layer.id]
+        val valid = cached != null && cached.srcBitmap === src && !cached.result.isRecycled &&
+            cached.color == layer.glowColor && cached.radius == layer.glowRadius
+        if (!valid) {
+            val glow = ImageEffects.outerGlowBitmap(src, layer.glowColor, layer.glowRadius)
+            if (glow != null) {
+                imageGlowCache[layer.id]?.let {
+                    try { if (!it.result.isRecycled) it.result.recycle() } catch (_: Exception) {}
+                }
+                imageGlowCache[layer.id] =
+                    ImageGlowEntry(src, layer.glowColor, layer.glowRadius, glow.first, glow.second)
+            }
+        }
+    }
+
     private fun clearImageBlurCache(id: String) {
         imageBlurJobs.remove(id)?.cancel()
         imageBlurCache.remove(id)?.let { recycleBlurEntry(it) }
+        imageGlowJobs.remove(id)?.cancel()
+        imageGlowCache.remove(id)?.let {
+            try { if (!it.result.isRecycled) it.result.recycle() } catch (_: Exception) {}
+        }
     }
 
     fun updateSelectedTextLayerPosition(newX: Float, newY: Float, saveUndo: Boolean = true) {
@@ -1866,7 +1961,8 @@ data class HistoryManifest(
                 outputFile,
                 format,
                 quality,
-                imageBitmapFor = { resolveImageBitmap(it) }
+                imageBitmapFor = { resolveImageBitmap(it) },
+                    imageGlowFor = { resolveImageGlow(it) }
             )
             isExporting.value = false
             onComplete(success)
