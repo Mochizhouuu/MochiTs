@@ -589,6 +589,10 @@ class TextRendererTest {
         val glowed = render(16f)
         var halo = 0
         var inkOutside = 0
+        var sumR = 0L
+        var sumG = 0L
+        var sumB = 0L
+        var sumA = 0L
         for (y in 0 until size) {
             for (x in 0 until size) {
                 val px = glowed.getPixel(x, y)
@@ -599,11 +603,20 @@ class TextRendererTest {
                 val outside = x < pMinX || x > pMaxX || y < pMinY || y > pMaxY
                 if (!outside) continue
                 inkOutside++
+                sumR += r
+                sumG += g
+                sumB += b
+                sumA += (px ushr 24) and 0xFF
                 if (r > 120 && g > 120 && b < 150) halo++
             }
         }
+        val avg = if (inkOutside > 0) {
+            "avgR=${sumR / inkOutside},avgG=${sumG / inkOutside},avgB=${sumB / inkOutside},avgA=${sumA / inkOutside}"
+        } else {
+            "no-ink"
+        }
         assertTrue(
-            "Glow harus menyebar di luar glyph (tinta-luar=$inkOutside, halo-kuning=$halo)",
+            "Glow harus menyebar di luar glyph (tinta-luar=$inkOutside, halo-kuning=$halo, $avg)",
             inkOutside > 20 && halo > 20
         )
     }
