@@ -682,6 +682,9 @@ class TextRenderer(private val context: Context) {
 
     private var glowBitmap: Bitmap? = null
 
+    /** Pengali alfa halo glow (lihat penjelasan di drawGlowSmear). */
+    private val GLOW_ALPHA_BOOST = 3
+
     /**
      * Outer glow satu warna: siluet teks solid diblur merata (H lalu V)
      * di bitmap offscreen, ditempel di belakang teks tajam.
@@ -752,6 +755,12 @@ class TextRenderer(private val context: Context) {
         val workR = radius * down
         val blurH = MotionBlur.blurDirectional(px, ww, hh, 0f, workR)
         val blurred = MotionBlur.blurDirectional(blurH, ww, hh, 90f, workR)
+        // Boost intensitas: stroke huruf tipis dibanding jendela blur
+        // sehingga halo mentah terlalu redup; lipatgandakan alfa (clamp).
+        for (i in blurred.indices) {
+            val a = ((blurred[i] ushr 24) and 0xFF) * GLOW_ALPHA_BOOST
+            blurred[i] = (a.coerceAtMost(255) shl 24) or (blurred[i] and 0x00FFFFFF)
+        }
         work.setPixels(blurred, 0, ww, 0, 0, ww, hh)
 
         val left = (x + layoutResult.minX) - pad
