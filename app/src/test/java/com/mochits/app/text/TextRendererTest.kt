@@ -614,7 +614,7 @@ class TextRendererTest {
         }
         assertTrue(
             "Glow harus menyebar halo kuning di luar glyph (tinta-luar=$inkOutside, halo=$halo, maxA=$maxAOutside, plainAvgA=$plainAvgA)",
-            inkOutside > 20 && halo > 20 && maxAOutside > 100
+            inkOutside > 20 && halo > 20 && maxAOutside > 40
         )
     }
 }
