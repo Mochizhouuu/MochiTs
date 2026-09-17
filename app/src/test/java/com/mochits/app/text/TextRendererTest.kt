@@ -595,10 +595,6 @@ class TextRendererTest {
         var halo = 0
         var inkOutside = 0
         var maxAOutside = 0
-        var sumR = 0L
-        var sumG = 0L
-        var sumB = 0L
-        var sumA = 0L
         for (y in 0 until size) {
             for (x in 0 until size) {
                 val px = glowed.getPixel(x, y)
@@ -606,26 +602,19 @@ class TextRendererTest {
                 val r = (px shr 16) and 0xFF
                 val g = (px shr 8) and 0xFF
                 val b = px and 0xFF
+                val a = (px ushr 24) and 0xFF
                 val outside = x < pMinX || x > pMaxX || y < pMinY || y > pMaxY
                 if (!outside) continue
                 inkOutside++
-                val a = (px ushr 24) and 0xFF
                 if (a > maxAOutside) maxAOutside = a
-                sumR += r
-                sumG += g
-                sumB += b
-                sumA += a
-                if (r > 120 && g > 120 && b < 150) halo++
+                // Kuning-hue: R≈G, B rendah. Blur mengencerkan semua channel
+                // (piksel halo ~(77,77,0,77)), jadi cek hue + alfa, bukan brightness.
+                if (a > 40 && kotlin.math.abs(r - g) <= 12 && b * 2 <= r && r > 20) halo++
             }
         }
-        val avg = if (inkOutside > 0) {
-            "avgR=${sumR / inkOutside},avgG=${sumG / inkOutside},avgB=${sumB / inkOutside},avgA=${sumA / inkOutside}"
-        } else {
-            "no-ink"
-        }
         assertTrue(
-            "Glow harus menyebar di luar glyph (tinta-luar=$inkOutside, halo-kuning=$halo, $avg, maxA=$maxAOutside, plainCount=$plainCount, plainAvgA=$plainAvgA)",
-            inkOutside > 20 && halo > 20
+            "Glow harus menyebar halo kuning di luar glyph (tinta-luar=$inkOutside, halo=$halo, maxA=$maxAOutside, plainAvgA=$plainAvgA)",
+            inkOutside > 20 && halo > 20 && maxAOutside > 100
         )
     }
 }
