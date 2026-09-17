@@ -193,7 +193,7 @@ fun ColorPickerRow(
                                 .fillMaxSize()
                                 .pointerInput(hsv[0]) {
                                     // Titik pilih di-offset ke atas agar tidak tertutup jari.
-                                    val touchLift = 56.dp.toPx()
+                                    val touchLift = 80.dp.toPx()
                                     detectTapGestures { offset ->
                                         val sat = (offset.x / size.width).coerceIn(0f, 1f)
                                         val valVal = (1f - ((offset.y - touchLift) / size.height)).coerceIn(0f, 1f)
@@ -202,7 +202,7 @@ fun ColorPickerRow(
                                     }
                                 }
                                 .pointerInput(hsv[0]) {
-                                    val touchLift = 56.dp.toPx()
+                                    val touchLift = 80.dp.toPx()
                                     detectDragGestures(
                                         onDragStart = { svPicking = true },
                                         onDragEnd = { svPicking = false },

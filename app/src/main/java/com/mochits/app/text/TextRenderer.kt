@@ -625,9 +625,6 @@ class TextRenderer(private val context: Context) {
     private var motionBlurBitmap: Bitmap? = null
     private val motionBlurUpscalePaint = Paint().apply { isFilterBitmap = true }
 
-    /** Pengali alfa smear motion blur (stroke tipis vs jendela blur lebar). */
-    private val MOTION_ALPHA_BOOST = 2
-
     /**
      * Smear motion blur searah [TextStyleConfig.motionBlurAngle].
      * Teks digambar ke bitmap offscreen, diblur manual ([MotionBlur],
@@ -678,12 +675,6 @@ class TextRenderer(private val context: Context) {
         val px = IntArray(ww * hh)
         work.getPixels(px, 0, ww, 0, 0, ww, hh)
         val blurred = MotionBlur.blurDirectional(px, ww, hh, style.motionBlurAngle, radius * down)
-        // Boost seperti glow: stroke tipis dibanding jendela blur membuat
-        // smear terlalu redup; lipatgandakan alfa (clamp) agar efek terlihat.
-        for (i in blurred.indices) {
-            val a = ((blurred[i] ushr 24) and 0xFF) * MOTION_ALPHA_BOOST
-            blurred[i] = (a.coerceAtMost(255) shl 24) or (blurred[i] and 0x00FFFFFF)
-        }
         work.setPixels(blurred, 0, ww, 0, 0, ww, hh)
 
         val left = (x + layoutResult.minX) - pad

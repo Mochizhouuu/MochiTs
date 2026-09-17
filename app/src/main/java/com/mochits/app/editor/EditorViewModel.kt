@@ -787,11 +787,22 @@ data class HistoryManifest(
         }
     }
 
+    /** Referensi base bitmap yang terakhir tersimpan (skip kompresi ulang). */
+    private var lastSavedBaseRef: Bitmap? = null
+    private var lastSavedBaseProj: String? = null
+
     private fun saveBaseBitmapToDiskInternal(projId: String, bmp: Bitmap?) {
         if (bmp == null || bmp.isRecycled) return
         try {
             val projectDir = File(context.filesDir, "projects/$projId").apply { mkdirs() }
             val imageFile = File(projectDir, "base_image.png")
+            // Bitmap yang sama (semua mutasi mengganti objek, tidak ada yang
+            // mengubah in-place) tidak perlu dikompresi ulang tiap save.
+            if (projId == lastSavedBaseProj && bmp === lastSavedBaseRef &&
+                imageFile.exists() && imageFile.length() > 0
+            ) {
+                return
+            }
             val tmpFile = File(projectDir, "base_image.png.tmp")
 
             java.io.FileOutputStream(tmpFile).use { out ->
@@ -806,6 +817,8 @@ data class HistoryManifest(
                     tmpFile.copyTo(imageFile, overwrite = true)
                     tmpFile.delete()
                 }
+                lastSavedBaseRef = bmp
+                lastSavedBaseProj = projId
                 Logger.d("Atomic save base_image.png successful: ${imageFile.length()} bytes, dimensions=${bmp.width}x${bmp.height}")
             }
         } catch (e: Exception) {
@@ -1420,24 +1433,26 @@ data class HistoryManifest(
     }
 
     fun updateSelectedTextLayerStyle(style: TextStyleConfig, saveUndo: Boolean = true) {
-        // SENGAJA tidak menyentuh defaultTextStyle: edit pada layer terpilih
-        // tidak boleh bocor ke teks baru. Default hanya berubah via preset
-        // yang dipakai tanpa seleksi (applyStylePreset).
+        // Tanpa seleksi: atur default untuk teks baru (diambil saat addTextLayer).
+        // Ini jalur eksplisit, bukan kebocoran: edit pada layer terpilih
+        // di bawah tidak menyentuh default.
         val selectedId = selectedLayerId.value
-        if (selectedId != null) {
-            if (saveUndo) {
-                saveUndoSnapshot()
+        if (selectedId == null) {
+            defaultTextStyle.value = style
+            return
+        }
+        if (saveUndo) {
+            saveUndoSnapshot()
+        }
+        layers.value = layers.value.map { layer ->
+            if (layer.id == selectedId && layer is Layer.TextLayer) {
+                layer.copy(style = style)
+            } else {
+                layer
             }
-            layers.value = layers.value.map { layer ->
-                if (layer.id == selectedId && layer is Layer.TextLayer) {
-                    layer.copy(style = style)
-                } else {
-                    layer
-                }
-            }
-            if (saveUndo) {
-                autoSave()
-            }
+        }
+        if (saveUndo) {
+            autoSave()
         }
     }
 

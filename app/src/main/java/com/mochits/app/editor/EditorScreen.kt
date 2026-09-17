@@ -1778,6 +1778,35 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
             }
         }
 
+        // Overlay saat tombol back ditekan: save butuh waktu, tanpa ini
+        // aplikasi terlihat mati (tidak merespons) selama flush berjalan.
+        if (isNavigatingBack) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 6.dp
+                ) {
+                    Row(
+                        modifier = Modifier.padding(24.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        Text(
+                            text = "Menyimpan proyek...",
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                    }
+                }
+            }
+        }
+
         // Save As / Export / Rename Dialog
         if (showExportDialog) {
             val defaultFolderUri = viewModel.getDefaultExportFolderUri()
@@ -2934,7 +2963,7 @@ fun EffectToolPanel(
                                         onValueChangeFinished = {
                                             onSliderDragEnd()
                                         },
-                                        valueRange = 0f..25f
+                                        valueRange = 0f..40f
                                     )
 
                                     Text("Arah: ${currentStyle.motionBlurAngle.toInt()}°", style = MaterialTheme.typography.bodySmall)
