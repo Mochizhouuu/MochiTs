@@ -575,20 +575,26 @@ class TextRendererTest {
         var pMaxX = 0
         var pMinY = size
         var pMaxY = 0
+        var plainCount = 0
+        var plainSumA = 0L
         for (y in 0 until size) {
             for (x in 0 until size) {
-                if (plain.getPixel(x, y) != 0) {
-                    if (x < pMinX) pMinX = x
-                    if (x > pMaxX) pMaxX = x
-                    if (y < pMinY) pMinY = y
-                    if (y > pMaxY) pMaxY = y
-                }
+                val px = plain.getPixel(x, y)
+                if (px == 0) continue
+                plainCount++
+                plainSumA += (px ushr 24) and 0xFF
+                if (x < pMinX) pMinX = x
+                if (x > pMaxX) pMaxX = x
+                if (y < pMinY) pMinY = y
+                if (y > pMaxY) pMaxY = y
             }
         }
+        val plainAvgA = if (plainCount > 0) plainSumA / plainCount else -1
 
         val glowed = render(16f)
         var halo = 0
         var inkOutside = 0
+        var maxAOutside = 0
         var sumR = 0L
         var sumG = 0L
         var sumB = 0L
@@ -603,10 +609,12 @@ class TextRendererTest {
                 val outside = x < pMinX || x > pMaxX || y < pMinY || y > pMaxY
                 if (!outside) continue
                 inkOutside++
+                val a = (px ushr 24) and 0xFF
+                if (a > maxAOutside) maxAOutside = a
                 sumR += r
                 sumG += g
                 sumB += b
-                sumA += (px ushr 24) and 0xFF
+                sumA += a
                 if (r > 120 && g > 120 && b < 150) halo++
             }
         }
@@ -616,7 +624,7 @@ class TextRendererTest {
             "no-ink"
         }
         assertTrue(
-            "Glow harus menyebar di luar glyph (tinta-luar=$inkOutside, halo-kuning=$halo, $avg)",
+            "Glow harus menyebar di luar glyph (tinta-luar=$inkOutside, halo-kuning=$halo, $avg, maxA=$maxAOutside, plainCount=$plainCount, plainAvgA=$plainAvgA)",
             inkOutside > 20 && halo > 20
         )
     }
