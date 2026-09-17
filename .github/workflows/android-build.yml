@@ -57,6 +57,17 @@ jobs:
       - name: Jalankan unit test seluruh module
         run: ./gradlew test
 
+      - name: Upload laporan unit test saat gagal
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: unit-test-reports
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            core-imaging/build/reports/tests/
+            core-imaging/build/test-results/
+
       - name: Build APK Debug
         run: ./gradlew assembleDebug
 

@@ -588,16 +588,23 @@ class TextRendererTest {
 
         val glowed = render(16f)
         var halo = 0
+        var inkOutside = 0
         for (y in 0 until size) {
             for (x in 0 until size) {
                 val px = glowed.getPixel(x, y)
+                if (px == 0) continue
                 val r = (px shr 16) and 0xFF
                 val g = (px shr 8) and 0xFF
                 val b = px and 0xFF
                 val outside = x < pMinX || x > pMaxX || y < pMinY || y > pMaxY
-                if (outside && r > 120 && g > 120 && b < 150) halo++
+                if (!outside) continue
+                inkOutside++
+                if (r > 120 && g > 120 && b < 150) halo++
             }
         }
-        assertTrue("Glow harus menyebar halo kuning di luar glyph, ketemu $halo", halo > 20)
+        assertTrue(
+            "Glow harus menyebar di luar glyph (tinta-luar=$inkOutside, halo-kuning=$halo)",
+            inkOutside > 20 && halo > 20
+        )
     }
 }
