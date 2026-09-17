@@ -70,6 +70,13 @@ object ImageEffects {
             val result = Bitmap.createScaledBitmap(small, src.width, src.height, true)
             if (result != small) {
                 try { small.recycle() } catch (_: Exception) {}
+            }
+            result
+        } catch (t: Throwable) {
+            null
+        }
+    }
+
     /**
      * Outer glow satu warna untuk bitmap gambar.
      * Siluet alfa diblur dua arah (H lalu V via [MotionBlur]) lalu
@@ -130,12 +137,6 @@ object ImageEffects {
                 glow = upscaled
             }
             Pair(glow, padFull.toFloat())
-        } catch (t: Throwable) {
-            null
-        }
-    }
-}
-            result
         } catch (t: Throwable) {
             null
         }
