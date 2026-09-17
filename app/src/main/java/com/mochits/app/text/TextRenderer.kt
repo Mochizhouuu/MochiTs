@@ -580,16 +580,19 @@ class TextRenderer(private val context: Context) {
         } else null
 
         if (style.motionBlurRadius > 0f) {
+            // Objeknya sendiri yang blur (tanpa salinan tajam di atasnya,
+            // kalau tidak terbaca sebagai drop shadow).
             drawMotionBlurSmear(
                 canvas, x, y, layoutResult, style,
                 paint, glowPaint, shadowPaint, strokePaint
             )
+        } else {
+            drawTextRuns(
+                canvas, layoutResult.lines, x, y,
+                layoutResult.topOffset, layoutResult.lineHeight, fontMetrics,
+                paint, glowPaint, shadowPaint, strokePaint
+            )
         }
-        drawTextRuns(
-            canvas, layoutResult.lines, x, y,
-            layoutResult.topOffset, layoutResult.lineHeight, fontMetrics,
-            paint, glowPaint, shadowPaint, strokePaint
-        )
     }
 
     private fun drawTextRuns(
@@ -624,8 +627,8 @@ class TextRenderer(private val context: Context) {
     /**
      * Smear motion blur searah [TextStyleConfig.motionBlurAngle].
      * Teks digambar ke bitmap offscreen, diblur manual ([MotionBlur],
-     * tanpa API 31+), lalu ditempel kembali; teks tajam digambar di
-     * atasnya oleh pemanggil agar tetap terbaca.
+     * tanpa API 31+), lalu ditempel kembali sebagai SATU-SATUNYA hasil
+     * (objeknya sendiri yang blur, bukan bayangan di belakang teks tajam).
      */
     private fun drawMotionBlurSmear(
         canvas: Canvas,
