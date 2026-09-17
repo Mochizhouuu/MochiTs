@@ -544,4 +544,60 @@ class TextRendererTest {
         assertTrue("Ink left ($minX) should be >= bounds.left - 2px (${bounds.left})", minX >= bounds.left - 2f)
         assertTrue("Ink right ($maxX) should be <= bounds.right + 2px (${bounds.right})", maxX <= bounds.right + 2f)
     }
+
+    @Test
+    fun testGlowSmear_spreadsYellowHaloBeyondGlyphs() {
+        val size = 500
+        fun render(glowRadius: Float): android.graphics.Bitmap {
+            val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(bitmap)
+            val style = TextStyleConfig(
+                fontSize = 64f,
+                textColor = android.graphics.Color.BLACK,
+                glowColor = android.graphics.Color.YELLOW,
+                glowRadius = glowRadius
+            )
+            val layer = Layer.TextLayer(
+                id = "glow1",
+                name = "Glow",
+                x = 100f,
+                y = 150f,
+                text = "G",
+                style = style,
+                textContainerShape = TextContainerShape.BOX
+            )
+            textRenderer.drawStyledText(canvas, layer)
+            return bitmap
+        }
+
+        val plain = render(0f)
+        var pMinX = size
+        var pMaxX = 0
+        var pMinY = size
+        var pMaxY = 0
+        for (y in 0 until size) {
+            for (x in 0 until size) {
+                if (plain.getPixel(x, y) != 0) {
+                    if (x < pMinX) pMinX = x
+                    if (x > pMaxX) pMaxX = x
+                    if (y < pMinY) pMinY = y
+                    if (y > pMaxY) pMaxY = y
+                }
+            }
+        }
+
+        val glowed = render(16f)
+        var halo = 0
+        for (y in 0 until size) {
+            for (x in 0 until size) {
+                val px = glowed.getPixel(x, y)
+                val r = (px shr 16) and 0xFF
+                val g = (px shr 8) and 0xFF
+                val b = px and 0xFF
+                val outside = x < pMinX || x > pMaxX || y < pMinY || y > pMaxY
+                if (outside && r > 120 && g > 120 && b < 150) halo++
+            }
+        }
+        assertTrue("Glow harus menyebar halo kuning di luar glyph, ketemu $halo", halo > 20)
+    }
 }

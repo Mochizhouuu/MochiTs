@@ -2646,6 +2646,9 @@ fun EffectToolPanel(
                                         ColorPickerRow(
                                             selectedColor = currentStyle.textColor,
                                             onColorSelected = { col -> onUpdateStyle(currentStyle.copy(textColor = col), true) },
+                                            onCustomColorChange = { col -> onUpdateStyle(currentStyle.copy(textColor = col), false) },
+                                            onPickStart = { onSliderDragStart() },
+                                            onPickEnd = { onSliderDragEnd() },
                                             onEyedropperClick = {
                                                 onStartEyedropper { sampledCol ->
                                                     onUpdateStyle(currentStyle.copy(textColor = sampledCol), true)
@@ -2717,6 +2720,14 @@ fun EffectToolPanel(
                                                             }
                                                             onUpdateStyle(currentStyle.copy(gradientStops = updatedStops), true)
                                                         },
+                                                        onCustomColorChange = { newColor ->
+                                                            val updatedStops = stops.toMutableList().apply {
+                                                                this[index] = stop.copy(color = newColor)
+                                                            }
+                                                            onUpdateStyle(currentStyle.copy(gradientStops = updatedStops), false)
+                                                        },
+                                                        onPickStart = { onSliderDragStart() },
+                                                        onPickEnd = { onSliderDragEnd() },
                                                         onEyedropperClick = {
                                                             onStartEyedropper { sampledCol ->
                                                                 val updatedStops = stops.toMutableList().apply {
@@ -2808,6 +2819,9 @@ fun EffectToolPanel(
                                     ColorPickerRow(
                                         selectedColor = currentStyle.strokeColor,
                                         onColorSelected = { col -> onUpdateStyle(currentStyle.copy(strokeColor = col), true) },
+                                        onCustomColorChange = { col -> onUpdateStyle(currentStyle.copy(strokeColor = col), false) },
+                                        onPickStart = { onSliderDragStart() },
+                                        onPickEnd = { onSliderDragEnd() },
                                         onEyedropperClick = {
                                             onStartEyedropper { sampledCol ->
                                                 onUpdateStyle(currentStyle.copy(strokeColor = sampledCol), true)
@@ -2853,6 +2867,11 @@ fun EffectToolPanel(
                                         onColorSelected = { col ->
                                             onUpdateStyle(currentStyle.copy(shadowColor = col), true)
                                         },
+                                        onCustomColorChange = { col ->
+                                            onUpdateStyle(currentStyle.copy(shadowColor = col), false)
+                                        },
+                                        onPickStart = { onSliderDragStart() },
+                                        onPickEnd = { onSliderDragEnd() },
                                         onEyedropperClick = {
                                             onStartEyedropper { sampledCol ->
                                                 onUpdateStyle(currentStyle.copy(shadowColor = sampledCol), true)
@@ -2947,6 +2966,11 @@ fun EffectToolPanel(
                                         onColorSelected = { col ->
                                             onUpdateStyle(currentStyle.copy(glowColor = col), true)
                                         },
+                                        onCustomColorChange = { col ->
+                                            onUpdateStyle(currentStyle.copy(glowColor = col), false)
+                                        },
+                                        onPickStart = { onSliderDragStart() },
+                                        onPickEnd = { onSliderDragEnd() },
                                         onEyedropperClick = {
                                             onStartEyedropper { sampledCol ->
                                                 onUpdateStyle(currentStyle.copy(glowColor = sampledCol), true)
@@ -3069,6 +3093,11 @@ fun EffectToolPanel(
                                             onUpdateImageLayer(selectedLayer.copy(glowColor = col))
                                             onSliderDragEnd()
                                         },
+                                        onCustomColorChange = { col ->
+                                            onUpdateImageLayer(selectedLayer.copy(glowColor = col))
+                                        },
+                                        onPickStart = { onSliderDragStart() },
+                                        onPickEnd = { onSliderDragEnd() },
                                         onEyedropperClick = {
                                             onStartEyedropper { sampledCol ->
                                                 onSliderDragStart()
