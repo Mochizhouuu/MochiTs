@@ -179,6 +179,7 @@ class TextRenderer(private val context: Context) {
     // Reusable paint instances to avoid frequent GC allocations during rapid drag gestures
     private val reusableLayoutPaint = Paint()
     private val reusableRenderPaint = Paint()
+    private val reusableGlowPaint = Paint()
     private val reusableShadowPaint = Paint()
     private val reusableStrokePaint = Paint()
 
@@ -550,8 +551,15 @@ class TextRenderer(private val context: Context) {
             )
         }
 
-        // Glow tidak lagi pakai setShadowLayer (hasilnya tidak konsisten antar
-        // GPU/driver); digambar sebagai siluet blur offscreen via drawGlowSmear.
+        // Glow via shadow-layer bawaan (hasil visual yang sudah dikenal).
+        val glowPaint = if (style.glowColor != Color.TRANSPARENT && style.glowRadius > 0f) {
+            reusableGlowPaint.apply {
+                set(paint)
+                color = style.glowColor
+                alpha = fillAlpha
+                setShadowLayer(style.glowRadius, 0f, 0f, style.glowColor)
+            }
+        } else null
 
         val shadowPaint = if (style.shadowColor != Color.TRANSPARENT && style.shadowRadius > 0f) {
             reusableShadowPaint.apply {
@@ -572,24 +580,18 @@ class TextRenderer(private val context: Context) {
             }
         } else null
 
-        if (style.glowColor != Color.TRANSPARENT && style.glowRadius > 0f) {
-            drawGlowSmear(
-                canvas, x, y, layoutResult, style,
-                paint, strokePaint, fillAlpha
-            )
-        }
         if (style.motionBlurRadius > 0f) {
             // Objeknya sendiri yang blur (tanpa salinan tajam di atasnya,
             // kalau tidak terbaca sebagai drop shadow).
             drawMotionBlurSmear(
                 canvas, x, y, layoutResult, style,
-                paint, null, shadowPaint, strokePaint
+                paint, glowPaint, shadowPaint, strokePaint
             )
         } else {
             drawTextRuns(
                 canvas, layoutResult.lines, x, y,
                 layoutResult.topOffset, layoutResult.lineHeight, fontMetrics,
-                paint, null, shadowPaint, strokePaint
+                paint, glowPaint, shadowPaint, strokePaint
             )
         }
     }
@@ -622,6 +624,9 @@ class TextRenderer(private val context: Context) {
 
     private var motionBlurBitmap: Bitmap? = null
     private val motionBlurUpscalePaint = Paint().apply { isFilterBitmap = true }
+
+    /** Pengali alfa smear motion blur (stroke tipis vs jendela blur lebar). */
+    private val MOTION_ALPHA_BOOST = 2
 
     /**
      * Smear motion blur searah [TextStyleConfig.motionBlurAngle].
@@ -673,92 +678,10 @@ class TextRenderer(private val context: Context) {
         val px = IntArray(ww * hh)
         work.getPixels(px, 0, ww, 0, 0, ww, hh)
         val blurred = MotionBlur.blurDirectional(px, ww, hh, style.motionBlurAngle, radius * down)
-        work.setPixels(blurred, 0, ww, 0, 0, ww, hh)
-
-        val left = (x + layoutResult.minX) - pad
-        val top = (y + layoutResult.topOffset) - pad
-        canvas.drawBitmap(work, null, RectF(left, top, left + bw, top + bh), motionBlurUpscalePaint)
-    }
-
-    private var glowBitmap: Bitmap? = null
-
-    /** Pengali alfa halo glow (lihat penjelasan di drawGlowSmear). */
-    private val GLOW_ALPHA_BOOST = 3
-
-    /**
-     * Outer glow satu warna: siluet teks solid diblur merata (H lalu V)
-     * di bitmap offscreen, ditempel di belakang teks tajam.
-     * Murni piksel Kotlin (tanpa setShadowLayer) agar konsisten di semua GPU.
-     */
-    private fun drawGlowSmear(
-        canvas: Canvas,
-        x: Float,
-        y: Float,
-        layoutResult: TextLayoutResult,
-        style: TextStyleConfig,
-        basePaint: Paint,
-        strokePaint: Paint?,
-        fillAlpha: Int
-    ) {
-        val radius = style.glowRadius
-        if (radius <= 0f || style.glowColor == Color.TRANSPARENT) return
-        val textW = (layoutResult.maxX - layoutResult.minX).coerceAtLeast(1f)
-        val textH = (layoutResult.lines.size * layoutResult.lineHeight).coerceAtLeast(1f)
-        val pad = ceil(radius.toDouble()).toInt() + 4
-        val bw = (textW + 2 * pad).toInt().coerceAtLeast(1)
-        val bh = (textH + 2 * pad).toInt().coerceAtLeast(1)
-        val down = minOf(1f, 512f / maxOf(bw, bh).toFloat())
-        val ww = maxOf(1, (bw * down).toInt())
-        val hh = maxOf(1, (bh * down).toInt())
-
-        var bmp = glowBitmap
-        if (bmp == null || bmp.isRecycled || bmp.width != ww || bmp.height != hh) {
-            try { bmp?.recycle() } catch (_: Exception) {}
-            bmp = Bitmap.createBitmap(ww, hh, Bitmap.Config.ARGB_8888)
-            glowBitmap = bmp
-        }
-        val work = bmp ?: return
-        work.eraseColor(Color.TRANSPARENT)
-
-        val silFill = Paint().apply {
-            set(basePaint)
-            shader = null
-            color = style.glowColor
-            alpha = fillAlpha
-            clearShadowLayer()
-        }
-        val silStroke = strokePaint?.let {
-            Paint().apply {
-                set(it)
-                shader = null
-                color = style.glowColor
-                alpha = fillAlpha
-                clearShadowLayer()
-            }
-        }
-
-        val off = Canvas(work)
-        off.scale(down, down)
-        off.translate(-(x + layoutResult.minX) + pad, -(y + layoutResult.topOffset) + pad)
-        val fm = silFill.fontMetrics
-        layoutResult.lines.forEachIndexed { i, line ->
-            if (line.text.isNotEmpty()) {
-                val lineX = x + line.xOffset
-                val baselineY = y + layoutResult.topOffset + (i * layoutResult.lineHeight) - fm.top
-                silStroke?.let { off.drawText(line.text, lineX, baselineY, it) }
-                off.drawText(line.text, lineX, baselineY, silFill)
-            }
-        }
-
-        val px = IntArray(ww * hh)
-        work.getPixels(px, 0, ww, 0, 0, ww, hh)
-        val workR = radius * down
-        val blurH = MotionBlur.blurDirectional(px, ww, hh, 0f, workR)
-        val blurred = MotionBlur.blurDirectional(blurH, ww, hh, 90f, workR)
-        // Boost intensitas: stroke huruf tipis dibanding jendela blur
-        // sehingga halo mentah terlalu redup; lipatgandakan alfa (clamp).
+        // Boost seperti glow: stroke tipis dibanding jendela blur membuat
+        // smear terlalu redup; lipatgandakan alfa (clamp) agar efek terlihat.
         for (i in blurred.indices) {
-            val a = ((blurred[i] ushr 24) and 0xFF) * GLOW_ALPHA_BOOST
+            val a = ((blurred[i] ushr 24) and 0xFF) * MOTION_ALPHA_BOOST
             blurred[i] = (a.coerceAtMost(255) shl 24) or (blurred[i] and 0x00FFFFFF)
         }
         work.setPixels(blurred, 0, ww, 0, 0, ww, hh)

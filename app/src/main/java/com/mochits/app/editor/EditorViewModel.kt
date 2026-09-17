@@ -903,6 +903,42 @@ data class HistoryManifest(
         }
     }
 
+    /**
+     * Bitmap histori yang sama (objek identik — snapshot berbagi referensi
+     * baseBitmap) hanya dikompresi sekali. Tanpa ini SETIAP save menulis
+     * ulang semua PNG histori sehingga tombol back terasa mati.
+     * Dipanggil dengan saveMutex dipegang.
+     */
+    private val historyBitmapFiles = java.util.IdentityHashMap<Bitmap, String>()
+
+    private fun persistHistoryBitmap(historyDir: File, bmp: Bitmap): String? {
+        val known = historyBitmapFiles[bmp]
+        if (known != null) {
+            val f = File(historyDir, known)
+            if (f.exists() && f.length() > 0) return known
+        }
+        return try {
+            val fName = "hist_${java.util.UUID.randomUUID()}.png"
+            val tmpFile = File(historyDir, "$fName.tmp")
+            java.io.FileOutputStream(tmpFile).use { out ->
+                bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                out.flush()
+            }
+            if (tmpFile.exists() && tmpFile.length() > 0) {
+                val file = File(historyDir, fName)
+                if (!tmpFile.renameTo(file)) {
+                    tmpFile.copyTo(file, overwrite = true)
+                    tmpFile.delete()
+                }
+                historyBitmapFiles[bmp] = fName
+                fName
+            } else null
+        } catch (t: Throwable) {
+            Logger.e("Error compressing history bitmap: ${t.message}", t)
+            null
+        }
+    }
+
     private fun syncHistoryToDiskInternal(projId: String) {
         try {
             val historyDir = File(context.filesDir, "projects/$projId/history").apply { mkdirs() }
@@ -911,30 +947,11 @@ data class HistoryManifest(
             val undoSnapshotList = synchronized(undoStack) { undoStack.toList() }
             val redoSnapshotList = synchronized(undoStack) { redoStack.toList() }
 
-            val undoEntries = undoSnapshotList.mapIndexed { index, snapshot ->
+            val undoEntries = undoSnapshotList.map { snapshot ->
                 var fileName: String? = snapshot.bitmapFilePath?.let { File(it).name }
                 val bmp = snapshot.baseBitmap
                 if (bmp != null && !bmp.isRecycled) {
-                    val fName = "undo_bmp_$index.png"
-                    val tmpName = "undo_bmp_$index.png.tmp"
-                    val file = File(historyDir, fName)
-                    val tmpFile = File(historyDir, tmpName)
-                    try {
-                        java.io.FileOutputStream(tmpFile).use { out ->
-                            bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
-                            out.flush()
-                        }
-                        if (tmpFile.exists() && tmpFile.length() > 0) {
-                            if (file.exists()) file.delete()
-                            if (!tmpFile.renameTo(file)) {
-                                tmpFile.copyTo(file, overwrite = true)
-                                tmpFile.delete()
-                            }
-                            fileName = fName
-                        }
-                    } catch (t: Throwable) {
-                        Logger.e("Error compressing undo history bitmap: ${t.message}", t)
-                    }
+                    persistHistoryBitmap(historyDir, bmp)?.let { fileName = it }
                 }
                 val validName = fileName
                 if (validName != null) referencedFiles.add(validName)
@@ -944,30 +961,11 @@ data class HistoryManifest(
                 )
             }
 
-            val redoEntries = redoSnapshotList.mapIndexed { index, snapshot ->
+            val redoEntries = redoSnapshotList.map { snapshot ->
                 var fileName: String? = snapshot.bitmapFilePath?.let { File(it).name }
                 val bmp = snapshot.baseBitmap
                 if (bmp != null && !bmp.isRecycled) {
-                    val fName = "redo_bmp_$index.png"
-                    val tmpName = "redo_bmp_$index.png.tmp"
-                    val file = File(historyDir, fName)
-                    val tmpFile = File(historyDir, tmpName)
-                    try {
-                        java.io.FileOutputStream(tmpFile).use { out ->
-                            bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
-                            out.flush()
-                        }
-                        if (tmpFile.exists() && tmpFile.length() > 0) {
-                            if (file.exists()) file.delete()
-                            if (!tmpFile.renameTo(file)) {
-                                tmpFile.copyTo(file, overwrite = true)
-                                tmpFile.delete()
-                            }
-                            fileName = fName
-                        }
-                    } catch (t: Throwable) {
-                        Logger.e("Error compressing redo history bitmap: ${t.message}", t)
-                    }
+                    persistHistoryBitmap(historyDir, bmp)?.let { fileName = it }
                 }
                 val validName = fileName
                 if (validName != null) referencedFiles.add(validName)
@@ -986,6 +984,11 @@ data class HistoryManifest(
                 if (file.name != "manifest.json" && !referencedFiles.contains(file.name)) {
                     file.delete()
                 }
+            }
+            // Prune cache dedup: entri yang filenya sudah tak terpakai dibuang
+            // agar map tidak tumbuh dan bitmap recycled tak tersentuh lagi.
+            historyBitmapFiles.entries.removeAll { (_, name) ->
+                !referencedFiles.contains(name) || !File(historyDir, name).exists()
             }
         } catch (e: Exception) {
             Logger.e("Error in syncHistoryToDiskInternal: ${e.message}", e)
@@ -1417,7 +1420,9 @@ data class HistoryManifest(
     }
 
     fun updateSelectedTextLayerStyle(style: TextStyleConfig, saveUndo: Boolean = true) {
-        defaultTextStyle.value = style
+        // SENGAJA tidak menyentuh defaultTextStyle: edit pada layer terpilih
+        // tidak boleh bocor ke teks baru. Default hanya berubah via preset
+        // yang dipakai tanpa seleksi (applyStylePreset).
         val selectedId = selectedLayerId.value
         if (selectedId != null) {
             if (saveUndo) {
