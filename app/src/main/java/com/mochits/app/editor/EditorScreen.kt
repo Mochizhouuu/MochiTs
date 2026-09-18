@@ -733,7 +733,14 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                 if (isEyedropperActive) {
                                     val firstChange = changes.first()
                                     val touchCanvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
-                                    viewModel.updateEyedropperPosition(touchCanvasPt)
+                                    // Ujung probe (tengah "+") melayang di atas jari agar
+                                    // terlihat; warna diambil di tengah "+", jadi posisi
+                                    // sampling = posisi probe, bukan titik sentuh mentah.
+                                    val probeScale = viewModel.canvasState.scale.coerceAtLeast(0.1f)
+                                    val probeLift = 80.dp.toPx() / probeScale
+                                    viewModel.updateEyedropperPosition(
+                                        touchCanvasPt.copy(y = (touchCanvasPt.y - probeLift).coerceAtLeast(0f))
+                                    )
                                     firstChange.consume()
                                     triggerRedraw++
                                     continue
@@ -1394,21 +1401,18 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         val crossArm = 24f / currentScale
                         val swatchRadius = 28f / currentScale
 
-                        // Red Crosshair Paint — sampling warna tetap di titik pas
-                        // (pt), tapi jari menutupi titik itu, jadi penanda "+"
-                        // digambar melayang di atas + garis penunjuk ke titik asli.
-                        val liftPx = 80.dp.toPx() / currentScale
-                        val markPt = Offset(pt.x, pt.y - liftPx)
+                        // Red Crosshair Paint — tengah "+" = titik sampling,
+                        // melayang di atas jari agar tidak tertutup. Tanpa garis
+                        // penunjuk: probe digerakkan dengan menatap tanda "+"-nya.
                         val crossPaint = crossPaintCache.apply { strokeWidth = strokeW }
-                        drawContext.canvas.nativeCanvas.drawLine(pt.x, pt.y, markPt.x, markPt.y, crossPaint)
-                        drawContext.canvas.nativeCanvas.drawLine(markPt.x - crossArm, markPt.y, markPt.x + crossArm, markPt.y, crossPaint)
-                        drawContext.canvas.nativeCanvas.drawLine(markPt.x, markPt.y - crossArm, markPt.x, markPt.y + crossArm, crossPaint)
+                        drawContext.canvas.nativeCanvas.drawLine(pt.x - crossArm, pt.y, pt.x + crossArm, pt.y, crossPaint)
+                        drawContext.canvas.nativeCanvas.drawLine(pt.x, pt.y - crossArm, pt.x, pt.y + crossArm, crossPaint)
 
                         // Sampled Color Swatch Bubble (di atas penanda, tidak ketutup jari)
                         val sampledCol = sampledColorPreview ?: AndroidColor.BLACK
                         val fillPaint = fillPaintCache.apply { color = sampledCol }
                         val strokePaint = strokePaintCache.apply { strokeWidth = 3f / currentScale }
-                        val swatchCenter = Offset(markPt.x, markPt.y - crossArm - swatchRadius - 6f / currentScale)
+                        val swatchCenter = Offset(pt.x, pt.y - crossArm - swatchRadius - 6f / currentScale)
                         drawContext.canvas.nativeCanvas.drawCircle(swatchCenter.x, swatchCenter.y, swatchRadius, fillPaint)
                         drawContext.canvas.nativeCanvas.drawCircle(swatchCenter.x, swatchCenter.y, swatchRadius, strokePaint)
                     }
