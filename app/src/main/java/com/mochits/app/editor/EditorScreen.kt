@@ -291,7 +291,14 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
         }
     }
 
-    val textRenderer = remember { TextRenderer(context) }
+    val textRenderer = remember(allFonts) {
+        TextRenderer(context).apply {
+            customFontPathResolver = { name ->
+                allFonts.find { it.name == name }?.filePath
+                    ?: allFonts.find { it.name.equals(name, ignoreCase = true) }?.filePath
+            }
+        }
+    }
     var triggerRedraw by remember { mutableIntStateOf(0) }
     var isMaskPanelCollapsed by remember { mutableStateOf(false) }
     // Whether the erase mask currently holds a selection. Updated only on
@@ -1386,18 +1393,22 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         val strokeW = 4f / currentScale
                         val crossArm = 24f / currentScale
                         val swatchRadius = 28f / currentScale
-                        val swatchOffset = 60f / currentScale
 
-                        // Red Crosshair Paint
+                        // Red Crosshair Paint — sampling warna tetap di titik pas
+                        // (pt), tapi jari menutupi titik itu, jadi penanda "+"
+                        // digambar melayang di atas + garis penunjuk ke titik asli.
+                        val liftPx = 80.dp.toPx() / currentScale
+                        val markPt = Offset(pt.x, pt.y - liftPx)
                         val crossPaint = crossPaintCache.apply { strokeWidth = strokeW }
-                        drawContext.canvas.nativeCanvas.drawLine(pt.x - crossArm, pt.y, pt.x + crossArm, pt.y, crossPaint)
-                        drawContext.canvas.nativeCanvas.drawLine(pt.x, pt.y - crossArm, pt.x, pt.y + crossArm, crossPaint)
+                        drawContext.canvas.nativeCanvas.drawLine(pt.x, pt.y, markPt.x, markPt.y, crossPaint)
+                        drawContext.canvas.nativeCanvas.drawLine(markPt.x - crossArm, markPt.y, markPt.x + crossArm, markPt.y, crossPaint)
+                        drawContext.canvas.nativeCanvas.drawLine(markPt.x, markPt.y - crossArm, markPt.x, markPt.y + crossArm, crossPaint)
 
-                        // Sampled Color Swatch Bubble
+                        // Sampled Color Swatch Bubble (di atas penanda, tidak ketutup jari)
                         val sampledCol = sampledColorPreview ?: AndroidColor.BLACK
                         val fillPaint = fillPaintCache.apply { color = sampledCol }
                         val strokePaint = strokePaintCache.apply { strokeWidth = 3f / currentScale }
-                        val swatchCenter = Offset(pt.x, pt.y - swatchOffset)
+                        val swatchCenter = Offset(markPt.x, markPt.y - crossArm - swatchRadius - 6f / currentScale)
                         drawContext.canvas.nativeCanvas.drawCircle(swatchCenter.x, swatchCenter.y, swatchRadius, fillPaint)
                         drawContext.canvas.nativeCanvas.drawCircle(swatchCenter.x, swatchCenter.y, swatchRadius, strokePaint)
                     }

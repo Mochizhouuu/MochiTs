@@ -146,6 +146,13 @@ private object SyllableSplitter {
 
 class TextRenderer(private val context: Context) {
 
+    /**
+     * Resolver displayName font -> filePath aktual. Wajib untuk font impor
+     * karena filenya tersimpan sebagai UUID.ttf sehingga tidak bisa
+     * ditemukan lewat pencocokan nama file.
+     */
+    var customFontPathResolver: ((String) -> String?)? = null
+
     companion object {
         private val typefaceCache = java.util.concurrent.ConcurrentHashMap<String, Typeface>()
 
@@ -757,6 +764,21 @@ class TextRenderer(private val context: Context) {
 
     private fun findFontFileAndCreateTypeface(fontName: String): Typeface? {
         val normalizedFont = fontName.lowercase().replace("_", " ").trim()
+
+        // Font impor (UUID.ttf): cocokkan lewat resolver displayName -> filePath.
+        val resolvedPath = customFontPathResolver?.invoke(fontName)
+            ?: customFontPathResolver?.invoke(normalizedFont)
+        if (resolvedPath != null) {
+            try {
+                val resolvedFile = File(resolvedPath)
+                if (resolvedFile.isFile) {
+                    val tf = Typeface.createFromFile(resolvedFile)
+                    if (tf != null) return tf
+                }
+            } catch (e: Exception) {
+                Logger.e("Error: ${e.message}", e)
+            }
+        }
 
         val fontDirs = listOf(
             File(context.filesDir, "fonts"),
