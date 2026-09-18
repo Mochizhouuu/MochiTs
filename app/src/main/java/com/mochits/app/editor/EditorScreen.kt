@@ -615,6 +615,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onMoveLayer = { id, dir -> viewModel.moveLayer(id, dir) },
                         onToggleVisibility = { viewModel.toggleLayerVisibility(it) },
                         onDeleteLayer = { viewModel.deleteLayer(it) },
+                        onDuplicateLayer = { viewModel.duplicateLayer(it) },
                         onLoadBaseImage = { baseImagePickerLauncher.launch("image/*") },
                         onUpdateOpacity = { opacity, saveUndo -> viewModel.updateSelectedLayerOpacity(opacity, saveUndo = saveUndo) },
                         onSliderDragStart = { viewModel.onSliderDragStart() },
@@ -3184,6 +3185,7 @@ fun LayersToolPanel(
     onMoveLayer: (String, Int) -> Unit,
     onToggleVisibility: (String) -> Unit,
     onDeleteLayer: (String) -> Unit,
+    onDuplicateLayer: (String) -> Unit,
     onLoadBaseImage: () -> Unit = {},
     onUpdateOpacity: ((Float, Boolean) -> Unit)? = null,
     onSliderDragStart: () -> Unit = {},
@@ -3256,20 +3258,44 @@ fun LayersToolPanel(
                                 }
                                 Text(text = layer.name)
                             }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                // List is front-first: Naik = toward front = +1 in draw order.
-                                TextButton(onClick = { onMoveLayer(layer.id, 1) }) {
-                                    Icon(Icons.Default.ArrowUpward, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(2.dp))
-                                    Text("Naik", style = MaterialTheme.typography.labelSmall)
+                            // Aksi layer ringkas dalam menu ⋮ agar baris tetap
+                            // lega (slot siap untuk Clipping Mask nanti).
+                            Box {
+                                var layerMenuOpen by remember { mutableStateOf(false) }
+                                IconButton(onClick = { layerMenuOpen = true }) {
+                                    Icon(Icons.Default.MoreVert, contentDescription = "Aksi layer")
                                 }
-                                TextButton(onClick = { onMoveLayer(layer.id, -1) }) {
-                                    Icon(Icons.Default.ArrowDownward, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(2.dp))
-                                    Text("Turun", style = MaterialTheme.typography.labelSmall)
-                                }
-                                IconButton(onClick = { onDeleteLayer(layer.id) }) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Hapus Layer", tint = MaterialTheme.colorScheme.error)
+                                DropdownMenu(
+                                    expanded = layerMenuOpen,
+                                    onDismissRequest = { layerMenuOpen = false }
+                                ) {
+                                    // List is front-first: Naik = toward front = +1 in draw order.
+                                    DropdownMenuItem(
+                                        text = { Text("Naik") },
+                                        leadingIcon = { Icon(Icons.Default.ArrowUpward, contentDescription = null) },
+                                        onClick = { layerMenuOpen = false; onMoveLayer(layer.id, 1) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Turun") },
+                                        leadingIcon = { Icon(Icons.Default.ArrowDownward, contentDescription = null) },
+                                        onClick = { layerMenuOpen = false; onMoveLayer(layer.id, -1) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Duplikat") },
+                                        leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
+                                        onClick = { layerMenuOpen = false; onDuplicateLayer(layer.id) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Hapus") },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Default.Delete,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.error
+                                            )
+                                        },
+                                        onClick = { layerMenuOpen = false; onDeleteLayer(layer.id) }
+                                    )
                                 }
                             }
                         }

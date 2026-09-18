@@ -1968,6 +1968,55 @@ data class HistoryManifest(
         autoSave()
     }
 
+    /**
+     * Duplikat layer (teks/gambar): salinan menumpuk pas di atas aslinya
+     * dan langsung aktif. File gambar ikut disalin agar salinan tidak putus
+     * saat layer asli dihapus.
+     */
+    fun duplicateLayer(id: String) {
+        val list = layers.value.toMutableList()
+        val index = list.indexOfFirst { it.id == id }
+        if (index == -1) return
+        saveUndoSnapshot()
+        val src = list[index]
+        val newId = UUID.randomUUID().toString()
+        val copy = when (src) {
+            is Layer.TextLayer -> src.copy(
+                id = newId,
+                name = "${src.name} (copy)"
+            )
+            is Layer.ImageLayer -> {
+                val newPath = duplicateImageFile(src.imagePath, newId)
+                src.copy(
+                    id = newId,
+                    name = "${src.name} (copy)",
+                    imagePath = newPath ?: src.imagePath
+                )
+            }
+        }
+        list.add(index + 1, copy)
+        layers.value = list
+        selectedLayerId.value = newId
+        autoSave()
+    }
+
+    /** Salin file bitmap layer agar salinan punya file sendiri. */
+    private fun duplicateImageFile(srcPath: String?, newId: String): String? {
+        if (srcPath == null) return null
+        return try {
+            val srcFile = File(srcPath)
+            if (!srcFile.isFile || srcFile.length() <= 0) return null
+            val projId = project.value?.id ?: return null
+            val dir = File(context.filesDir, "projects/$projId/layers").apply { mkdirs() }
+            val dst = File(dir, "layer_$newId.png")
+            srcFile.copyTo(dst, overwrite = true)
+            dst.absolutePath
+        } catch (t: Throwable) {
+            Logger.e("Error duplicating image file: ${t.message}", t)
+            null
+        }
+    }
+
 
     fun getDefaultExportFolderUri(): Uri? = exportSettingsRepository.getExportFolderUri()
 
