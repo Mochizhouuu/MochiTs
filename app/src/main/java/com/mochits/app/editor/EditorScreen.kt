@@ -2017,54 +2017,47 @@ fun EraseToolPanel(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 320.dp)
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(
+            modifier = Modifier
+                .padding(horizontal = 10.dp, vertical = 8.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Tool Erase (Penghapus Objek)",
-                    style = MaterialTheme.typography.titleMedium
+                // Status dot + judul sebaris: hemat satu baris penuh.
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .background(
+                            color = if (hasMask) Color(0xFF4CAF50) else MaterialTheme.colorScheme.outline,
+                            shape = androidx.compose.foundation.shape.CircleShape
+                        )
                 )
-                IconButton(onClick = onToggleCollapse) {
+                Text(
+                    text = "Erase",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onToggleCollapse, modifier = Modifier.size(32.dp)) {
                     Icon(
                         if (isCollapsed) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = if (isCollapsed) "Expand Panel" else "Collapse Panel"
+                        contentDescription = if (isCollapsed) "Expand Panel" else "Collapse Panel",
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
 
             if (!isCollapsed) {
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
-                // Selection status hint: tells the user whether there is
-                // anything to erase yet.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .background(
-                                color = if (hasMask) Color(0xFF4CAF50) else MaterialTheme.colorScheme.outline,
-                                shape = androidx.compose.foundation.shape.CircleShape
-                            )
-                    )
-                    Text(
-                        text = if (hasMask) "Ada area terpilih — siap dihapus"
-                        else "Belum ada area terpilih",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Text("Alat Seleksi Area:", style = MaterialTheme.typography.bodySmall)
+                Text("Alat:", style = MaterialTheme.typography.labelMedium)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2093,9 +2086,9 @@ fun EraseToolPanel(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
-                Text("Model Inpaint:", style = MaterialTheme.typography.bodySmall)
+                Text("Model:", style = MaterialTheme.typography.labelMedium)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2130,46 +2123,49 @@ fun EraseToolPanel(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedButton(onClick = onClear) { Text("Clear Mask") }
-                    OutlinedButton(onClick = onInvert) { Text("Invert") }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(
-                    onClick = onRunErase,
-                    enabled = !isProcessing && !isDownloading && hasMask,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    if (isProcessing) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Memproses...")
-                    } else {
-                        Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Hapus / Inpaint")
+                    OutlinedButton(
+                        onClick = onClear,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                    ) { Text("Clear", style = MaterialTheme.typography.labelLarge) }
+                    OutlinedButton(
+                        onClick = onInvert,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                    ) { Text("Invert", style = MaterialTheme.typography.labelLarge) }
+                    Button(
+                        onClick = onRunErase,
+                        enabled = !isProcessing && !isDownloading && hasMask,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                    ) {
+                        if (isProcessing) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Proses...")
+                        } else {
+                            Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Hapus")
+                        }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 if (mode == MaskToolMode.MAGIC_WAND) {
                     if (!hasMask) {
                         Text(
-                            text = "Ketuk objek pada gambar untuk menyeleksi area warna yang sama.",
+                            text = "Ketuk objek untuk seleksi warna.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                     }
-                    Text("Toleransi Warna (Tolerance): ${magicWandTolerance.toInt()}%", style = MaterialTheme.typography.bodySmall)
+                    Text("Toleransi: ${magicWandTolerance.toInt()}%", style = MaterialTheme.typography.labelMedium)
                     Slider(
                         value = magicWandTolerance,
                         onValueChange = onToleranceChange,
@@ -2181,7 +2177,7 @@ fun EraseToolPanel(
                     // release, keeping the slider smooth on big masks.
                     var localExpandValue by remember(magicWandExpand) { mutableFloatStateOf(magicWandExpand) }
 
-                    Text("Perluas Margin (Expand): ${localExpandValue.toInt()} px", style = MaterialTheme.typography.bodySmall)
+                    Text("Expand: ${localExpandValue.toInt()} px", style = MaterialTheme.typography.labelMedium)
                     Slider(
                         value = localExpandValue,
                         onValueChange = { localExpandValue = it },
@@ -2193,7 +2189,7 @@ fun EraseToolPanel(
                         valueRange = 0f..30f
                     )
                 } else {
-                    Text("Ukuran Kuas: ${brushSize.toInt()} px", style = MaterialTheme.typography.bodySmall)
+                    Text("Kuas: ${brushSize.toInt()} px", style = MaterialTheme.typography.labelMedium)
                     Slider(
                         value = brushSize,
                         onValueChange = onSizeChange,
@@ -3331,13 +3327,15 @@ fun FontToolPanel(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 360.dp)
     ) {
         Column(
             modifier = Modifier
-                .padding(14.dp)
+                .padding(horizontal = 10.dp, vertical = 8.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -3345,21 +3343,21 @@ fun FontToolPanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Pengaturan Font",
-                    style = MaterialTheme.typography.titleMedium,
+                    text = "Font",
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
                 OutlinedButton(
                     onClick = onImportCustomFont,
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = null,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Import Font")
+                    Text("Import", style = MaterialTheme.typography.labelLarge)
                 }
             }
 
@@ -3372,7 +3370,7 @@ fun FontToolPanel(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Text("Pilih Font (${filteredFonts.size} tersedia):", style = MaterialTheme.typography.bodyMedium)
+            Text("Pilih Font (${filteredFonts.size}):", style = MaterialTheme.typography.labelLarge)
             if (onToggleFavorite != null && favoriteKeys.isNotEmpty()) {
                 FilterChip(
                     selected = showFavoritesOnly,
@@ -3404,7 +3402,7 @@ fun FontToolPanel(
                             {
                                 IconButton(
                                     onClick = { onToggleFavorite.invoke(fontItem.fontNameKey) },
-                                    modifier = Modifier.size(28.dp)
+                                    modifier = Modifier.size(24.dp)
                                 ) {
                                     Icon(
                                         if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
@@ -3415,7 +3413,7 @@ fun FontToolPanel(
                                         },
                                         tint = if (isFavorite) MaterialTheme.colorScheme.primary
                                         else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
                             }
@@ -3438,7 +3436,7 @@ fun FontToolPanel(
                 }
             }
 
-            Text("Gaya Font:", style = MaterialTheme.typography.bodyMedium)
+            Text("Gaya:", style = MaterialTheme.typography.labelLarge)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.horizontalScroll(rememberScrollState())
@@ -3456,7 +3454,7 @@ fun FontToolPanel(
                 }
             }
 
-            Text("Ukuran Font: ${currentStyle.fontSize.toInt()} px", style = MaterialTheme.typography.bodyMedium)
+            Text("Ukuran: ${currentStyle.fontSize.toInt()} px", style = MaterialTheme.typography.labelLarge)
             Slider(
                 // Range must cover the canvas resize-handle clamp (10..300); a
                 // narrower range crashes (M3 Slider requires value in range).
@@ -3473,7 +3471,7 @@ fun FontToolPanel(
             )
 
             if (selectedLayer != null && onCapitalizationTransform != null) {
-                Text("Kapitalisasi Teks:", style = MaterialTheme.typography.bodyMedium)
+                Text("Kapitalisasi:", style = MaterialTheme.typography.labelLarge)
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.horizontalScroll(rememberScrollState())
@@ -3515,48 +3513,41 @@ fun StylePresetPanel(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 360.dp)
     ) {
         Column(
             modifier = Modifier
-                .padding(14.dp)
+                .padding(horizontal = 10.dp, vertical = 8.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text("Preset Style", style = MaterialTheme.typography.titleMedium)
-            Text(
-                text = if (selectedLayer != null)
-                    "Ketuk preset untuk dipakai ke teks terpilih."
-                else
-                    "Tidak ada teks terpilih — preset dipakai sebagai style teks baru.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Text("Preset Style", style = MaterialTheme.typography.titleSmall)
 
-            OutlinedTextField(
-                value = presetName,
-                onValueChange = { presetName = it },
-                label = { Text("Nama preset baru") },
-                placeholder = { Text("cth. Judul Bab") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Button(
-                onClick = {
-                    if (presetName.isNotBlank()) {
-                        onSavePreset?.invoke(presetName)
-                        presetName = ""
-                    }
-                },
-                enabled = presetName.isNotBlank(),
-                modifier = Modifier.fillMaxWidth()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    if (selectedLayer != null) "Simpan Style Teks Ini"
-                    else "Simpan Style Default Ini"
+                OutlinedTextField(
+                    value = presetName,
+                    onValueChange = { presetName = it },
+                    placeholder = { Text("Nama preset baru") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
                 )
+                IconButton(
+                    onClick = {
+                        if (presetName.isNotBlank()) {
+                            onSavePreset?.invoke(presetName)
+                            presetName = ""
+                        }
+                    },
+                    enabled = presetName.isNotBlank()
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Simpan preset")
+                }
             }
 
             presets.forEach { preset ->
@@ -3568,34 +3559,46 @@ fun StylePresetPanel(
                         .clickable { onApplyPreset(preset) }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(preset.name, style = MaterialTheme.typography.bodyMedium)
+                            Text(preset.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
                             Text(
                                 text = "${preset.fontName} • ${preset.fontStyle} • " +
                                     "${preset.alignment.name.lowercase().replaceFirstChar { it.titlecase() }} • " +
                                     (if (preset.shape == com.mochits.app.model.TextContainerShape.OVAL) "Oval" else "Kotak") +
                                     (if (preset.isBuiltIn) " • Bawaan" else ""),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1
                             )
                         }
                         if (onTogglePin != null) {
                             val pinned = pinnedIds.contains(preset.id)
-                            IconButton(onClick = { onTogglePin.invoke(preset.id) }) {
+                            IconButton(
+                                onClick = { onTogglePin.invoke(preset.id) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
                                 Icon(
                                     Icons.Default.PushPin,
                                     contentDescription = if (pinned) "Lepas preset" else "Sematkan ke atas",
                                     tint = if (pinned) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
                         if (onDeletePreset != null) {
-                            IconButton(onClick = { onDeletePreset.invoke(preset.id) }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Hapus preset")
+                            IconButton(
+                                onClick = { onDeletePreset.invoke(preset.id) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Hapus preset",
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
                         } else if (preset.isBuiltIn) {
                             Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
