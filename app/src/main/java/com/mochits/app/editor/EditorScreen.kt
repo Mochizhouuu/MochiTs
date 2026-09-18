@@ -2974,7 +2974,7 @@ fun EffectToolPanel(
                                         onValueChangeFinished = {
                                             onSliderDragEnd()
                                         },
-                                        valueRange = 0f..40f
+                                        valueRange = 0f..100f
                                     )
 
                                     Text("Arah: ${currentStyle.motionBlurAngle.toInt()}°", style = MaterialTheme.typography.bodySmall)
@@ -3101,7 +3101,7 @@ fun EffectToolPanel(
                                         onValueChangeFinished = {
                                             onSliderDragEnd()
                                         },
-                                        valueRange = 0f..25f
+                                        valueRange = 0f..80f
                                     )
 
                                     Text("Arah: ${selectedLayer.motionBlurAngle.toInt()}°", style = MaterialTheme.typography.bodySmall)

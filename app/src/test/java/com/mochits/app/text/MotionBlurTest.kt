@@ -29,11 +29,11 @@ class MotionBlurTest {
         val pixels = IntArray(w) { 0 }
         pixels[2] = 0xFFFFFFFF.toInt()
         val out = MotionBlur.blurDirectional(pixels, w, 1, 0f, 1f)
-        // radius 1 -> 3 taps: tiap piksel merata-ratakan dirinya + tetangga.
+        // Gaussian radius 1 -> inti tegas, tetangga memudar (bukan rata 85).
         assertEquals(0, alpha(out[0]))
-        assertEquals(85, alpha(out[1]))
-        assertEquals(85, alpha(out[2]))
-        assertEquals(85, alpha(out[3]))
+        assertTrue(alpha(out[1]) in 5..20, "sisi kiri memudar, was ${alpha(out[1])}")
+        assertTrue(alpha(out[2]) in 225..245, "inti tetap tegas, was ${alpha(out[2])}")
+        assertTrue(alpha(out[3]) in 5..20, "sisi kanan memudar, was ${alpha(out[3])}")
         assertEquals(0, alpha(out[4]))
     }
 
