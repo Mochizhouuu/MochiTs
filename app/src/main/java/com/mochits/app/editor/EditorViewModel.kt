@@ -610,6 +610,10 @@ data class HistoryManifest(
                         val oldBmp = baseBitmap.value
                         baseBitmap.value = loadedBmp
                         recycleBitmapSafely(oldBmp)
+                        // Baru dimuat dari disk = identik dengan file: catat agar
+                        // save berikutnya (tanpa edit) skip kompresi ulang PNG.
+                        lastSavedBaseRef = loadedBmp
+                        lastSavedBaseProj = proj.id
                         setupCanvasSize(loadedBmp.width, loadedBmp.height)
 
                         val deserialized = serializer.deserialize(proj.layersJson)
@@ -1045,6 +1049,11 @@ data class HistoryManifest(
                     val snapshotLayers = serializer.deserialize(entry.layersJson)
                     val bmpPath = entry.bitmapFileName?.let { File(historyDir, it).absolutePath }
                     val loadedBmp = loadHistoryBitmap(bmpPath)
+                    // Daftarkan bitmap hasil load ke map dedup agar save
+                    // berikutnya tidak mengompresi ulang PNG histori ini.
+                    if (loadedBmp != null && bmpPath != null) {
+                        historyBitmapFiles[loadedBmp] = File(bmpPath).name
+                    }
                     undoStack.addLast(
                         HistorySnapshot(
                             layers = snapshotLayers,
@@ -1059,6 +1068,11 @@ data class HistoryManifest(
                     val snapshotLayers = serializer.deserialize(entry.layersJson)
                     val bmpPath = entry.bitmapFileName?.let { File(historyDir, it).absolutePath }
                     val loadedBmp = loadHistoryBitmap(bmpPath)
+                    // Daftarkan bitmap hasil load ke map dedup agar save
+                    // berikutnya tidak mengompresi ulang PNG histori ini.
+                    if (loadedBmp != null && bmpPath != null) {
+                        historyBitmapFiles[loadedBmp] = File(bmpPath).name
+                    }
                     redoStack.addLast(
                         HistorySnapshot(
                             layers = snapshotLayers,
@@ -1102,6 +1116,10 @@ data class HistoryManifest(
                             }
                             baseBitmap.value = loadedBmp
                             baseImageSuspect = false
+                            // Sama: hasil decode = isi file, catat agar exit tanpa
+                            // edit tidak mengompresi ulang base_image.png.
+                            lastSavedBaseRef = loadedBmp
+                            lastSavedBaseProj = currentProj.id
                             setupCanvasSize(loadedBmp.width, loadedBmp.height)
                         }
                     }
