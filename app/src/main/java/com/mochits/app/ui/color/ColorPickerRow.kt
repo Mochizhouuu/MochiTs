@@ -192,17 +192,17 @@ fun ColorPickerRow(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .pointerInput(hsv[0]) {
-                                    // Titik pilih di-offset ke atas agar tidak tertutup jari.
-                                    val touchLift = 80.dp.toPx()
+                                    // Presisi: sentuh titik = pilih warna titik itu.
+                                    // Tanda "+" digambar melayang di atas (lihat bawah),
+                                    // jadi tidak perlu offset di perhitungan warna.
                                     detectTapGestures { offset ->
                                         val sat = (offset.x / size.width).coerceIn(0f, 1f)
-                                        val valVal = (1f - ((offset.y - touchLift) / size.height)).coerceIn(0f, 1f)
+                                        val valVal = (1f - (offset.y / size.height)).coerceIn(0f, 1f)
                                         hsv = floatArrayOf(hsv[0], sat, valVal)
                                         emitLive()
                                     }
                                 }
                                 .pointerInput(hsv[0]) {
-                                    val touchLift = 80.dp.toPx()
                                     detectDragGestures(
                                         onDragStart = { svPicking = true },
                                         onDragEnd = { svPicking = false },
@@ -210,7 +210,7 @@ fun ColorPickerRow(
                                     ) { change, _ ->
                                         change.consume()
                                         val sat = (change.position.x / size.width).coerceIn(0f, 1f)
-                                        val valVal = (1f - ((change.position.y - touchLift) / size.height)).coerceIn(0f, 1f)
+                                        val valVal = (1f - (change.position.y / size.height)).coerceIn(0f, 1f)
                                         hsv = floatArrayOf(hsv[0], sat, valVal)
                                         emitLive()
                                     }
@@ -242,17 +242,47 @@ fun ColorPickerRow(
                                 end = Offset(selectorX, size.height),
                                 strokeWidth = 1.dp.toPx()
                             )
+                            // Titik asli (di bawah jari): lingkaran kecil.
                             drawCircle(
                                 color = Color.White,
-                                radius = 10.dp.toPx(),
+                                radius = 6.dp.toPx(),
                                 center = Offset(selectorX, selectorY),
-                                style = Stroke(width = 3.dp.toPx())
+                                style = Stroke(width = 2.dp.toPx())
                             )
-                            drawCircle(
+                            // Penanda "+" melayang di atas jari + garis penunjuk
+                            // ke titik asli, jadi selalu terlihat saat drag.
+                            val markerLift = 80.dp.toPx()
+                            val marker = Offset(selectorX, (selectorY - markerLift).coerceAtLeast(0f))
+                            drawLine(
+                                color = Color.White.copy(alpha = 0.9f),
+                                start = Offset(selectorX, selectorY),
+                                end = marker,
+                                strokeWidth = 2.dp.toPx()
+                            )
+                            val arm = 12.dp.toPx()
+                            drawLine(
+                                color = Color.White,
+                                start = Offset(marker.x - arm, marker.y),
+                                end = Offset(marker.x + arm, marker.y),
+                                strokeWidth = 3.dp.toPx()
+                            )
+                            drawLine(
+                                color = Color.White,
+                                start = Offset(marker.x, marker.y - arm),
+                                end = Offset(marker.x, marker.y + arm),
+                                strokeWidth = 3.dp.toPx()
+                            )
+                            drawLine(
                                 color = Color.Black,
-                                radius = 8.dp.toPx(),
-                                center = Offset(selectorX, selectorY),
-                                style = Stroke(width = 1.5.dp.toPx())
+                                start = Offset(marker.x - arm, marker.y),
+                                end = Offset(marker.x + arm, marker.y),
+                                strokeWidth = 1.dp.toPx()
+                            )
+                            drawLine(
+                                color = Color.Black,
+                                start = Offset(marker.x, marker.y - arm),
+                                end = Offset(marker.x, marker.y + arm),
+                                strokeWidth = 1.dp.toPx()
                             )
                         }
 
@@ -273,11 +303,6 @@ fun ColorPickerRow(
                     }
 
                     // 2. Hue Slider Bar
-                    Text(
-                        text = "Sentuh sedikit di bawah target — titik pilih berada di atas jarimu.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                     SliderBar(
                         label = "Hue: ${hsv[0].toInt()}°",
                         brush = Brush.horizontalGradient(
