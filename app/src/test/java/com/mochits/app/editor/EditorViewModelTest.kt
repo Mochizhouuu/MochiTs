@@ -743,7 +743,7 @@ class EditorViewModelTest {
 
         val layer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
         val fontSize = layer.style.fontSize
-        assertTrue("Font size on default canvas width should be between 24f and 48f, was $fontSize", fontSize in 24f..48f)
+        assertTrue("Font size on default canvas width should be between 50f and 70f, was $fontSize", fontSize in 50f..70f)
     }
 
     @Test
