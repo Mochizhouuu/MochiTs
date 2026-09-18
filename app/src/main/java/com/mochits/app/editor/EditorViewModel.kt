@@ -1379,7 +1379,7 @@ data class HistoryManifest(
         val canvasW = baseBitmap.value?.width ?: project.value?.width ?: 1080
         val canvasH = baseBitmap.value?.height ?: project.value?.height ?: 1920
 
-        val proportionalFontSize = (canvasW * 0.035f).coerceIn(24f, 48f)
+        val proportionalFontSize = (canvasW * 0.035f).coerceIn(50f, 70f)
         val effectiveStyle = if (style.fontSize == 36f) style.copy(fontSize = proportionalFontSize) else style
 
         // Prefer the synchronously recorded viewport size (fresh every frame) over

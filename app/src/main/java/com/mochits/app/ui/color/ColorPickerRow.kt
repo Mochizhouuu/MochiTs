@@ -290,6 +290,9 @@ fun ColorPickerRow(
                         onFractionChange = {
                             hsv = floatArrayOf(it * 360f, hsv[1], hsv[2])
                             emitLive()
+                        },
+                        previewColor = remember(hsv[0]) {
+                            Color(ColorUtils.hsvToColor(hsv[0], 1f, 1f, 1f))
                         }
                     )
 
@@ -304,7 +307,8 @@ fun ColorPickerRow(
                         onFractionChange = {
                             alpha = it
                             emitLive()
-                        }
+                        },
+                        previewColor = Color(currentColor)
                     )
 
                     // 4. Color Swatch Preview & Hex Input Row
@@ -405,45 +409,80 @@ private fun SliderBar(
     label: String,
     brush: Brush,
     handleFraction: Float,
-    onFractionChange: (Float) -> Unit
+    onFractionChange: (Float) -> Unit,
+    previewColor: Color
 ) {
+    // Handle slider tertutup jari saat drag; loupe pratinjau melayang di
+    // atas mengikuti posisi handle (seperti loupe kotak SV).
+    var picking by remember { mutableStateOf(false) }
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(text = label, style = MaterialTheme.typography.labelMedium)
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(24.dp)
-                .background(brush = brush, shape = RoundedCornerShape(12.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
+                .height(76.dp)
         ) {
-            Canvas(
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) {
-                        detectTapGestures { offset ->
-                            onFractionChange((offset.x / size.width).coerceIn(0f, 1f))
-                        }
-                    }
-                    .pointerInput(Unit) {
-                        detectDragGestures { change, _ ->
-                            change.consume()
-                            onFractionChange((change.position.x / size.width).coerceIn(0f, 1f))
-                        }
-                    }
+                    .fillMaxWidth()
+                    .height(24.dp)
+                    .align(Alignment.BottomStart)
+                    .background(brush = brush, shape = RoundedCornerShape(12.dp))
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
             ) {
-                val handleX = handleFraction.coerceIn(0f, 1f) * size.width
-                drawCircle(
-                    color = Color.White,
-                    radius = 10.dp.toPx(),
-                    center = Offset(handleX, size.height / 2f),
-                    style = Stroke(width = 3.dp.toPx())
-                )
-                drawCircle(
-                    color = Color.Black,
-                    radius = 8.dp.toPx(),
-                    center = Offset(handleX, size.height / 2f),
-                    style = Stroke(width = 1.5.dp.toPx())
-                )
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            detectTapGestures { offset ->
+                                onFractionChange((offset.x / size.width).coerceIn(0f, 1f))
+                            }
+                        }
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = { picking = true },
+                                onDragEnd = { picking = false },
+                                onDragCancel = { picking = false }
+                            ) { change, _ ->
+                                change.consume()
+                                onFractionChange((change.position.x / size.width).coerceIn(0f, 1f))
+                            }
+                        }
+                ) {
+                    val handleX = handleFraction.coerceIn(0f, 1f) * size.width
+                    drawCircle(
+                        color = Color.White,
+                        radius = 10.dp.toPx(),
+                        center = Offset(handleX, size.height / 2f),
+                        style = Stroke(width = 3.dp.toPx())
+                    )
+                    drawCircle(
+                        color = Color.Black,
+                        radius = 8.dp.toPx(),
+                        center = Offset(handleX, size.height / 2f),
+                        style = Stroke(width = 1.5.dp.toPx())
+                    )
+                }
+            }
+            if (picking) {
+                val pillSize = 52.dp
+                val pillX = (maxWidth * handleFraction.coerceIn(0f, 1f) - pillSize / 2)
+                    .coerceIn(0.dp, maxWidth - pillSize)
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .offset(x = pillX),
+                    shape = CircleShape,
+                    tonalElevation = 6.dp,
+                    color = MaterialTheme.colorScheme.surface
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(pillSize)
+                            .background(previewColor, CircleShape)
+                            .border(2.dp, Color.White, CircleShape)
+                    )
+                }
             }
         }
     }
