@@ -41,15 +41,16 @@ class PerspectiveTest {
         val quad = listOf(0.25f, 0f, 1f, 0f, 1f, 1f, 0.25f, 1f)
         val out = Perspective.warpPixels(px, w, h, quad, 64)
         assertNotNull(out)
+        val o = out!!
         // Offset mengikuti batas kiri quad (1px).
-        assertTrue(out.offsetX in 0.9f..1.1f, "offsetX=${out.offsetX}")
-        assertTrue(kotlin.math.abs(out.offsetY) < 0.01f, "offsetY=${out.offsetY}")
+        assertTrue(o.offsetX in 0.9f..1.1f, "offsetX=${o.offsetX}")
+        assertTrue(kotlin.math.abs(o.offsetY) < 0.01f, "offsetY=${o.offsetY}")
         // Kolom pertama output (dulu kolom 0) tetap terang (~setengah karena bilinear).
         var lit = 0
-        for (y in 0 until out.height) {
-            if (((out.pixels[y * out.width + 0] ushr 24) and 0xFF) > 100) lit++
+        for (y in 0 until o.height) {
+            if (((o.pixels[y * o.width + 0] ushr 24) and 0xFF) > 100) lit++
         }
-        assertTrue(lit >= out.height - 1, "kolom hasil terang: $lit")
+        assertTrue(lit >= o.height - 1, "kolom hasil terang: $lit")
     }
 
     @Test
@@ -58,13 +59,14 @@ class PerspectiveTest {
         val src = doubleArrayOf(0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0)
         val h = Perspective.solveHomography(src, src.copyOf())
         assertNotNull(h)
-        assertEquals(1.0, h[0], 1e-9)
-        assertEquals(1.0, h[4], 1e-9)
-        assertEquals(1.0, h[8], 1e-9)
-        assertEquals(0.0, h[1], 1e-9)
-        val inv = Perspective.invert3x3(h)
+        val hh = h!!
+        assertEquals(1.0, hh[0], 1e-9)
+        assertEquals(1.0, hh[4], 1e-9)
+        assertEquals(1.0, hh[8], 1e-9)
+        assertEquals(0.0, hh[1], 1e-9)
+        val inv = Perspective.invert3x3(hh)
         assertNotNull(inv)
-        assertEquals(1.0, inv[0], 1e-9)
+        assertEquals(1.0, inv!![0], 1e-9)
         // Singular -> null.
         assertNull(Perspective.invert3x3(DoubleArray(9) { 0.0 }))
     }
