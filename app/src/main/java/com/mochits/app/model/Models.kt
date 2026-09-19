@@ -136,7 +136,10 @@ sealed class Layer(
         val motionBlurRadius: Float = 0f, // 0 = mati
         val motionBlurAngle: Float = 0f, // derajat, konvensi sama dgn teks
         val glowColor: Int = Color.TRANSPARENT,
-        val glowRadius: Float = 0f // 0 = mati
+        val glowRadius: Float = 0f, // 0 = mati
+        // Quad perspektif ternormalisasi [0..1]: TL,TR,BR,BL (8 float).
+        // null = mati.
+        val perspQuad: List<Float>? = null
     ) : Layer(id, name, x, y, rotation, scaleX, scaleY, opacity, isVisible, isLocked)
 
     data class TextLayer(
@@ -154,6 +157,9 @@ sealed class Layer(
         val style: TextStyleConfig = TextStyleConfig(),
         val textContainerShape: TextContainerShape = TextContainerShape.BOX,
         val boxWidth: Float? = null,
-        val boxHeight: Float? = null
+        val boxHeight: Float? = null,
+        // Quad perspektif ternormalisasi [0..1]: TL,TR,BR,BL (8 float).
+        // null = mati.
+        val perspQuad: List<Float>? = null
     ) : Layer(id, name, x, y, rotation, scaleX, scaleY, opacity, isVisible, isLocked)
 }

@@ -13,13 +13,24 @@ import java.io.FileOutputStream
 
 class ProjectExporter(private val context: Context) {
 
-    private val textRenderer = TextRenderer(context)
+    val textRenderer = TextRenderer(context)
+
+    /** Bitmap warp + posisi kiri-atas absolut + skala (ukuran gambar = w/scale). */
+    data class WarpedDraw(
+        val bitmap: Bitmap,
+        val x: Float,
+        val y: Float,
+        val scale: Float
+    )
 
     suspend fun exportToBitmap(
         baseBitmap: Bitmap,
         layers: List<Layer>,
         imageBitmapFor: ((Layer.ImageLayer) -> Bitmap?)? = null,
-        imageGlowFor: ((Layer.ImageLayer) -> Pair<Bitmap, Float>?)? = null
+        imageGlowFor: ((Layer.ImageLayer) -> Pair<Bitmap, Float>?)? = null,
+        imageWarpFor: ((Layer.ImageLayer) -> WarpedDraw?)? = null,
+        textWarpFor: ((Layer.TextLayer) -> WarpedDraw?)? = null,
+        fontLookup: ((String) -> String?)? = null
     ): Bitmap = withContext(Dispatchers.Default) {
         // Guard dulu di level Kotlin: tanpa ini, drawBitmap(bitmap recycled)
         // menembus ke native dan meng-abort seluruh Test Executor (exit 134,
@@ -29,6 +40,7 @@ class ProjectExporter(private val context: Context) {
         val width = baseBitmap.width
         val height = baseBitmap.height
         require(width > 0 && height > 0) { "baseBitmap has invalid size" }
+        textRenderer.customFontPathResolver = fontLookup
         val outputBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(outputBitmap)
 
@@ -54,10 +66,29 @@ class ProjectExporter(private val context: Context) {
                             canvas.rotate(layer.rotation, textCenterX, textCenterY)
                         }
 
-                        textRenderer.drawStyledText(
-                            canvas = canvas,
-                            layer = layer
-                        )
+                        val textWarped = textWarpFor?.invoke(layer)
+                            ?.takeIf { !it.bitmap.isRecycled && it.scale > 1e-6f }
+                        if (textWarped != null) {
+                            // Opacity sudah via saveLayer luar: paint full alpha.
+                            val wPaint = android.graphics.Paint().apply {
+                                isFilterBitmap = true
+                            }
+                            canvas.drawBitmap(
+                                textWarped.bitmap,
+                                null,
+                                android.graphics.RectF(
+                                    textWarped.x, textWarped.y,
+                                    textWarped.x + textWarped.bitmap.width / textWarped.scale,
+                                    textWarped.y + textWarped.bitmap.height / textWarped.scale
+                                ),
+                                wPaint
+                            )
+                        } else {
+                            textRenderer.drawStyledText(
+                                canvas = canvas,
+                                layer = layer
+                            )
+                        }
 
                         canvas.restore()
                         canvas.restoreToCount(count)
@@ -81,7 +112,27 @@ class ProjectExporter(private val context: Context) {
                                     layer.grayscale, layer.brightness, layer.contrast
                                 )
                             }
-                            canvas.drawBitmap(imgBmp, layer.x, layer.y, imgPaint)
+                            val imgWarped = imageWarpFor?.invoke(layer)
+                                ?.takeIf { !it.bitmap.isRecycled && it.scale > 1e-6f }
+                            if (imgWarped != null) {
+                                val wPaint = android.graphics.Paint().apply {
+                                    alpha = layerAlpha
+                                    colorFilter = imgPaint.colorFilter
+                                    isFilterBitmap = true
+                                }
+                                canvas.drawBitmap(
+                                    imgWarped.bitmap,
+                                    null,
+                                    android.graphics.RectF(
+                                        imgWarped.x, imgWarped.y,
+                                        imgWarped.x + imgWarped.bitmap.width / imgWarped.scale,
+                                        imgWarped.y + imgWarped.bitmap.height / imgWarped.scale
+                                    ),
+                                    wPaint
+                                )
+                            } else {
+                                canvas.drawBitmap(imgBmp, layer.x, layer.y, imgPaint)
+                            }
                         }
                     }
                 }
@@ -98,10 +149,16 @@ class ProjectExporter(private val context: Context) {
         format: Bitmap.CompressFormat = Bitmap.CompressFormat.PNG,
         quality: Int = 100,
         imageBitmapFor: ((Layer.ImageLayer) -> Bitmap?)? = null,
-        imageGlowFor: ((Layer.ImageLayer) -> Pair<Bitmap, Float>?)? = null
+        imageGlowFor: ((Layer.ImageLayer) -> Pair<Bitmap, Float>?)? = null,
+        imageWarpFor: ((Layer.ImageLayer) -> WarpedDraw?)? = null,
+        textWarpFor: ((Layer.TextLayer) -> WarpedDraw?)? = null,
+        fontLookup: ((String) -> String?)? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            val bmp = exportToBitmap(baseBitmap, layers, imageBitmapFor, imageGlowFor)
+            val bmp = exportToBitmap(
+                baseBitmap, layers, imageBitmapFor, imageGlowFor,
+                imageWarpFor, textWarpFor, fontLookup
+            )
             FileOutputStream(outputFile).use { out ->
                 bmp.compress(format, quality, out)
             }

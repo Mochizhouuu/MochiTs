@@ -39,7 +39,9 @@ data class LayerJsonDto(
     val motionBlurRadius: Float? = null,
     val motionBlurAngle: Float? = null,
     val glowColor: Int? = null,
-    val glowRadius: Float? = null
+    val glowRadius: Float? = null,
+    // Quad perspektif (nullable agar JSON lama tetap terbaca).
+    val perspQuad: List<Float>? = null
 )
 
 class LayerSerializer {
@@ -64,7 +66,8 @@ class LayerSerializer {
                     style = layer.style,
                     textContainerShape = layer.textContainerShape,
                     boxWidth = layer.boxWidth,
-                    boxHeight = layer.boxHeight
+                    boxHeight = layer.boxHeight,
+                    perspQuad = layer.perspQuad
                 )
                 is Layer.ImageLayer -> LayerJsonDto(
                     id = layer.id,
@@ -85,7 +88,8 @@ class LayerSerializer {
                     motionBlurRadius = layer.motionBlurRadius,
                     motionBlurAngle = layer.motionBlurAngle,
                     glowColor = layer.glowColor,
-                    glowRadius = layer.glowRadius
+                    glowRadius = layer.glowRadius,
+                    perspQuad = layer.perspQuad
                 )
             }
         }
@@ -121,7 +125,8 @@ class LayerSerializer {
                     style = migratedStyle,
                     textContainerShape = dto.textContainerShape ?: TextContainerShape.BOX,
                     boxWidth = dto.boxWidth?.takeIf { it.isFinite() && it > 0f },
-                    boxHeight = dto.boxHeight?.takeIf { it.isFinite() && it > 0f }
+                    boxHeight = dto.boxHeight?.takeIf { it.isFinite() && it > 0f },
+                    perspQuad = dto.perspQuad?.takeIf { it.size == 8 && it.all { v -> v.isFinite() } }
                 )
             } else {
                 val imageBitmap = dto.imagePath?.let { path ->
@@ -154,7 +159,8 @@ class LayerSerializer {
                     motionBlurRadius = dto.motionBlurRadius ?: 0f,
                     motionBlurAngle = dto.motionBlurAngle ?: 0f,
                     glowColor = dto.glowColor ?: android.graphics.Color.TRANSPARENT,
-                    glowRadius = dto.glowRadius ?: 0f
+                    glowRadius = dto.glowRadius ?: 0f,
+                    perspQuad = dto.perspQuad?.takeIf { it.size == 8 && it.all { v -> v.isFinite() } }
                 )
             }
         }

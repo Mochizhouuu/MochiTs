@@ -16,6 +16,7 @@ import com.mochits.core.imaging.InpaintEngine
 import com.mochits.core.imaging.MaskSelectionTools
 import com.mochits.core.imaging.Result
 import com.mochits.app.imaging.ImageEffects
+import com.mochits.app.imaging.Perspective
 import com.mochits.app.imaging.LaMaInpaintEngine
 import com.mochits.app.imaging.LaMaModelManager
 import com.mochits.app.model.EditorPanel
@@ -129,7 +130,10 @@ class EditorViewModel @Inject constructor(
             base,
             layers.value,
             imageBitmapFor = { resolveImageBitmap(it) },
-                    imageGlowFor = { resolveImageGlow(it) }
+                    imageGlowFor = { resolveImageGlow(it) },
+            imageWarpFor = { resolveExportWarpedImage(it) },
+            textWarpFor = { resolveExportWarpedText(it) },
+            fontLookup = exportFontLookup
         )
         cachedFlattenedBitmap = flattened
         isFlattenedDirty = false
@@ -155,7 +159,10 @@ class EditorViewModel @Inject constructor(
                     base,
                     layers.value,
                     imageBitmapFor = { resolveImageBitmap(it) },
-                    imageGlowFor = { resolveImageGlow(it) }
+                    imageGlowFor = { resolveImageGlow(it) },
+                    imageWarpFor = { resolveExportWarpedImage(it) },
+                    textWarpFor = { resolveExportWarpedText(it) },
+                    fontLookup = exportFontLookup
                 )
                 compositeBitmap = comp
                 val compColor = ColorUtils.samplePixelColor(comp, initialPt.x, initialPt.y) ?: initialColor
@@ -1922,6 +1929,10 @@ data class HistoryManifest(
 
     fun selectLayer(id: String?) {
         selectedLayerId.value = id
+        // Ganti seleksi = keluar dari mode edit titik perspektif.
+        if (perspEditId.value != null && perspEditId.value != id) {
+            perspEditId.value = null
+        }
         // Seleksi murah: tulis langsung agar tap terakhir tidak hilang walau
         // user keluar <400ms sebelum debounce autoSave jalan. Save penuh
         // (layersJson) tetap via flushBlocking saat exit.
@@ -1961,6 +1972,7 @@ data class HistoryManifest(
     fun deleteLayer(id: String) {
         saveUndoSnapshot()
         clearImageBlurCache(id)
+        clearWarpCache(id)
         layers.value = layers.value.filter { it.id != id }
         if (selectedLayerId.value == id) {
             selectedLayerId.value = null
@@ -2001,8 +2013,7 @@ data class HistoryManifest(
     }
 
     /** Salin file bitmap layer agar salinan punya file sendiri. */
-    private fun duplicateImageFile(srcPath: String?, newId: String): String? {
-        if (srcPath == null) return null
+    private fun duplicateImageFile(srcPath: String?, newId: String): String? {        if (srcPath == null) return null
         return try {
             val srcFile = File(srcPath)
             if (!srcFile.isFile || srcFile.length() <= 0) return null
@@ -2015,6 +2026,147 @@ data class HistoryManifest(
             Logger.e("Error duplicating image file: ${t.message}", t)
             null
         }
+    }
+
+    // ---------- Perspektif (warp 4-titik, gambar + teks) ----------
+
+    /** Layer yang sedang dalam mode edit titik perspektif (kanvas). */
+    val perspEditId = MutableStateFlow<String?>(null)
+
+    fun setPerspEdit(id: String?) {
+        perspEditId.value = id
+    }
+
+    /**
+     * Geser satu sudut quad ternormalisasi [0..1]. Tanpa snapshot (caller
+     * wajib [onSliderDragStart] sekali di awal drag) agar drag mulus.
+     */
+    fun updatePerspectiveCorner(layerId: String, index: Int, nx: Float, ny: Float) {
+        if (index !in 0..3) return
+        val cx = nx.coerceIn(-0.5f, 1.5f)
+        val cy = ny.coerceIn(-0.5f, 1.5f)
+        layers.value = layers.value.map { layer ->
+            if (layer.id != layerId) return@map layer
+            val base = layer.perspQuad
+                ?: listOf(0f, 0f, 1f, 0f, 1f, 1f, 0f, 1f)
+            if (base.size != 8) return@map layer
+            val next = base.toMutableList()
+            next[index * 2] = cx
+            next[index * 2 + 1] = cy
+            when (layer) {
+                is Layer.TextLayer -> layer.copy(perspQuad = next)
+                is Layer.ImageLayer -> layer.copy(perspQuad = next)
+            }
+        }
+        invalidateFlattenedCache()
+    }
+
+    /** Kembalikan ke persegi (matikan perspektif) untuk satu layer. */
+    fun resetPerspective(layerId: String) {
+        saveUndoSnapshot()
+        warpCache.remove(layerId)?.let { recycleWarpEntry(it) }
+        layers.value = layers.value.map { layer ->
+            if (layer.id != layerId) layer
+            else when (layer) {
+                is Layer.TextLayer -> layer.copy(perspQuad = null)
+                is Layer.ImageLayer -> layer.copy(perspQuad = null)
+            }
+        }
+        autoSave()
+        invalidateFlattenedCache()
+    }
+
+    /** Cache warp per layer: dihitung ulang hanya bila sumber/quad berubah. */
+    private data class WarpEntry(
+        val src: Bitmap,
+        val srcVersion: Long,
+        val quad: List<Float>,
+        val result: Bitmap,
+        val offX: Float,
+        val offY: Float,
+        val scale: Float
+    )
+
+    private val warpCache = mutableMapOf<String, WarpEntry>()
+
+    private fun recycleWarpEntry(entry: WarpEntry) {
+        try { entry.result.recycle() } catch (_: Exception) {}
+    }
+
+    fun clearWarpCache(id: String) {
+        warpCache.remove(id)?.let { recycleWarpEntry(it) }
+    }
+
+    /**
+     * Warp [src] mengikuti [quad]; null bila quad tidak aktif/invalid.
+     * @param srcVersion versi konten (wajib untuk bitmap yang dipakai ulang
+     * dan digambar ulang in-place, mis. render teks).
+     */
+    fun warpedBitmap(
+        layerId: String,
+        src: Bitmap,
+        srcVersion: Long,
+        quad: List<Float>,
+        maxDim: Int = 640
+    ): WarpEntry? {
+        if (!Perspective.isActive(quad)) {
+            warpCache.remove(layerId)?.let { recycleWarpEntry(it) }
+            return null
+        }
+        if (src.isRecycled || src.width <= 0 || src.height <= 0) return null
+        val cached = warpCache[layerId]
+        if (cached != null && cached.src === src && cached.srcVersion == srcVersion &&
+            cached.quad == quad && !cached.result.isRecycled
+        ) {
+            return cached
+        }
+        return try {
+            val w = src.width
+            val h = src.height
+            val px = IntArray(w * h)
+            src.getPixels(px, 0, w, 0, 0, w, h)
+            val warped = Perspective.warpPixels(px, w, h, quad, maxDim) ?: run {
+                warpCache.remove(layerId)?.let { recycleWarpEntry(it) }
+                return null
+            }
+            val bmp = Bitmap.createBitmap(warped.pixels, warped.width, warped.height, Bitmap.Config.ARGB_8888)
+            warpCache.remove(layerId)?.let { recycleWarpEntry(it) }
+            val entry = WarpEntry(src, srcVersion, quad.toList(), bmp, warped.offsetX, warped.offsetY, warped.scale)
+            warpCache[layerId] = entry
+            entry
+        } catch (t: Throwable) {
+            Logger.e("Error warping layer: ${t.message}", t)
+            null
+        }
+    }
+
+    /** Warp untuk layer gambar (sumber = bitmap hasil resolve efek). */
+    fun resolveWarpedImage(layer: Layer.ImageLayer, maxDim: Int = 640): WarpEntry? {
+        val quad = layer.perspQuad ?: return null
+        val src = resolveImageBitmap(layer) ?: return null
+        return warpedBitmap(layer.id, src, 0L, quad, maxDim)
+    }
+
+    /** Lookup displayName font -> filePath untuk jalur ekspor (diisi UI). */
+    var exportFontLookup: ((String) -> String?)? = null
+
+    /** Warp resolusi ekspor untuk layer gambar (posisi absolut). */
+    fun resolveExportWarpedImage(layer: Layer.ImageLayer): ProjectExporter.WarpedDraw? {
+        val quad = layer.perspQuad ?: return null
+        val src = resolveImageBitmap(layer) ?: return null
+        val e = warpedBitmap(layer.id, src, 0L, quad, 1600) ?: return null
+        return ProjectExporter.WarpedDraw(e.result, layer.x + e.offX, layer.y + e.offY, e.scale)
+    }
+
+    /** Warp resolusi ekspor untuk layer teks (posisi absolut). */
+    fun resolveExportWarpedText(layer: Layer.TextLayer): ProjectExporter.WarpedDraw? {
+        val quad = layer.perspQuad ?: return null
+        exporter.textRenderer.customFontPathResolver = exportFontLookup
+        val (flat, origin) = exporter.textRenderer.renderToBitmap(layer) ?: return null
+        val e = warpedBitmap(
+            layer.id, flat, exporter.textRenderer.flatVersion, quad, 1600
+        ) ?: return null
+        return ProjectExporter.WarpedDraw(e.result, origin.x + e.offX, origin.y + e.offY, e.scale)
     }
 
 
@@ -2049,7 +2201,10 @@ data class HistoryManifest(
                 format,
                 quality,
                 imageBitmapFor = { resolveImageBitmap(it) },
-                    imageGlowFor = { resolveImageGlow(it) }
+                    imageGlowFor = { resolveImageGlow(it) },
+                imageWarpFor = { resolveExportWarpedImage(it) },
+                textWarpFor = { resolveExportWarpedText(it) },
+                fontLookup = exportFontLookup
             )
             isExporting.value = false
             onComplete(success)

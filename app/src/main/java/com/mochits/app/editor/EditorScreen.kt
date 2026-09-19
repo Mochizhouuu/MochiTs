@@ -70,6 +70,58 @@ private enum class TextHandleType {
     RESIZE, ROTATE, DELETE, STRETCH_V, STRETCH_H, BODY_MOVE
 }
 
+/**
+ * Empat sudut quad perspektif dalam koordinat kanvas. [quad] null =
+ * persegi penuh; rotasi teks ikut diputar (seperti frame seleksi).
+ */
+private fun perspCanvasCorners(
+    quad: List<Float>?,
+    box: RectF,
+    rotationDeg: Float
+): List<Offset> {
+    val q = if (quad != null && quad.size == 8) quad
+    else listOf(0f, 0f, 1f, 0f, 1f, 1f, 0f, 1f)
+    val cx = box.centerX()
+    val cy = box.centerY()
+    val rad = Math.toRadians(rotationDeg.toDouble())
+    val cosA = kotlin.math.cos(rad)
+    val sinA = kotlin.math.sin(rad)
+    return (0 until 4).map { i ->
+        val lx = box.left + q[i * 2].coerceIn(-0.5f, 1.5f) * box.width()
+        val ly = box.top + q[i * 2 + 1].coerceIn(-0.5f, 1.5f) * box.height()
+        if (rotationDeg == 0f) {
+            Offset(lx, ly)
+        } else {
+            val dx = (lx - cx).toDouble()
+            val dy = (ly - cy).toDouble()
+            Offset(
+                (cx + dx * cosA - dy * sinA).toFloat(),
+                (cy + dx * sinA + dy * cosA).toFloat()
+            )
+        }
+    }
+}
+
+/** Index sudut terdekat dalam [radiusPx], atau -1 bila tidak ada. */
+private fun hitTestPerspCorner(
+    touchCanvas: Offset,
+    corners: List<Offset>,
+    radiusPx: Float
+): Int {
+    var best = -1
+    var bestD = radiusPx * radiusPx
+    for (i in corners.indices) {
+        val dx = touchCanvas.x - corners[i].x
+        val dy = touchCanvas.y - corners[i].y
+        val d = dx * dx + dy * dy
+        if (d <= bestD) {
+            bestD = d
+            best = i
+        }
+    }
+    return best
+}
+
 private fun handleAnchors(bounds: RectF, scale: Float): List<Pair<TextHandleType, Offset>> {
     // Gap pill stretch dibuat lebih besar dari radius ikon resize (24/scale)
     // agar jangkar tidak tumpang tindih pada kotak teks kecil/baru.
@@ -238,6 +290,7 @@ fun EditorScreen(
     val baseBitmap by viewModel.baseBitmap.collectAsState()
     val layers by viewModel.layers.collectAsState()
     val selectedLayerId by viewModel.selectedLayerId.collectAsState()
+    val perspEditId by viewModel.perspEditId.collectAsState()
     val activePanel by viewModel.activePanel.collectAsState()
     val maskToolMode by viewModel.maskToolMode.collectAsState()
     val brushSize by viewModel.brushSize.collectAsState()
@@ -297,6 +350,13 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                 allFonts.find { it.name == name }?.filePath
                     ?: allFonts.find { it.name.equals(name, ignoreCase = true) }?.filePath
             }
+        }
+    }
+    // Samakan resolver font untuk jalur ekspor (instance TextRenderer terpisah).
+    LaunchedEffect(allFonts) {
+        viewModel.exportFontLookup = { name ->
+            allFonts.find { it.name == name }?.filePath
+                ?: allFonts.find { it.name.equals(name, ignoreCase = true) }?.filePath
         }
     }
     var triggerRedraw by remember { mutableIntStateOf(0) }
@@ -606,7 +666,13 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onSliderDragStart = { viewModel.onSliderDragStart() },
                         onSliderDragEnd = { viewModel.onSliderDragEnd() },
                         onStartEyedropper = { onColorSelected -> viewModel.startEyedropper(onColorSelected) },
-                        onUpdateImageLayer = { updated -> viewModel.updateImageLayer(updated, false) }
+                        onUpdateImageLayer = { updated -> viewModel.updateImageLayer(updated, false) },
+                        perspEditId = perspEditId,
+                        onTogglePerspEdit = { id ->
+                            viewModel.setPerspEdit(if (viewModel.perspEditId.value == id) null else id)
+                        },
+                        onResetPerspective = { viewModel.resetPerspective(it) },
+                        onClearPerspEdit = { viewModel.setPerspEdit(null) }
                     )
                     EditorPanel.LAYERS -> LayersToolPanel(
                         layers = layers,
@@ -699,6 +765,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
             val fillPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.FILL; isAntiAlias = true } }
             val strokePaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.WHITE; isAntiAlias = true } }
             val alphaPaintCache = remember { AndroidPaint() }
+            // Bitmap warp perspektif: upscale halus + alpha/tone per draw.
+            val perspPaintCache = remember { AndroidPaint().apply { isFilterBitmap = true } }
             val boxPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.parseColor("#3F51B5") } }
             val handleFillPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.FILL; color = AndroidColor.WHITE } }
             val handleStrokePaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.parseColor("#3F51B5") } }
@@ -718,9 +786,10 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(Unit) {
-                        awaitPointerEventScope {
-                            while (true) {
+                        .pointerInput(Unit) {
+                            var perspDragIndex = -1
+                            awaitPointerEventScope {
+                                while (true) {
                                 val event = awaitPointerEvent()
                                 val changes = event.changes
                                 if (changes.isEmpty()) continue
@@ -728,6 +797,82 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                 if (isProcessingMagicWand) {
                                     changes.forEach { it.consume() }
                                     continue
+                                }
+
+                                // 0. PERSPECTIVE CORNER DRAG (mode edit titik aktif).
+                                if (perspEditId != null) {
+                                    val pLayer = viewModel.layers.value.find { it.id == perspEditId }
+                                    val pDragQuad: List<Float>? = when (pLayer) {
+                                        is Layer.TextLayer -> pLayer.perspQuad
+                                        is Layer.ImageLayer -> pLayer.perspQuad
+                                        else -> null
+                                    }
+                                    val pBox: RectF? = when (pLayer) {
+                                        is Layer.TextLayer -> textRenderer.getTextBounds(pLayer)
+                                        is Layer.ImageLayer -> viewModel.resolveImageBitmap(pLayer)?.let { b ->
+                                            if (b.isRecycled) null else RectF(
+                                                pLayer.x, pLayer.y,
+                                                pLayer.x + b.width, pLayer.y + b.height
+                                            )
+                                        }
+                                        else -> null
+                                    }
+                                    if (pLayer != null && pBox != null && pBox.width() > 1f && pBox.height() > 1f) {
+                                        val pScale = viewModel.canvasState.scale.coerceAtLeast(0.1f)
+                                        val pRot = if (pLayer is Layer.TextLayer) pLayer.rotation else 0f
+                                        val firstP = changes.first()
+                                        val touchOff = viewModel.canvasState.mapper.screenToCanvas(
+                                            firstP.position.x, firstP.position.y
+                                        )
+                                        if (perspDragIndex == -1) {
+                                            if (firstP.pressed) {
+                                                val corners = perspCanvasCorners(pDragQuad, pBox, pRot)
+                                                val hit = hitTestPerspCorner(touchOff, corners, 56f / pScale)
+                                                if (hit != -1) {
+                                                    perspDragIndex = hit
+                                                    viewModel.onSliderDragStart()
+                                                    firstP.consume()
+                                                    triggerRedraw++
+                                                    continue
+                                                }
+                                            }
+                                        } else {
+                                            if (!firstP.pressed) {
+                                                perspDragIndex = -1
+                                                viewModel.onSliderDragEnd()
+                                                continue
+                                            }
+                                            // Kanvas -> lokal box (lepas rotasi teks dulu).
+                                            var lx = touchOff.x
+                                            var ly = touchOff.y
+                                            if (pRot != 0f) {
+                                                val rad = Math.toRadians((-pRot).toDouble())
+                                                val cosA = kotlin.math.cos(rad)
+                                                val sinA = kotlin.math.sin(rad)
+                                                val dx = (lx - pBox.centerX()).toDouble()
+                                                val dy = (ly - pBox.centerY()).toDouble()
+                                                lx = (pBox.centerX() + dx * cosA - dy * sinA).toFloat()
+                                                ly = (pBox.centerY() + dx * sinA + dy * cosA).toFloat()
+                                            }
+                                            if (pBox.width() > 0f && pBox.height() > 0f) {
+                                                viewModel.updatePerspectiveCorner(
+                                                    pLayer.id,
+                                                    perspDragIndex,
+                                                    (lx - pBox.left) / pBox.width(),
+                                                    (ly - pBox.top) / pBox.height()
+                                                )
+                                            }
+                                            firstP.consume()
+                                            triggerRedraw++
+                                            continue
+                                        }
+                                    } else if (perspDragIndex != -1) {
+                                        perspDragIndex = -1
+                                        viewModel.onSliderDragEnd()
+                                    }
+                                } else if (perspDragIndex != -1) {
+                                    perspDragIndex = -1
+                                    viewModel.onSliderDragEnd()
                                 }
 
                                 // 0. EYEDROPPER MODE ACTIVE: Intercept all drags/taps to move crosshair
@@ -1445,10 +1590,38 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                         drawContext.canvas.nativeCanvas.rotate(layer.rotation, textCenterX, textCenterY)
                                     }
 
-                                    textRenderer.drawStyledText(
-                                        canvas = drawContext.canvas.nativeCanvas,
-                                        layer = layer
-                                    )
+                                    // Perspektif aktif: gambar bitmap warp, bukan runs langsung.
+                                    var drewWarpedText = false
+                                    val textQuad = layer.perspQuad
+                                    if (textQuad != null && com.mochits.app.imaging.Perspective.isActive(textQuad)) {
+                                        textRenderer.renderToBitmap(layer)?.let { (flat, origin) ->
+                                            viewModel.warpedBitmap(
+                                                layer.id, flat, textRenderer.flatVersion, textQuad, 640
+                                            )?.let { entry ->
+                                                val sc = entry.scale.coerceAtLeast(1e-6f)
+                                                val left = origin.x + entry.offX
+                                                val top = origin.y + entry.offY
+                                                val warpPaint = perspPaintCache.apply { alpha = 255 }
+                                                drawContext.canvas.nativeCanvas.drawBitmap(
+                                                    entry.result,
+                                                    null,
+                                                    android.graphics.RectF(
+                                                        left, top,
+                                                        left + entry.result.width / sc,
+                                                        top + entry.result.height / sc
+                                                    ),
+                                                    warpPaint
+                                                )
+                                                drewWarpedText = true
+                                            }
+                                        }
+                                    }
+                                    if (!drewWarpedText) {
+                                        textRenderer.drawStyledText(
+                                            canvas = drawContext.canvas.nativeCanvas,
+                                            layer = layer
+                                        )
+                                    }
 
                                     // Render bounding box & controls (Resize, Rotate, Delete, Stretch V/H) if selected
                                     if (layer.id == selectedLayerId) {
@@ -1598,7 +1771,31 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                 layer.grayscale, layer.brightness, layer.contrast
                                             )
                                         }
-                                        drawContext.canvas.nativeCanvas.drawBitmap(imgBmp, layer.x, layer.y, imgPaint)
+                                        // Perspektif aktif: gambar bitmap warp (tone tetap via filter).
+                                        val imgQuad = layer.perspQuad
+                                        val imgWarped = if (imgQuad != null) {
+                                            viewModel.resolveWarpedImage(layer)
+                                        } else null
+                                        if (imgWarped != null) {
+                                            val sc = imgWarped.scale.coerceAtLeast(1e-6f)
+                                            val warpPaint = perspPaintCache.apply {
+                                                alpha = layerAlpha
+                                                colorFilter = imgPaint.colorFilter
+                                            }
+                                            drawContext.canvas.nativeCanvas.drawBitmap(
+                                                imgWarped.result,
+                                                null,
+                                                android.graphics.RectF(
+                                                    layer.x + imgWarped.offX,
+                                                    layer.y + imgWarped.offY,
+                                                    layer.x + imgWarped.offX + imgWarped.result.width / sc,
+                                                    layer.y + imgWarped.offY + imgWarped.result.height / sc
+                                                ),
+                                                warpPaint
+                                            )
+                                        } else {
+                                            drawContext.canvas.nativeCanvas.drawBitmap(imgBmp, layer.x, layer.y, imgPaint)
+                                        }
                                     }
                                 }
                             }
@@ -1606,6 +1803,44 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                     }
                 } catch (t: Throwable) {
                     Logger.e("Error: ${t.message}", t)
+                }
+
+                // Overlay edit titik perspektif: quad + 4 handle sudut.
+                val perspLayer = layers.find { it.id == perspEditId }
+                if (perspLayer is Layer.TextLayer || perspLayer is Layer.ImageLayer) {
+                    val pQuad: List<Float>? = when (perspLayer) {
+                        is Layer.TextLayer -> perspLayer.perspQuad
+                        is Layer.ImageLayer -> perspLayer.perspQuad
+                        else -> null
+                    }
+                    val pBox: android.graphics.RectF? = when (perspLayer) {
+                        is Layer.TextLayer -> textRenderer.getTextBounds(perspLayer)
+                        is Layer.ImageLayer -> viewModel.resolveImageBitmap(perspLayer)?.let { b ->
+                            if (b.isRecycled) null else android.graphics.RectF(
+                                perspLayer.x, perspLayer.y,
+                                perspLayer.x + b.width, perspLayer.y + b.height
+                            )
+                        }
+                        else -> null
+                    }
+                    if (pBox != null && pBox.width() > 1f && pBox.height() > 1f) {
+                        val pScale = viewModel.canvasState.scale.coerceAtLeast(0.1f)
+                        val pRot = if (perspLayer is Layer.TextLayer) perspLayer.rotation else 0f
+                        val corners = perspCanvasCorners(pQuad, pBox, pRot)
+                        val quadPaint = boxPaintCache.apply { strokeWidth = 3f / pScale }
+                        for (i in 0 until 4) {
+                            val a = corners[i]
+                            val b2 = corners[(i + 1) % 4]
+                            drawContext.canvas.nativeCanvas.drawLine(a.x, a.y, b2.x, b2.y, quadPaint)
+                        }
+                        val hr = 24f / pScale
+                        for (c in corners) {
+                            drawContext.canvas.nativeCanvas.drawCircle(c.x, c.y, hr, handleFillPaintCache)
+                            drawContext.canvas.nativeCanvas.drawCircle(
+                                c.x, c.y, hr, handleStrokePaintCache.apply { strokeWidth = 3f / pScale }
+                            )
+                        }
+                    }
                 }
 
                 drawContext.canvas.nativeCanvas.restore()
@@ -2472,9 +2707,40 @@ private enum class EffectType {
     DROP_SHADOW,
     MOTION_BLUR,
     GLOW,
+    PERSPECTIVE,
     IMAGE_TONE,
     IMAGE_MOTION_BLUR,
-    IMAGE_GLOW
+    IMAGE_GLOW,
+    IMAGE_PERSPECTIVE
+}
+
+@Composable
+private fun PerspectivePanel(
+    hasQuad: Boolean,
+    editing: Boolean,
+    onToggleEdit: () -> Unit,
+    onReset: () -> Unit
+) {
+    Text(
+        text = if (editing) "Seret 4 titik sudut di kanvas, lalu matikan mode edit."
+        else "Nyalakan mode edit, lalu seret 4 titik sudut di kanvas.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        FilterChip(
+            selected = editing,
+            onClick = onToggleEdit,
+            label = { Text(if (editing) "Edit Titik: ON" else "Edit Titik") }
+        )
+        if (hasQuad) {
+            OutlinedButton(onClick = onReset) { Text("Reset") }
+        }
+    }
 }
 
 @Composable
@@ -2485,13 +2751,18 @@ fun EffectToolPanel(
     onSliderDragStart: () -> Unit = {},
     onSliderDragEnd: () -> Unit = {},
     onStartEyedropper: ((Int) -> Unit) -> Unit = {},
-    onUpdateImageLayer: ((Layer.ImageLayer) -> Unit)? = null
+    onUpdateImageLayer: ((Layer.ImageLayer) -> Unit)? = null,
+    perspEditId: String? = null,
+    onTogglePerspEdit: ((String) -> Unit)? = null,
+    onResetPerspective: ((String) -> Unit)? = null,
+    onClearPerspEdit: (() -> Unit)? = null
 ) {
     var expandedEffect by remember(selectedLayer?.id) { mutableStateOf<EffectType?>(null) }
 
     DisposableEffect(Unit) {
         onDispose {
             onSliderDragEnd()
+            onClearPerspEdit?.invoke()
         }
     }
 
@@ -2518,9 +2789,9 @@ fun EffectToolPanel(
             } else {
                 val availableEffects = remember(selectedLayer) {
                     if (selectedLayer is Layer.TextLayer) {
-                        listOf(EffectType.OPACITY, EffectType.TEXT_COLOR, EffectType.STROKE, EffectType.DROP_SHADOW, EffectType.MOTION_BLUR, EffectType.GLOW)
+                        listOf(EffectType.OPACITY, EffectType.TEXT_COLOR, EffectType.STROKE, EffectType.DROP_SHADOW, EffectType.MOTION_BLUR, EffectType.GLOW, EffectType.PERSPECTIVE)
                     } else if (selectedLayer is Layer.ImageLayer) {
-                        listOf(EffectType.OPACITY, EffectType.IMAGE_TONE, EffectType.IMAGE_MOTION_BLUR, EffectType.IMAGE_GLOW)
+                        listOf(EffectType.OPACITY, EffectType.IMAGE_TONE, EffectType.IMAGE_MOTION_BLUR, EffectType.IMAGE_GLOW, EffectType.IMAGE_PERSPECTIVE)
                     } else {
                         listOf(EffectType.OPACITY)
                     }
@@ -2556,6 +2827,9 @@ fun EffectToolPanel(
                                 selectedLayer.style.glowColor != AndroidColor.TRANSPARENT &&
                                 selectedLayer.style.glowRadius > 0f
                             } else false
+                            EffectType.PERSPECTIVE -> if (selectedLayer is Layer.TextLayer) {
+                                com.mochits.app.imaging.Perspective.isActive(selectedLayer.perspQuad)
+                            } else false
                             EffectType.IMAGE_TONE -> if (selectedLayer is Layer.ImageLayer) {
                                 selectedLayer.grayscale > 0f ||
                                 selectedLayer.brightness != 0f ||
@@ -2568,6 +2842,9 @@ fun EffectToolPanel(
                                 selectedLayer.glowColor != AndroidColor.TRANSPARENT &&
                                 selectedLayer.glowRadius > 0f
                             } else false
+                            EffectType.IMAGE_PERSPECTIVE -> if (selectedLayer is Layer.ImageLayer) {
+                                com.mochits.app.imaging.Perspective.isActive(selectedLayer.perspQuad)
+                            } else false
                         }
 
                         val (icon, title) = when (effect) {
@@ -2577,9 +2854,11 @@ fun EffectToolPanel(
                             EffectType.DROP_SHADOW -> Icons.Default.WbSunny to "Drop Shadow"
                             EffectType.MOTION_BLUR -> Icons.Default.BlurLinear to "Motion Blur"
                             EffectType.GLOW -> Icons.Default.BlurCircular to "Glow"
+                            EffectType.PERSPECTIVE -> Icons.Default.Transform to "Perspektif"
                             EffectType.IMAGE_TONE -> Icons.Default.Tune to "Tone"
                             EffectType.IMAGE_MOTION_BLUR -> Icons.Default.BlurLinear to "Motion Blur"
                             EffectType.IMAGE_GLOW -> Icons.Default.BlurCircular to "Glow"
+                            EffectType.IMAGE_PERSPECTIVE -> Icons.Default.Transform to "Perspektif"
                         }
 
                         Card(
@@ -3121,6 +3400,26 @@ fun EffectToolPanel(
                                         text = "Diproses di background; pratinjau muncul sesaat setelah slider dilepas.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            EffectType.PERSPECTIVE -> {
+                                if (selectedLayer is Layer.TextLayer) {
+                                    PerspectivePanel(
+                                        hasQuad = com.mochits.app.imaging.Perspective.isActive(selectedLayer.perspQuad),
+                                        editing = perspEditId == selectedLayer.id,
+                                        onToggleEdit = { onTogglePerspEdit?.invoke(selectedLayer.id) },
+                                        onReset = { onResetPerspective?.invoke(selectedLayer.id) }
+                                    )
+                                }
+                            }
+                            EffectType.IMAGE_PERSPECTIVE -> {
+                                if (selectedLayer is Layer.ImageLayer) {
+                                    PerspectivePanel(
+                                        hasQuad = com.mochits.app.imaging.Perspective.isActive(selectedLayer.perspQuad),
+                                        editing = perspEditId == selectedLayer.id,
+                                        onToggleEdit = { onTogglePerspEdit?.invoke(selectedLayer.id) },
+                                        onReset = { onResetPerspective?.invoke(selectedLayer.id) }
                                     )
                                 }
                             }

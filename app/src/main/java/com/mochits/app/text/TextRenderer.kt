@@ -9,6 +9,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
+import androidx.compose.ui.geometry.Offset
 import com.mochits.app.model.Layer
 import com.mochits.app.model.TextAlignment
 import com.mochits.app.model.TextContainerShape
@@ -632,6 +633,12 @@ class TextRenderer(private val context: Context) {
     private var motionBlurBitmap: Bitmap? = null
     private val motionBlurUpscalePaint = Paint().apply { isFilterBitmap = true }
 
+    // Render datar untuk warp perspektif: bitmap dipakai ulang bila ukuran
+    // sama; flatVersion naik tiap render agar cache warp tahu konten baru.
+    private var flatBitmap: Bitmap? = null
+    var flatVersion: Long = 0L
+        private set
+
     /**
      * Smear motion blur searah [TextStyleConfig.motionBlurAngle].
      * Teks digambar ke bitmap offscreen, diblur manual ([MotionBlur],
@@ -691,10 +698,40 @@ class TextRenderer(private val context: Context) {
         canvas.drawBitmap(work, null, RectF(left, top, left + bw, top + bh), motionBlurUpscalePaint)
     }
 
+    /**
+     * Render layer teks ke bitmap (untuk warp perspektif): seluruh
+     * [drawStyledText] digambar ke bitmap seukuran bounds.
+     * @return bitmap + origin kiri-atasnya dalam koordinat kanvas,
+     * atau null bila teks kosong.
+     */
+    fun renderToBitmap(layer: Layer.TextLayer): Pair<Bitmap, Offset>? {
+        if (layer.text.isEmpty()) return null
+        val bounds = getTextBounds(layer)
+        val w = ceil(bounds.width()).toInt().coerceAtLeast(1)
+        val h = ceil(bounds.height()).toInt().coerceAtLeast(1)
+        if (w > 4096 || h > 4096) return null
+        var bmp = flatBitmap
+        if (bmp == null || bmp.isRecycled || bmp.width != w || bmp.height != h) {
+            try { bmp?.recycle() } catch (_: Exception) {}
+            bmp = try {
+                Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            } catch (_: Throwable) {
+                return null
+            }
+            flatBitmap = bmp
+        }
+        val work = bmp ?: return null
+        work.eraseColor(Color.TRANSPARENT)
+        val off = Canvas(work)
+        off.translate(-bounds.left, -bounds.top)
+        drawStyledText(off, layer)
+        flatVersion += 1
+        return work to Offset(bounds.left, bounds.top)
+    }
+
     fun getTextBounds(
         layer: Layer.TextLayer
-    ): RectF {
-        return getTextBounds(
+    ): RectF {        return getTextBounds(
             text = layer.text,
             style = layer.style,
             x = layer.x,
