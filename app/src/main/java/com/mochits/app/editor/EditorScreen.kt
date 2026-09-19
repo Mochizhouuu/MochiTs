@@ -420,6 +420,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
     var showAddMenu by remember { mutableStateOf(false) }
     var showAddTextDialog by remember { mutableStateOf(false) }
     var newTextValue by remember { mutableStateOf("") }
+    var newTextShape by remember { mutableStateOf(com.mochits.app.model.TextContainerShape.BOX) }
     var currentViewportW by remember { mutableFloatStateOf(1080f) }
     var currentViewportH by remember { mutableFloatStateOf(1920f) }
 
@@ -668,6 +669,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onRequestAutosave = { viewModel.autoSave() },
                         onUpdateStyle = { style, saveUndo -> viewModel.updateSelectedTextLayerStyle(style, saveUndo = saveUndo) },
                         onUpdateContainerShape = { shape -> viewModel.updateSelectedTextLayerContainerShape(shape) },
+                        onCapitalizationTransform = { transformType -> viewModel.applyCapitalizationTransform(transformType) },
                         autoFocus = shouldFocusTextField,
                         onFocused = { shouldFocusTextField = false }
                     )
@@ -676,7 +678,6 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         selectedLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer,
                         defaultStyle = defaultTextStyle,
                         onUpdateStyle = { style, saveUndo -> viewModel.updateSelectedTextLayerStyle(style, saveUndo = saveUndo) },
-                        onCapitalizationTransform = { transformType -> viewModel.applyCapitalizationTransform(transformType) },
                         onImportCustomFont = { fontImportLauncher.launch("*/*") },
                         onSliderDragStart = { viewModel.onSliderDragStart() },
                         onSliderDragEnd = { viewModel.onSliderDragEnd() },
@@ -2222,18 +2223,38 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                 onDismissRequest = { showAddTextDialog = false },
                 title = { Text("Tambah Layer Teks", style = MaterialTheme.typography.titleLarge) },
                 text = {
-                    OutlinedTextField(
-                        value = newTextValue,
-                        onValueChange = { newTextValue = it },
-                        label = { Text("Masukkan Teks") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(
+                            value = newTextValue,
+                            onValueChange = { newTextValue = it },
+                            label = { Text("Masukkan Teks") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text("Bentuk:", style = MaterialTheme.typography.labelLarge)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(
+                                selected = newTextShape == com.mochits.app.model.TextContainerShape.BOX,
+                                onClick = { newTextShape = com.mochits.app.model.TextContainerShape.BOX },
+                                label = { Text("Kotak") }
+                            )
+                            FilterChip(
+                                selected = newTextShape == com.mochits.app.model.TextContainerShape.OVAL,
+                                onClick = { newTextShape = com.mochits.app.model.TextContainerShape.OVAL },
+                                label = { Text("Oval") }
+                            )
+                        }
+                    }
                 },
                 confirmButton = {
                     Button(
                         onClick = {
                             if (newTextValue.isNotBlank()) {
-                                viewModel.addTextLayer(newTextValue, viewportWidth = currentViewportW, viewportHeight = currentViewportH)
+                                viewModel.addTextLayer(
+                                    newTextValue,
+                                    shape = newTextShape,
+                                    viewportWidth = currentViewportW,
+                                    viewportHeight = currentViewportH
+                                )
                                 newTextValue = ""
                                 showAddTextDialog = false
                             }
@@ -2693,6 +2714,7 @@ fun TextToolPanel(
     onUpdateTextContent: ((String) -> Unit)? = null,
     onUpdateStyle: (TextStyleConfig, Boolean) -> Unit,
     onUpdateContainerShape: ((com.mochits.app.model.TextContainerShape) -> Unit)? = null,
+    onCapitalizationTransform: ((String) -> Unit)? = null,
     autoFocus: Boolean = false,
     onFocused: (() -> Unit)? = null,
     // Called once when a typing session starts (first keystroke after layer
@@ -2831,6 +2853,30 @@ fun TextToolPanel(
                         selected = selectedLayer.textContainerShape == com.mochits.app.model.TextContainerShape.OVAL,
                         onClick = { onUpdateContainerShape?.invoke(com.mochits.app.model.TextContainerShape.OVAL) },
                         label = { Text("Oval") }
+                    )
+                }
+            }
+
+            if (selectedLayer != null && onCapitalizationTransform != null) {
+                Text("Kapitalisasi Teks:", style = MaterialTheme.typography.bodyMedium)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
+                    FilterChip(
+                        selected = false,
+                        onClick = { onCapitalizationTransform("uppercase") },
+                        label = { Text("UPPERCASE") }
+                    )
+                    FilterChip(
+                        selected = false,
+                        onClick = { onCapitalizationTransform("lowercase") },
+                        label = { Text("lowercase") }
+                    )
+                    FilterChip(
+                        selected = false,
+                        onClick = { onCapitalizationTransform("titlecase") },
+                        label = { Text("Title Case") }
                     )
                 }
             }
@@ -3908,7 +3954,6 @@ fun FontToolPanel(
     selectedLayer: Layer.TextLayer?,
     defaultStyle: TextStyleConfig,
     onUpdateStyle: (TextStyleConfig, Boolean) -> Unit,
-    onCapitalizationTransform: ((String) -> Unit)? = null,
     onImportCustomFont: () -> Unit,
     onSliderDragStart: () -> Unit = {},
     onSliderDragEnd: () -> Unit = {},
@@ -4078,29 +4123,6 @@ fun FontToolPanel(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            if (selectedLayer != null && onCapitalizationTransform != null) {
-                Text("Kapitalisasi:", style = MaterialTheme.typography.labelLarge)
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.horizontalScroll(rememberScrollState())
-                ) {
-                    FilterChip(
-                        selected = false,
-                        onClick = { onCapitalizationTransform("uppercase") },
-                        label = { Text("UPPERCASE") }
-                    )
-                    FilterChip(
-                        selected = false,
-                        onClick = { onCapitalizationTransform("lowercase") },
-                        label = { Text("lowercase") }
-                    )
-                    FilterChip(
-                        selected = false,
-                        onClick = { onCapitalizationTransform("titlecase") },
-                        label = { Text("Title Case") }
-                    )
-                }
-            }
         }
     }
 }

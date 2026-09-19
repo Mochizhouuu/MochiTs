@@ -1414,10 +1414,15 @@ data class HistoryManifest(
     fun addTextLayer(
         text: String,
         style: TextStyleConfig = defaultTextStyle.value,
+        shape: com.mochits.app.model.TextContainerShape? = null,
         viewportWidth: Float = 0f,
         viewportHeight: Float = 0f
     ) {
         saveUndoSnapshot()
+        // Pilihan bentuk di dialog diingat untuk teks berikutnya.
+        if (shape != null) {
+            defaultTextShape.value = shape
+        }
         val canvasW = baseBitmap.value?.width ?: project.value?.width ?: 1080
         val canvasH = baseBitmap.value?.height ?: project.value?.height ?: 1920
 
@@ -1460,7 +1465,7 @@ data class HistoryManifest(
     y = finalY,
     text = text,
     style = effectiveStyle,
-    textContainerShape = defaultTextShape.value
+    textContainerShape = shape ?: defaultTextShape.value
     )
         layers.value = layers.value + newLayer
         selectedLayerId.value = newLayer.id
