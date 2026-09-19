@@ -41,6 +41,17 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import com.mochits.app.util.Logger
 
+/**
+ * Hasil warp siap gambar: bitmap + offset relatif konten asal + skala
+ * (ukuran gambar = bitmap / scale). Tipe publik agar bisa dipakai UI.
+ */
+data class WarpedLayerDraw(
+    val bitmap: Bitmap,
+    val offX: Float,
+    val offY: Float,
+    val scale: Float
+)
+
 @HiltViewModel
 class EditorViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -2079,7 +2090,7 @@ data class HistoryManifest(
     }
 
     /** Cache warp per layer: dihitung ulang hanya bila sumber/quad berubah. */
-    internal data class WarpEntry(
+    private data class WarpEntry(
         val src: Bitmap,
         val srcVersion: Long,
         val quad: List<Float>,
@@ -2110,7 +2121,7 @@ data class HistoryManifest(
         srcVersion: Long,
         quad: List<Float>,
         maxDim: Int = 640
-    ): WarpEntry? {
+    ): WarpedLayerDraw? {
         if (!Perspective.isActive(quad)) {
             warpCache.remove(layerId)?.let { recycleWarpEntry(it) }
             return null
@@ -2120,7 +2131,7 @@ data class HistoryManifest(
         if (cached != null && cached.src === src && cached.srcVersion == srcVersion &&
             cached.quad == quad && !cached.result.isRecycled
         ) {
-            return cached
+            return WarpedLayerDraw(cached.result, cached.offX, cached.offY, cached.scale)
         }
         return try {
             val w = src.width
@@ -2135,7 +2146,7 @@ data class HistoryManifest(
             warpCache.remove(layerId)?.let { recycleWarpEntry(it) }
             val entry = WarpEntry(src, srcVersion, quad.toList(), bmp, warped.offsetX, warped.offsetY, warped.scale)
             warpCache[layerId] = entry
-            entry
+            return WarpedLayerDraw(bmp, warped.offsetX, warped.offsetY, warped.scale)
         } catch (t: Throwable) {
             Logger.e("Error warping layer: ${t.message}", t)
             null
@@ -2143,7 +2154,7 @@ data class HistoryManifest(
     }
 
     /** Warp untuk layer gambar (sumber = bitmap hasil resolve efek). */
-    fun resolveWarpedImage(layer: Layer.ImageLayer, maxDim: Int = 640): WarpEntry? {
+    fun resolveWarpedImage(layer: Layer.ImageLayer, maxDim: Int = 640): WarpedLayerDraw? {
         val quad = layer.perspQuad ?: return null
         val src = resolveImageBitmap(layer) ?: return null
         return warpedBitmap(layer.id, src, 0L, quad, maxDim)
@@ -2157,7 +2168,7 @@ data class HistoryManifest(
         val quad = layer.perspQuad ?: return null
         val src = resolveImageBitmap(layer) ?: return null
         val e = warpedBitmap(layer.id, src, 0L, quad, 1600) ?: return null
-        return ProjectExporter.WarpedDraw(e.result, layer.x + e.offX, layer.y + e.offY, e.scale)
+        return ProjectExporter.WarpedDraw(e.bitmap, layer.x + e.offX, layer.y + e.offY, e.scale)
     }
 
     /** Warp resolusi ekspor untuk layer teks (posisi absolut). */
@@ -2168,7 +2179,7 @@ data class HistoryManifest(
         val e = warpedBitmap(
             layer.id, flat, exporter.textRenderer.flatVersion, quad, 1600
         ) ?: return null
-        return ProjectExporter.WarpedDraw(e.result, origin.x + e.offX, origin.y + e.offY, e.scale)
+        return ProjectExporter.WarpedDraw(e.bitmap, origin.x + e.offX, origin.y + e.offY, e.scale)
     }
 
 

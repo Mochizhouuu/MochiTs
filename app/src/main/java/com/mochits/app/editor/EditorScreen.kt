@@ -1603,12 +1603,12 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                 val top = origin.y + entry.offY
                                                 val warpPaint = perspPaintCache.apply { alpha = 255 }
                                                 drawContext.canvas.nativeCanvas.drawBitmap(
-                                                    entry.result,
+                                                    entry.bitmap,
                                                     null,
                                                     android.graphics.RectF(
                                                         left, top,
-                                                        left + entry.result.width / sc,
-                                                        top + entry.result.height / sc
+                                                        left + entry.bitmap.width / sc,
+                                                        top + entry.bitmap.height / sc
                                                     ),
                                                     warpPaint
                                                 )
@@ -1783,13 +1783,13 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                 colorFilter = imgPaint.colorFilter
                                             }
                                             drawContext.canvas.nativeCanvas.drawBitmap(
-                                                imgWarped.result,
+                                                imgWarped.bitmap,
                                                 null,
                                                 android.graphics.RectF(
                                                     layer.x + imgWarped.offX,
                                                     layer.y + imgWarped.offY,
-                                                    layer.x + imgWarped.offX + imgWarped.result.width / sc,
-                                                    layer.y + imgWarped.offY + imgWarped.result.height / sc
+                                                    layer.x + imgWarped.offX + imgWarped.bitmap.width / sc,
+                                                    layer.y + imgWarped.offY + imgWarped.bitmap.height / sc
                                                 ),
                                                 warpPaint
                                             )
