@@ -41,7 +41,9 @@ data class LayerJsonDto(
     val glowColor: Int? = null,
     val glowRadius: Float? = null,
     // Quad perspektif (nullable agar JSON lama tetap terbaca).
-    val perspQuad: List<Float>? = null
+    val perspQuad: List<Float>? = null,
+    // Grid warp mesh 4x4 (nullable agar JSON lama tetap terbaca).
+    val meshGrid: List<Float>? = null
 )
 
 class LayerSerializer {
@@ -67,7 +69,8 @@ class LayerSerializer {
                     textContainerShape = layer.textContainerShape,
                     boxWidth = layer.boxWidth,
                     boxHeight = layer.boxHeight,
-                    perspQuad = layer.perspQuad
+                    perspQuad = layer.perspQuad,
+                    meshGrid = layer.meshGrid
                 )
                 is Layer.ImageLayer -> LayerJsonDto(
                     id = layer.id,
@@ -89,7 +92,8 @@ class LayerSerializer {
                     motionBlurAngle = layer.motionBlurAngle,
                     glowColor = layer.glowColor,
                     glowRadius = layer.glowRadius,
-                    perspQuad = layer.perspQuad
+                    perspQuad = layer.perspQuad,
+                    meshGrid = layer.meshGrid
                 )
             }
         }
@@ -126,7 +130,8 @@ class LayerSerializer {
                     textContainerShape = dto.textContainerShape ?: TextContainerShape.BOX,
                     boxWidth = dto.boxWidth?.takeIf { it.isFinite() && it > 0f },
                     boxHeight = dto.boxHeight?.takeIf { it.isFinite() && it > 0f },
-                    perspQuad = dto.perspQuad?.takeIf { it.size == 8 && it.all { v -> v.isFinite() } }
+                    perspQuad = dto.perspQuad?.takeIf { it.size == 8 && it.all { v -> v.isFinite() } },
+                    meshGrid = dto.meshGrid?.takeIf { it.size == 32 && it.all { v -> v.isFinite() } }
                 )
             } else {
                 val imageBitmap = dto.imagePath?.let { path ->
@@ -160,7 +165,8 @@ class LayerSerializer {
                     motionBlurAngle = dto.motionBlurAngle ?: 0f,
                     glowColor = dto.glowColor ?: android.graphics.Color.TRANSPARENT,
                     glowRadius = dto.glowRadius ?: 0f,
-                    perspQuad = dto.perspQuad?.takeIf { it.size == 8 && it.all { v -> v.isFinite() } }
+                    perspQuad = dto.perspQuad?.takeIf { it.size == 8 && it.all { v -> v.isFinite() } },
+                    meshGrid = dto.meshGrid?.takeIf { it.size == 32 && it.all { v -> v.isFinite() } }
                 )
             }
         }

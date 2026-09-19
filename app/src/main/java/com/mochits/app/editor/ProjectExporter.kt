@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import com.mochits.app.imaging.ImageEffects
+import com.mochits.app.imaging.Perspective
 import com.mochits.app.model.Layer
 import com.mochits.app.text.TextRenderer
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +24,20 @@ class ProjectExporter(private val context: Context) {
         val scale: Float
     )
 
+    /** Glow + quad/grid yang sudah dipetakan ke ruang glow (untuk warp). */
+    data class MeshGlow(
+        val bitmap: Bitmap,
+        val pad: Float,
+        val grid: List<Float>
+    )
+
+    /** Render datar teks + origin absolut (untuk warp mesh). */
+    data class TextMeshDraw(
+        val bitmap: Bitmap,
+        val x: Float,
+        val y: Float
+    )
+
     suspend fun exportToBitmap(
         baseBitmap: Bitmap,
         layers: List<Layer>,
@@ -31,6 +46,8 @@ class ProjectExporter(private val context: Context) {
         imageWarpFor: ((Layer.ImageLayer) -> WarpedDraw?)? = null,
         textWarpFor: ((Layer.TextLayer) -> WarpedDraw?)? = null,
         imageGlowWarpFor: ((Layer.ImageLayer) -> WarpedDraw?)? = null,
+        textMeshFor: ((Layer.TextLayer) -> TextMeshDraw?)? = null,
+        imageMeshGlowFor: ((Layer.ImageLayer) -> MeshGlow?)? = null,
         fontLookup: ((String) -> String?)? = null
     ): Bitmap = withContext(Dispatchers.Default) {
         // Guard dulu di level Kotlin: tanpa ini, drawBitmap(bitmap recycled)
@@ -85,10 +102,29 @@ class ProjectExporter(private val context: Context) {
                                 wPaint
                             )
                         } else {
-                            textRenderer.drawStyledText(
-                                canvas = canvas,
-                                layer = layer
-                            )
+                            val textMesh = textMeshFor?.invoke(layer)
+                                ?.takeIf { !it.bitmap.isRecycled }
+                            var drewMesh = false
+                            if (textMesh != null) {
+                                val mPaint = android.graphics.Paint().apply {
+                                    isFilterBitmap = true
+                                }
+                                drewMesh = Perspective.drawMeshBitmap(
+                                    canvas,
+                                    textMesh.bitmap,
+                                    textMesh.x, textMesh.y,
+                                    textMesh.bitmap.width.toFloat(),
+                                    textMesh.bitmap.height.toFloat(),
+                                    layer.meshGrid,
+                                    mPaint
+                                )
+                            }
+                            if (!drewMesh) {
+                                textRenderer.drawStyledText(
+                                    canvas = canvas,
+                                    layer = layer
+                                )
+                            }
                         }
 
                         canvas.restore()
@@ -117,12 +153,32 @@ class ProjectExporter(private val context: Context) {
                                     glowPaint
                                 )
                             } else {
-                                imageGlowFor?.invoke(layer)?.let { (glowBmp, pad) ->
-                                    if (!glowBmp.isRecycled) {
-                                        val glowPaint = android.graphics.Paint().apply {
-                                            alpha = layerAlpha
+                                val meshGlow = imageMeshGlowFor?.invoke(layer)
+                                    ?.takeIf { !it.bitmap.isRecycled }
+                                var drewGlowMesh = false
+                                if (meshGlow != null) {
+                                    val glowMeshPaint = android.graphics.Paint().apply {
+                                        alpha = layerAlpha
+                                        isFilterBitmap = true
+                                    }
+                                    drewGlowMesh = Perspective.drawMeshBitmap(
+                                        canvas,
+                                        meshGlow.bitmap,
+                                        layer.x - meshGlow.pad, layer.y - meshGlow.pad,
+                                        imgBmp.width + 2f * meshGlow.pad,
+                                        imgBmp.height + 2f * meshGlow.pad,
+                                        meshGlow.grid,
+                                        glowMeshPaint
+                                    )
+                                }
+                                if (!drewGlowMesh) {
+                                    imageGlowFor?.invoke(layer)?.let { (glowBmp, pad) ->
+                                        if (!glowBmp.isRecycled) {
+                                            val glowPaint = android.graphics.Paint().apply {
+                                                alpha = layerAlpha
+                                            }
+                                            canvas.drawBitmap(glowBmp, layer.x - pad, layer.y - pad, glowPaint)
                                         }
-                                        canvas.drawBitmap(glowBmp, layer.x - pad, layer.y - pad, glowPaint)
                                     }
                                 }
                             }
@@ -151,7 +207,22 @@ class ProjectExporter(private val context: Context) {
                                     wPaint
                                 )
                             } else {
-                                canvas.drawBitmap(imgBmp, layer.x, layer.y, imgPaint)
+                                val imgMeshPaint = android.graphics.Paint().apply {
+                                    alpha = layerAlpha
+                                    colorFilter = imgPaint.colorFilter
+                                    isFilterBitmap = true
+                                }
+                                val drewImgMesh = Perspective.drawMeshBitmap(
+                                    canvas,
+                                    imgBmp,
+                                    layer.x, layer.y,
+                                    imgBmp.width.toFloat(), imgBmp.height.toFloat(),
+                                    layer.meshGrid,
+                                    imgMeshPaint
+                                )
+                                if (!drewImgMesh) {
+                                    canvas.drawBitmap(imgBmp, layer.x, layer.y, imgPaint)
+                                }
                             }
                         }
                     }
@@ -173,12 +244,15 @@ class ProjectExporter(private val context: Context) {
         imageWarpFor: ((Layer.ImageLayer) -> WarpedDraw?)? = null,
         textWarpFor: ((Layer.TextLayer) -> WarpedDraw?)? = null,
         imageGlowWarpFor: ((Layer.ImageLayer) -> WarpedDraw?)? = null,
+        textMeshFor: ((Layer.TextLayer) -> TextMeshDraw?)? = null,
+        imageMeshGlowFor: ((Layer.ImageLayer) -> MeshGlow?)? = null,
         fontLookup: ((String) -> String?)? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
             val bmp = exportToBitmap(
                 baseBitmap, layers, imageBitmapFor, imageGlowFor,
-                imageWarpFor, textWarpFor, imageGlowWarpFor, fontLookup
+                imageWarpFor, textWarpFor, imageGlowWarpFor,
+                textMeshFor, imageMeshGlowFor, fontLookup
             )
             FileOutputStream(outputFile).use { out ->
                 bmp.compress(format, quality, out)

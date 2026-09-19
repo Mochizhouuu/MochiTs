@@ -101,8 +101,7 @@ private fun perspCanvasCorners(
         }
     }
 }
-
-/** Index sudut terdekat dalam [radiusPx], atau -1 bila tidak ada. */
+/** Index titik terdekat dalam [radiusPx], atau -1 bila tidak ada. */
 private fun hitTestPerspCorner(
     touchCanvas: Offset,
     corners: List<Offset>,
@@ -120,6 +119,39 @@ private fun hitTestPerspCorner(
         }
     }
     return best
+}
+
+/**
+ * Titik grid mesh 4x4 dalam koordinat kanvas (rotasi teks diikuti).
+ * [grid] null = grid seragam.
+ */
+private fun meshCanvasPoints(
+    grid: List<Float>?,
+    box: RectF,
+    rotationDeg: Float
+): List<Offset> {
+    val n = com.mochits.app.imaging.Perspective.MESH_N
+    val g = if (grid != null && grid.size == 2 * n * n) grid
+    else com.mochits.app.imaging.Perspective.identityGrid()
+    val cx = box.centerX()
+    val cy = box.centerY()
+    val rad = Math.toRadians(rotationDeg.toDouble())
+    val cosA = kotlin.math.cos(rad)
+    val sinA = kotlin.math.sin(rad)
+    return (0 until n * n).map { k ->
+        val lx = box.left + g[k * 2].coerceIn(-0.5f, 1.5f) * box.width()
+        val ly = box.top + g[k * 2 + 1].coerceIn(-0.5f, 1.5f) * box.height()
+        if (rotationDeg == 0f) {
+            Offset(lx, ly)
+        } else {
+            val dx = (lx - cx).toDouble()
+            val dy = (ly - cy).toDouble()
+            Offset(
+                (cx + dx * cosA - dy * sinA).toFloat(),
+                (cy + dx * sinA + dy * cosA).toFloat()
+            )
+        }
+    }
 }
 
 private fun handleAnchors(bounds: RectF, scale: Float): List<Pair<TextHandleType, Offset>> {
@@ -291,6 +323,7 @@ fun EditorScreen(
     val layers by viewModel.layers.collectAsState()
     val selectedLayerId by viewModel.selectedLayerId.collectAsState()
     val perspEditId by viewModel.perspEditId.collectAsState()
+    val meshEditId by viewModel.meshEditId.collectAsState()
     val activePanel by viewModel.activePanel.collectAsState()
     val maskToolMode by viewModel.maskToolMode.collectAsState()
     val brushSize by viewModel.brushSize.collectAsState()
@@ -672,7 +705,13 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             viewModel.setPerspEdit(if (viewModel.perspEditId.value == id) null else id)
                         },
                         onResetPerspective = { viewModel.resetPerspective(it) },
-                        onClearPerspEdit = { viewModel.setPerspEdit(null) }
+                        onClearPerspEdit = { viewModel.setPerspEdit(null) },
+                        meshEditId = meshEditId,
+                        onToggleMeshEdit = { id ->
+                            viewModel.setMeshEdit(if (viewModel.meshEditId.value == id) null else id)
+                        },
+                        onResetMesh = { viewModel.resetMesh(it) },
+                        onClearMeshEdit = { viewModel.setMeshEdit(null) }
                     )
                     EditorPanel.LAYERS -> LayersToolPanel(
                         layers = layers,
@@ -788,6 +827,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                     .fillMaxSize()
                         .pointerInput(Unit) {
                             var perspDragIndex = -1
+                            var meshDragIndex = -1
                             awaitPointerEventScope {
                                 while (true) {
                                 val event = awaitPointerEvent()
@@ -872,6 +912,81 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                     }
                                 } else if (perspDragIndex != -1) {
                                     perspDragIndex = -1
+                                    viewModel.onSliderDragEnd()
+                                }
+
+                                // 0b. WARP MESH DRAG (mode edit mesh aktif).
+                                if (meshEditId != null) {
+                                    val mLayer = viewModel.layers.value.find { it.id == meshEditId }
+                                    val mGrid: List<Float>? = when (mLayer) {
+                                        is Layer.TextLayer -> mLayer.meshGrid
+                                        is Layer.ImageLayer -> mLayer.meshGrid
+                                        else -> null
+                                    }
+                                    val mBox: RectF? = when (mLayer) {
+                                        is Layer.TextLayer -> textRenderer.getWarpBounds(mLayer)
+                                        is Layer.ImageLayer -> viewModel.resolveImageBitmap(mLayer)?.let { b ->
+                                            if (b.isRecycled) null else RectF(
+                                                mLayer.x, mLayer.y,
+                                                mLayer.x + b.width, mLayer.y + b.height
+                                            )
+                                        }
+                                        else -> null
+                                    }
+                                    if (mLayer != null && mBox != null && mBox.width() > 1f && mBox.height() > 1f) {
+                                        val mScale = viewModel.canvasState.scale.coerceAtLeast(0.1f)
+                                        val mRot = if (mLayer is Layer.TextLayer) mLayer.rotation else 0f
+                                        val firstM = changes.first()
+                                        val touchM = viewModel.canvasState.mapper.screenToCanvas(
+                                            firstM.position.x, firstM.position.y
+                                        )
+                                        if (meshDragIndex == -1) {
+                                            if (firstM.pressed) {
+                                                val pts = meshCanvasPoints(mGrid, mBox, mRot)
+                                                val hit = hitTestPerspCorner(touchM, pts, 44f / mScale)
+                                                if (hit != -1) {
+                                                    meshDragIndex = hit
+                                                    viewModel.onSliderDragStart()
+                                                    firstM.consume()
+                                                    triggerRedraw++
+                                                    continue
+                                                }
+                                            }
+                                        } else {
+                                            if (!firstM.pressed) {
+                                                meshDragIndex = -1
+                                                viewModel.onSliderDragEnd()
+                                                continue
+                                            }
+                                            var lx = touchM.x
+                                            var ly = touchM.y
+                                            if (mRot != 0f) {
+                                                val rad = Math.toRadians((-mRot).toDouble())
+                                                val cosA = kotlin.math.cos(rad)
+                                                val sinA = kotlin.math.sin(rad)
+                                                val dx = (lx - mBox.centerX()).toDouble()
+                                                val dy = (ly - mBox.centerY()).toDouble()
+                                                lx = (mBox.centerX() + dx * cosA - dy * sinA).toFloat()
+                                                ly = (mBox.centerY() + dx * sinA + dy * cosA).toFloat()
+                                            }
+                                            if (mBox.width() > 0f && mBox.height() > 0f) {
+                                                viewModel.updateMeshPoint(
+                                                    mLayer.id,
+                                                    meshDragIndex,
+                                                    (lx - mBox.left) / mBox.width(),
+                                                    (ly - mBox.top) / mBox.height()
+                                                )
+                                            }
+                                            firstM.consume()
+                                            triggerRedraw++
+                                            continue
+                                        }
+                                    } else if (meshDragIndex != -1) {
+                                        meshDragIndex = -1
+                                        viewModel.onSliderDragEnd()
+                                    }
+                                } else if (meshDragIndex != -1) {
+                                    meshDragIndex = -1
                                     viewModel.onSliderDragEnd()
                                 }
 
@@ -1617,6 +1732,25 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                         }
                                     }
                                     if (!drewWarpedText) {
+                                        // Warp mesh (eksklusif dengan perspektif).
+                                        val textMesh = layer.meshGrid
+                                        if (textMesh != null && com.mochits.app.imaging.Perspective.isMeshActive(textMesh)) {
+                                            textRenderer.renderToBitmap(layer)?.let { (flat, origin) ->
+                                                if (!flat.isRecycled) {
+                                                    val meshPaint = perspPaintCache.apply { alpha = 255 }
+                                                    drewWarpedText = com.mochits.app.imaging.Perspective.drawMeshBitmap(
+                                                        drawContext.canvas.nativeCanvas,
+                                                        flat,
+                                                        origin.x, origin.y,
+                                                        flat.width.toFloat(), flat.height.toFloat(),
+                                                        textMesh,
+                                                        meshPaint
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if (!drewWarpedText) {
                                         textRenderer.drawStyledText(
                                             canvas = drawContext.canvas.nativeCanvas,
                                             layer = layer
@@ -1757,6 +1891,9 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                         val imgQuad = layer.perspQuad
                                         val imgQuadActive = imgQuad != null &&
                                             com.mochits.app.imaging.Perspective.isActive(imgQuad)
+                                        val imgMesh = layer.meshGrid
+                                        val imgMeshActive = imgMesh != null &&
+                                            com.mochits.app.imaging.Perspective.isMeshActive(imgMesh)
                                         if (imgQuadActive) {
                                             // Glow ikut di-warp selaras dengan isi.
                                             viewModel.resolveImageGlow(layer)?.let { (glowBmp, pad) ->
@@ -1778,6 +1915,29 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                             ),
                                                             glowPaint
                                                         )
+                                                    }
+                                                }
+                                            }
+                                        } else if (imgMeshActive) {
+                                            // Glow ikut warp mesh selaras dengan isi.
+                                            viewModel.resolveImageGlow(layer)?.let { (glowBmp, pad) ->
+                                                if (!glowBmp.isRecycled) {
+                                                    viewModel.meshGlowData(layer)?.let { mg ->
+                                                        if (!mg.bitmap.isRecycled) {
+                                                            val glowPaint = perspPaintCache.apply {
+                                                                alpha = layerAlpha
+                                                                colorFilter = null
+                                                            }
+                                                            com.mochits.app.imaging.Perspective.drawMeshBitmap(
+                                                                drawContext.canvas.nativeCanvas,
+                                                                mg.bitmap,
+                                                                layer.x - pad, layer.y - pad,
+                                                                imgBmp.width + 2f * pad,
+                                                                imgBmp.height + 2f * pad,
+                                                                mg.grid,
+                                                                glowPaint
+                                                            )
+                                                        }
                                                     }
                                                 }
                                             }
@@ -1822,7 +1982,22 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                 warpPaint
                                             )
                                         } else {
-                                            drawContext.canvas.nativeCanvas.drawBitmap(imgBmp, layer.x, layer.y, imgPaint)
+                                            val meshPaint = perspPaintCache.apply {
+                                                alpha = layerAlpha
+                                                colorFilter = imgPaint.colorFilter
+                                            }
+                                            // Warp mesh langsung full-res; fallback ke normal.
+                                            val drewMesh = imgMeshActive && com.mochits.app.imaging.Perspective.drawMeshBitmap(
+                                                drawContext.canvas.nativeCanvas,
+                                                imgBmp,
+                                                layer.x, layer.y,
+                                                imgBmp.width.toFloat(), imgBmp.height.toFloat(),
+                                                imgMesh,
+                                                meshPaint
+                                            )
+                                            if (!drewMesh) {
+                                                drawContext.canvas.nativeCanvas.drawBitmap(imgBmp, layer.x, layer.y, imgPaint)
+                                            }
                                         }
                                     }
                                 }
@@ -1867,6 +2042,50 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             drawContext.canvas.nativeCanvas.drawCircle(c.x, c.y, hr, handleFillPaintCache)
                             drawContext.canvas.nativeCanvas.drawCircle(
                                 c.x, c.y, hr, handleStrokePaintCache.apply { strokeWidth = 3f / pScale }
+                            )
+                        }
+                    }
+                }
+
+                // Overlay edit warp mesh: grid 4x4 + 16 handle titik.
+                val meshLayer = layers.find { it.id == meshEditId }
+                if (meshLayer is Layer.TextLayer || meshLayer is Layer.ImageLayer) {
+                    val mGrid: List<Float>? = when (meshLayer) {
+                        is Layer.TextLayer -> meshLayer.meshGrid
+                        is Layer.ImageLayer -> meshLayer.meshGrid
+                        else -> null
+                    }
+                    val mBox: android.graphics.RectF? = when (meshLayer) {
+                        is Layer.TextLayer -> textRenderer.getWarpBounds(meshLayer)
+                        is Layer.ImageLayer -> viewModel.resolveImageBitmap(meshLayer)?.let { b ->
+                            if (b.isRecycled) null else android.graphics.RectF(
+                                meshLayer.x, meshLayer.y,
+                                meshLayer.x + b.width, meshLayer.y + b.height
+                            )
+                        }
+                        else -> null
+                    }
+                    if (mBox != null && mBox.width() > 1f && mBox.height() > 1f) {
+                        val mScale = viewModel.canvasState.scale.coerceAtLeast(0.1f)
+                        val mRot = if (meshLayer is Layer.TextLayer) meshLayer.rotation else 0f
+                        val pts = meshCanvasPoints(mGrid, mBox, mRot)
+                        val n = com.mochits.app.imaging.Perspective.MESH_N
+                        val gridPaint = boxPaintCache.apply { strokeWidth = 2f / mScale }
+                        for (j in 0 until n) {
+                            for (i in 0 until n - 1) {
+                                val a = pts[j * n + i]
+                                val b2 = pts[j * n + i + 1]
+                                drawContext.canvas.nativeCanvas.drawLine(a.x, a.y, b2.x, b2.y, gridPaint)
+                                val c2 = pts[i * n + j]
+                                val d2 = pts[(i + 1) * n + j]
+                                drawContext.canvas.nativeCanvas.drawLine(c2.x, c2.y, d2.x, d2.y, gridPaint)
+                            }
+                        }
+                        val mhr = 16f / mScale
+                        for (p in pts) {
+                            drawContext.canvas.nativeCanvas.drawCircle(p.x, p.y, mhr, handleFillPaintCache)
+                            drawContext.canvas.nativeCanvas.drawCircle(
+                                p.x, p.y, mhr, handleStrokePaintCache.apply { strokeWidth = 2.5f / mScale }
                             )
                         }
                     }
@@ -2737,10 +2956,12 @@ private enum class EffectType {
     MOTION_BLUR,
     GLOW,
     PERSPECTIVE,
+    WARP,
     IMAGE_TONE,
     IMAGE_MOTION_BLUR,
     IMAGE_GLOW,
-    IMAGE_PERSPECTIVE
+    IMAGE_PERSPECTIVE,
+    IMAGE_WARP
 }
 
 @Composable
@@ -2751,8 +2972,8 @@ private fun PerspectivePanel(
     onReset: () -> Unit
 ) {
     Text(
-        text = if (editing) "Seret 4 titik sudut di kanvas, lalu matikan mode edit."
-        else "Nyalakan mode edit, lalu seret 4 titik sudut di kanvas.",
+        text = if (editing) "Seret titik-titik di kanvas, lalu matikan mode edit."
+        else "Nyalakan mode edit, lalu seret titik-titik di kanvas.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
@@ -2784,7 +3005,11 @@ fun EffectToolPanel(
     perspEditId: String? = null,
     onTogglePerspEdit: ((String) -> Unit)? = null,
     onResetPerspective: ((String) -> Unit)? = null,
-    onClearPerspEdit: (() -> Unit)? = null
+    onClearPerspEdit: (() -> Unit)? = null,
+    meshEditId: String? = null,
+    onToggleMeshEdit: ((String) -> Unit)? = null,
+    onResetMesh: ((String) -> Unit)? = null,
+    onClearMeshEdit: (() -> Unit)? = null
 ) {
     var expandedEffect by remember(selectedLayer?.id) { mutableStateOf<EffectType?>(null) }
 
@@ -2792,6 +3017,7 @@ fun EffectToolPanel(
         onDispose {
             onSliderDragEnd()
             onClearPerspEdit?.invoke()
+            onClearMeshEdit?.invoke()
         }
     }
 
@@ -2818,9 +3044,9 @@ fun EffectToolPanel(
             } else {
                 val availableEffects = remember(selectedLayer) {
                     if (selectedLayer is Layer.TextLayer) {
-                        listOf(EffectType.OPACITY, EffectType.TEXT_COLOR, EffectType.STROKE, EffectType.DROP_SHADOW, EffectType.MOTION_BLUR, EffectType.GLOW, EffectType.PERSPECTIVE)
+                        listOf(EffectType.OPACITY, EffectType.TEXT_COLOR, EffectType.STROKE, EffectType.DROP_SHADOW, EffectType.MOTION_BLUR, EffectType.GLOW, EffectType.PERSPECTIVE, EffectType.WARP)
                     } else if (selectedLayer is Layer.ImageLayer) {
-                        listOf(EffectType.OPACITY, EffectType.IMAGE_TONE, EffectType.IMAGE_MOTION_BLUR, EffectType.IMAGE_GLOW, EffectType.IMAGE_PERSPECTIVE)
+                        listOf(EffectType.OPACITY, EffectType.IMAGE_TONE, EffectType.IMAGE_MOTION_BLUR, EffectType.IMAGE_GLOW, EffectType.IMAGE_PERSPECTIVE, EffectType.IMAGE_WARP)
                     } else {
                         listOf(EffectType.OPACITY)
                     }
@@ -2859,6 +3085,9 @@ fun EffectToolPanel(
                             EffectType.PERSPECTIVE -> if (selectedLayer is Layer.TextLayer) {
                                 com.mochits.app.imaging.Perspective.isActive(selectedLayer.perspQuad)
                             } else false
+                            EffectType.WARP -> if (selectedLayer is Layer.TextLayer) {
+                                com.mochits.app.imaging.Perspective.isMeshActive(selectedLayer.meshGrid)
+                            } else false
                             EffectType.IMAGE_TONE -> if (selectedLayer is Layer.ImageLayer) {
                                 selectedLayer.grayscale > 0f ||
                                 selectedLayer.brightness != 0f ||
@@ -2874,6 +3103,9 @@ fun EffectToolPanel(
                             EffectType.IMAGE_PERSPECTIVE -> if (selectedLayer is Layer.ImageLayer) {
                                 com.mochits.app.imaging.Perspective.isActive(selectedLayer.perspQuad)
                             } else false
+                            EffectType.IMAGE_WARP -> if (selectedLayer is Layer.ImageLayer) {
+                                com.mochits.app.imaging.Perspective.isMeshActive(selectedLayer.meshGrid)
+                            } else false
                         }
 
                         val (icon, title) = when (effect) {
@@ -2884,10 +3116,12 @@ fun EffectToolPanel(
                             EffectType.MOTION_BLUR -> Icons.Default.BlurLinear to "Motion Blur"
                             EffectType.GLOW -> Icons.Default.BlurCircular to "Glow"
                             EffectType.PERSPECTIVE -> Icons.Default.Transform to "Perspektif"
+                            EffectType.WARP -> Icons.Default.GridOn to "Warp"
                             EffectType.IMAGE_TONE -> Icons.Default.Tune to "Tone"
                             EffectType.IMAGE_MOTION_BLUR -> Icons.Default.BlurLinear to "Motion Blur"
                             EffectType.IMAGE_GLOW -> Icons.Default.BlurCircular to "Glow"
                             EffectType.IMAGE_PERSPECTIVE -> Icons.Default.Transform to "Perspektif"
+                            EffectType.IMAGE_WARP -> Icons.Default.GridOn to "Warp"
                         }
 
                         Card(
@@ -3449,6 +3683,26 @@ fun EffectToolPanel(
                                         editing = perspEditId == selectedLayer.id,
                                         onToggleEdit = { onTogglePerspEdit?.invoke(selectedLayer.id) },
                                         onReset = { onResetPerspective?.invoke(selectedLayer.id) }
+                                    )
+                                }
+                            }
+                            EffectType.WARP -> {
+                                if (selectedLayer is Layer.TextLayer) {
+                                    PerspectivePanel(
+                                        hasQuad = com.mochits.app.imaging.Perspective.isMeshActive(selectedLayer.meshGrid),
+                                        editing = meshEditId == selectedLayer.id,
+                                        onToggleEdit = { onToggleMeshEdit?.invoke(selectedLayer.id) },
+                                        onReset = { onResetMesh?.invoke(selectedLayer.id) }
+                                    )
+                                }
+                            }
+                            EffectType.IMAGE_WARP -> {
+                                if (selectedLayer is Layer.ImageLayer) {
+                                    PerspectivePanel(
+                                        hasQuad = com.mochits.app.imaging.Perspective.isMeshActive(selectedLayer.meshGrid),
+                                        editing = meshEditId == selectedLayer.id,
+                                        onToggleEdit = { onToggleMeshEdit?.invoke(selectedLayer.id) },
+                                        onReset = { onResetMesh?.invoke(selectedLayer.id) }
                                     )
                                 }
                             }

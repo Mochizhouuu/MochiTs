@@ -145,6 +145,8 @@ class EditorViewModel @Inject constructor(
             imageWarpFor = { resolveExportWarpedImage(it) },
             textWarpFor = { resolveExportWarpedText(it) },
             imageGlowWarpFor = { resolveExportWarpedImageGlow(it) },
+            textMeshFor = { resolveExportTextMesh(it) },
+            imageMeshGlowFor = { meshGlowData(it) },
             fontLookup = exportFontLookup
         )
         cachedFlattenedBitmap = flattened
@@ -175,6 +177,8 @@ class EditorViewModel @Inject constructor(
                     imageWarpFor = { resolveExportWarpedImage(it) },
                     textWarpFor = { resolveExportWarpedText(it) },
                     imageGlowWarpFor = { resolveExportWarpedImageGlow(it) },
+                    textMeshFor = { resolveExportTextMesh(it) },
+                    imageMeshGlowFor = { meshGlowData(it) },
                     fontLookup = exportFontLookup
                 )
                 compositeBitmap = comp
@@ -1942,9 +1946,12 @@ data class HistoryManifest(
 
     fun selectLayer(id: String?) {
         selectedLayerId.value = id
-        // Ganti seleksi = keluar dari mode edit titik perspektif.
+        // Ganti seleksi = keluar dari mode edit titik perspektif/warp.
         if (perspEditId.value != null && perspEditId.value != id) {
             perspEditId.value = null
+        }
+        if (meshEditId.value != null && meshEditId.value != id) {
+            meshEditId.value = null
         }
         // Seleksi murah: tulis langsung agar tap terakhir tidak hilang walau
         // user keluar <400ms sebelum debounce autoSave jalan. Save penuh
@@ -2048,6 +2055,15 @@ data class HistoryManifest(
 
     fun setPerspEdit(id: String?) {
         perspEditId.value = id
+        if (id != null) meshEditId.value = null
+    }
+
+    /** Layer yang sedang dalam mode edit warp mesh (kanvas). */
+    val meshEditId = MutableStateFlow<String?>(null)
+
+    fun setMeshEdit(id: String?) {
+        meshEditId.value = id
+        if (id != null) perspEditId.value = null
     }
 
     /**
@@ -2060,6 +2076,10 @@ data class HistoryManifest(
         val cy = ny.coerceIn(-0.5f, 1.5f)
         layers.value = layers.value.map { layer ->
             if (layer.id != layerId) return@map layer
+            val wasNull = when (layer) {
+                is Layer.TextLayer -> layer.perspQuad == null
+                is Layer.ImageLayer -> layer.perspQuad == null
+            }
             val base = when (layer) {
                 is Layer.TextLayer -> layer.perspQuad
                 is Layer.ImageLayer -> layer.perspQuad
@@ -2069,13 +2089,13 @@ data class HistoryManifest(
             next[index * 2] = cx
             next[index * 2 + 1] = cy
             when (layer) {
-                is Layer.TextLayer -> layer.copy(perspQuad = next)
-                is Layer.ImageLayer -> layer.copy(perspQuad = next)
+                // Mesh & perspektif eksklusif: mengaktifkan satu mematikan satunya.
+                is Layer.TextLayer -> layer.copy(perspQuad = next, meshGrid = if (wasNull) null else layer.meshGrid)
+                is Layer.ImageLayer -> layer.copy(perspQuad = next, meshGrid = if (wasNull) null else layer.meshGrid)
             }
         }
         invalidateFlattenedCache()
     }
-
     /** Kembalikan ke persegi (matikan perspektif) untuk satu layer. */
     fun resetPerspective(layerId: String) {
         saveUndoSnapshot()
@@ -2089,6 +2109,94 @@ data class HistoryManifest(
         }
         autoSave()
         invalidateFlattenedCache()
+    }
+
+    // ---------- Warp mesh 4x4 (gambar + teks) ----------
+
+    /**
+     * Geser satu titik grid ternormalisasi [0..1]. Tanpa snapshot (caller
+     * wajib [onSliderDragStart] sekali di awal drag) agar drag mulus.
+     */
+    fun updateMeshPoint(layerId: String, index: Int, nx: Float, ny: Float) {
+        val n = Perspective.MESH_N
+        if (index !in 0 until n * n) return
+        val cx = nx.coerceIn(-0.5f, 1.5f)
+        val cy = ny.coerceIn(-0.5f, 1.5f)
+        layers.value = layers.value.map { layer ->
+            if (layer.id != layerId) return@map layer
+            val wasNull = when (layer) {
+                is Layer.TextLayer -> layer.meshGrid == null
+                is Layer.ImageLayer -> layer.meshGrid == null
+            }
+            val base = when (layer) {
+                is Layer.TextLayer -> layer.meshGrid
+                is Layer.ImageLayer -> layer.meshGrid
+            } ?: Perspective.identityGrid()
+            if (base.size != 2 * n * n) return@map layer
+            val next = base.toMutableList()
+            next[index * 2] = cx
+            next[index * 2 + 1] = cy
+            when (layer) {
+                // Mesh & perspektif eksklusif: mengaktifkan satu mematikan satunya.
+                is Layer.TextLayer -> layer.copy(
+                    meshGrid = next,
+                    perspQuad = if (wasNull) null else layer.perspQuad
+                )
+                is Layer.ImageLayer -> layer.copy(
+                    meshGrid = next,
+                    perspQuad = if (wasNull) null else layer.perspQuad
+                )
+            }
+        }
+        invalidateFlattenedCache()
+    }
+
+    /** Kembalikan ke grid seragam (matikan warp mesh) untuk satu layer. */
+    fun resetMesh(layerId: String) {
+        saveUndoSnapshot()
+        layers.value = layers.value.map { layer ->
+            if (layer.id != layerId) layer
+            else when (layer) {
+                is Layer.TextLayer -> layer.copy(meshGrid = null)
+                is Layer.ImageLayer -> layer.copy(meshGrid = null)
+            }
+        }
+        autoSave()
+        invalidateFlattenedCache()
+    }
+
+    /**
+     * Data glow + grid yang dipetakan ke ruang glow untuk warp mesh gambar.
+     * Bitmap glow menutupi box konten + pad di tiap sisi.
+     */
+    fun meshGlowData(layer: Layer.ImageLayer): ProjectExporter.MeshGlow? {
+        val grid = layer.meshGrid ?: return null
+        if (!Perspective.isMeshActive(grid)) return null
+        val (glowBmp, pad) = resolveImageGlow(layer) ?: return null
+        if (glowBmp.isRecycled) return null
+        val src = resolveImageBitmap(layer) ?: return null
+        if (src.isRecycled) return null
+        val sw = src.width.toFloat()
+        val sh = src.height.toFloat()
+        if (sw <= 0f || sh <= 0f) return null
+        val gw = sw + 2f * pad
+        val gh = sh + 2f * pad
+        if (gw <= 0f || gh <= 0f) return null
+        val mapped = List(grid.size) { i ->
+            val q = grid[i]
+            if (i % 2 == 0) ((q * sw + pad) / gw).coerceIn(-0.5f, 1.5f)
+            else ((q * sh + pad) / gh).coerceIn(-0.5f, 1.5f)
+        }
+        return ProjectExporter.MeshGlow(glowBmp, pad, mapped)
+    }
+
+    /** Render datar teks resolusi ekspor untuk warp mesh (posisi absolut). */
+    fun resolveExportTextMesh(layer: Layer.TextLayer): ProjectExporter.TextMeshDraw? {
+        if (!Perspective.isMeshActive(layer.meshGrid)) return null
+        exporter.textRenderer.customFontPathResolver = exportFontLookup
+        val (flat, origin) = exporter.textRenderer.renderToBitmap(layer) ?: return null
+        if (flat.isRecycled) return null
+        return ProjectExporter.TextMeshDraw(flat, origin.x, origin.y)
     }
 
     /** Cache warp per layer: dihitung ulang hanya bila sumber/quad berubah. */
@@ -2254,6 +2362,8 @@ data class HistoryManifest(
                 imageWarpFor = { resolveExportWarpedImage(it) },
                 textWarpFor = { resolveExportWarpedText(it) },
                 imageGlowWarpFor = { resolveExportWarpedImageGlow(it) },
+                textMeshFor = { resolveExportTextMesh(it) },
+                imageMeshGlowFor = { meshGlowData(it) },
                 fontLookup = exportFontLookup
             )
             isExporting.value = false

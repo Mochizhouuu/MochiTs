@@ -17,6 +17,17 @@ class PerspectiveTest {
     }
 
     @Test
+    fun `grid mesh identitas 4x4 dan aktif`() {
+        val id = Perspective.identityGrid()
+        assertEquals(32, id.size)
+        assertTrue(!Perspective.isMeshActive(null))
+        assertTrue(!Perspective.isMeshActive(id))
+        assertTrue(!Perspective.isMeshActive(List(31) { 0f }))
+        val moved = id.toMutableList().also { it[2 * (1 * 4 + 1)] = 0.4f }
+        assertTrue(Perspective.isMeshActive(moved))
+    }
+
+    @Test
     fun `identitas mengembalikan null`() {
         val px = IntArray(16) { -1 }
         assertNull(Perspective.warpPixels(px, 4, 4, listOf(0f, 0f, 1f, 0f, 1f, 1f, 0f, 1f)))

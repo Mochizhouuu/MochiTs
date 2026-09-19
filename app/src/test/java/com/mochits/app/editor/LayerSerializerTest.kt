@@ -247,6 +247,28 @@ class LayerSerializerTest {
     }
 
     @Test
+    fun testSerializeAndDeserialize_warpFields() {
+        val quad = listOf(0f, 0f, 1f, 0f, 0.9f, 1f, 0.1f, 1f)
+        val grid = com.mochits.app.imaging.Perspective.identityGrid().toMutableList().also {
+            it[10] = 0.75f
+        }
+        val layers = listOf(
+            Layer.TextLayer(id = "t1", name = "T", text = "halo", perspQuad = quad, meshGrid = grid),
+            Layer.ImageLayer(id = "i1", name = "I", perspQuad = quad, meshGrid = grid)
+        )
+        val deserialized = serializer.deserialize(serializer.serialize(layers))
+        assertEquals(2, deserialized.size)
+        val t = deserialized[0] as Layer.TextLayer
+        val im = deserialized[1] as Layer.ImageLayer
+        assertEquals(quad, t.perspQuad)
+        assertEquals(quad, im.perspQuad)
+        assertEquals(32, t.meshGrid!!.size)
+        assertEquals(32, im.meshGrid!!.size)
+        assertEquals(0.75f, t.meshGrid!![10], 0.0001f)
+        assertEquals(0.75f, im.meshGrid!![10], 0.0001f)
+    }
+
+    @Test
     fun testDeserializeLegacyImageJson_defaultsEffects() {
         val legacyJson = """
             [

@@ -16,6 +16,70 @@ import kotlin.math.min
  */
 object Perspective {
 
+    /** Grid warp mesh: N x N titik, row-major, 2*N*N float ternormalisasi. */
+    const val MESH_N = 4
+
+    /** Grid identitas (seragam): titik (i/(N-1), j/(N-1)). */
+    fun identityGrid(): List<Float> {
+        val n = MESH_N
+        val out = ArrayList<Float>(2 * n * n)
+        for (j in 0 until n) {
+            for (i in 0 until n) {
+                out.add(i.toFloat() / (n - 1))
+                out.add(j.toFloat() / (n - 1))
+            }
+        }
+        return out
+    }
+
+    /** true bila grid valid dan benar-benar mengubah bentuk. */
+    fun isMeshActive(grid: List<Float>?): Boolean {
+        if (grid == null || grid.size != 2 * MESH_N * MESH_N) return false
+        if (grid.any { !it.isFinite() }) return false
+        val id = identityGrid()
+        for (i in grid.indices) {
+            if (kotlin.math.abs(grid[i] - id[i]) > 1e-4f) return true
+        }
+        return false
+    }
+
+    /**
+     * Gambar [bitmap] mengikuti grid mesh via drawBitmapMesh bawaan
+     * (native, full-res, API 1+). Grid dinormalisasi ke box konten
+     * (originX/Y, contentW/H dalam koordinat kanvas tujuan).
+     * @return true bila digambar.
+     */
+    fun drawMeshBitmap(
+        canvas: android.graphics.Canvas,
+        bitmap: android.graphics.Bitmap,
+        originX: Float,
+        originY: Float,
+        contentW: Float,
+        contentH: Float,
+        grid: List<Float>?,
+        paint: android.graphics.Paint
+    ): Boolean {
+        if (!isMeshActive(grid)) return false
+        if (bitmap.isRecycled || contentW <= 0f || contentH <= 0f) return false
+        val n = MESH_N
+        val g = grid!!
+        if (g.size != 2 * n * n) return false
+        return try {
+            val verts = FloatArray(2 * n * n)
+            for (j in 0 until n) {
+                for (i in 0 until n) {
+                    val k = (j * n + i) * 2
+                    verts[k] = originX + g[k].coerceIn(-0.5f, 1.5f) * contentW
+                    verts[k + 1] = originY + g[k + 1].coerceIn(-0.5f, 1.5f) * contentH
+                }
+            }
+            canvas.drawBitmapMesh(bitmap, n - 1, n - 1, verts, 0, null, 0, paint)
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     /** Hasil warp: piksel + ukuran + offset kiri-atas relatif konten asal. */
     data class WarpedPixels(
         val pixels: IntArray,

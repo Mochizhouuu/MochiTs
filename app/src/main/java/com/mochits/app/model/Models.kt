@@ -139,7 +139,10 @@ sealed class Layer(
         val glowRadius: Float = 0f, // 0 = mati
         // Quad perspektif ternormalisasi [0..1]: TL,TR,BR,BL (8 float).
         // null = mati.
-        val perspQuad: List<Float>? = null
+        val perspQuad: List<Float>? = null,
+        // Grid warp mesh 4x4 ternormalisasi [0..1], row-major (32 float).
+        // null = mati. Eksklusif dengan perspQuad.
+        val meshGrid: List<Float>? = null
     ) : Layer(id, name, x, y, rotation, scaleX, scaleY, opacity, isVisible, isLocked)
 
     data class TextLayer(
@@ -160,6 +163,9 @@ sealed class Layer(
         val boxHeight: Float? = null,
         // Quad perspektif ternormalisasi [0..1]: TL,TR,BR,BL (8 float).
         // null = mati.
-        val perspQuad: List<Float>? = null
+        val perspQuad: List<Float>? = null,
+        // Grid warp mesh 4x4 ternormalisasi [0..1], row-major (32 float).
+        // null = mati. Eksklusif dengan perspQuad.
+        val meshGrid: List<Float>? = null
     ) : Layer(id, name, x, y, rotation, scaleX, scaleY, opacity, isVisible, isLocked)
 }
