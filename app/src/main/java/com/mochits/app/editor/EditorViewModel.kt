@@ -2047,8 +2047,10 @@ data class HistoryManifest(
         val cy = ny.coerceIn(-0.5f, 1.5f)
         layers.value = layers.value.map { layer ->
             if (layer.id != layerId) return@map layer
-            val base = layer.perspQuad
-                ?: listOf(0f, 0f, 1f, 0f, 1f, 1f, 0f, 1f)
+            val base = when (layer) {
+                is Layer.TextLayer -> layer.perspQuad
+                is Layer.ImageLayer -> layer.perspQuad
+            } ?: listOf(0f, 0f, 1f, 0f, 1f, 1f, 0f, 1f)
             if (base.size != 8) return@map layer
             val next = base.toMutableList()
             next[index * 2] = cx
@@ -2077,7 +2079,7 @@ data class HistoryManifest(
     }
 
     /** Cache warp per layer: dihitung ulang hanya bila sumber/quad berubah. */
-    private data class WarpEntry(
+    internal data class WarpEntry(
         val src: Bitmap,
         val srcVersion: Long,
         val quad: List<Float>,
