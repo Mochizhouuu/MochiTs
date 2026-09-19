@@ -808,7 +808,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                         else -> null
                                     }
                                     val pBox: RectF? = when (pLayer) {
-                                        is Layer.TextLayer -> textRenderer.getTextBounds(pLayer)
+                                        is Layer.TextLayer -> textRenderer.getWarpBounds(pLayer)
                                         is Layer.ImageLayer -> viewModel.resolveImageBitmap(pLayer)?.let { b ->
                                             if (b.isRecycled) null else RectF(
                                                 pLayer.x, pLayer.y,
@@ -1754,15 +1754,44 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                     val imgBmp = viewModel.resolveImageBitmap(layer)
                                     if (imgBmp != null && !imgBmp.isRecycled) {
                                         val layerAlpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
-                                        viewModel.resolveImageGlow(layer)?.let { (glowBmp, pad) ->
-                                            if (!glowBmp.isRecycled) {
-                                                val glowPaint = alphaPaintCache.apply {
-                                                    alpha = layerAlpha
-                                                    colorFilter = null
+                                        val imgQuad = layer.perspQuad
+                                        val imgQuadActive = imgQuad != null &&
+                                            com.mochits.app.imaging.Perspective.isActive(imgQuad)
+                                        if (imgQuadActive) {
+                                            // Glow ikut di-warp selaras dengan isi.
+                                            viewModel.resolveImageGlow(layer)?.let { (glowBmp, pad) ->
+                                                if (!glowBmp.isRecycled) {
+                                                    viewModel.resolveWarpedImageGlow(layer)?.let { ge ->
+                                                        val gsc = ge.scale.coerceAtLeast(1e-6f)
+                                                        val glowPaint = perspPaintCache.apply {
+                                                            alpha = layerAlpha
+                                                            colorFilter = null
+                                                        }
+                                                        drawContext.canvas.nativeCanvas.drawBitmap(
+                                                            ge.bitmap,
+                                                            null,
+                                                            android.graphics.RectF(
+                                                                layer.x - pad + ge.offX,
+                                                                layer.y - pad + ge.offY,
+                                                                layer.x - pad + ge.offX + ge.bitmap.width / gsc,
+                                                                layer.y - pad + ge.offY + ge.bitmap.height / gsc
+                                                            ),
+                                                            glowPaint
+                                                        )
+                                                    }
                                                 }
-                                                drawContext.canvas.nativeCanvas.drawBitmap(
-                                                    glowBmp, layer.x - pad, layer.y - pad, glowPaint
-                                                )
+                                            }
+                                        } else {
+                                            viewModel.resolveImageGlow(layer)?.let { (glowBmp, pad) ->
+                                                if (!glowBmp.isRecycled) {
+                                                    val glowPaint = alphaPaintCache.apply {
+                                                        alpha = layerAlpha
+                                                        colorFilter = null
+                                                    }
+                                                    drawContext.canvas.nativeCanvas.drawBitmap(
+                                                        glowBmp, layer.x - pad, layer.y - pad, glowPaint
+                                                    )
+                                                }
                                             }
                                         }
                                         val imgPaint = alphaPaintCache.apply {
@@ -1772,7 +1801,6 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                             )
                                         }
                                         // Perspektif aktif: gambar bitmap warp (tone tetap via filter).
-                                        val imgQuad = layer.perspQuad
                                         val imgWarped = if (imgQuad != null) {
                                             viewModel.resolveWarpedImage(layer)
                                         } else null
@@ -1814,7 +1842,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         else -> null
                     }
                     val pBox: android.graphics.RectF? = when (perspLayer) {
-                        is Layer.TextLayer -> textRenderer.getTextBounds(perspLayer)
+                        // Box warp (termasuk bantalan efek) agar sejajar render.
+                        is Layer.TextLayer -> textRenderer.getWarpBounds(perspLayer)
                         is Layer.ImageLayer -> viewModel.resolveImageBitmap(perspLayer)?.let { b ->
                             if (b.isRecycled) null else android.graphics.RectF(
                                 perspLayer.x, perspLayer.y,

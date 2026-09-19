@@ -144,6 +144,7 @@ class EditorViewModel @Inject constructor(
                     imageGlowFor = { resolveImageGlow(it) },
             imageWarpFor = { resolveExportWarpedImage(it) },
             textWarpFor = { resolveExportWarpedText(it) },
+            imageGlowWarpFor = { resolveExportWarpedImageGlow(it) },
             fontLookup = exportFontLookup
         )
         cachedFlattenedBitmap = flattened
@@ -173,6 +174,7 @@ class EditorViewModel @Inject constructor(
                     imageGlowFor = { resolveImageGlow(it) },
                     imageWarpFor = { resolveExportWarpedImage(it) },
                     textWarpFor = { resolveExportWarpedText(it) },
+                    imageGlowWarpFor = { resolveExportWarpedImageGlow(it) },
                     fontLookup = exportFontLookup
                 )
                 compositeBitmap = comp
@@ -2077,7 +2079,7 @@ data class HistoryManifest(
     /** Kembalikan ke persegi (matikan perspektif) untuk satu layer. */
     fun resetPerspective(layerId: String) {
         saveUndoSnapshot()
-        warpCache.remove(layerId)?.let { recycleWarpEntry(it) }
+        clearWarpCache(layerId)
         layers.value = layers.value.map { layer ->
             if (layer.id != layerId) layer
             else when (layer) {
@@ -2108,6 +2110,7 @@ data class HistoryManifest(
 
     fun clearWarpCache(id: String) {
         warpCache.remove(id)?.let { recycleWarpEntry(it) }
+        warpCache.remove("$id:glow")?.let { recycleWarpEntry(it) }
     }
 
     /**
@@ -2160,6 +2163,32 @@ data class HistoryManifest(
         return warpedBitmap(layer.id, src, 0L, quad, maxDim)
     }
 
+    /**
+     * Warp glow gambar mengikuti quad yang sama. Bitmap glow menutupi box
+     * konten + pad di tiap sisi, jadi quad dipetakan ke ruang glow agar
+     * selaras dengan isi yang di-warp.
+     */
+    fun resolveWarpedImageGlow(layer: Layer.ImageLayer, maxDim: Int = 640): WarpedLayerDraw? {
+        val quad = layer.perspQuad ?: return null
+        if (quad.size != 8) return null
+        val (glowBmp, pad) = resolveImageGlow(layer) ?: return null
+        if (glowBmp.isRecycled) return null
+        val src = resolveImageBitmap(layer) ?: return null
+        if (src.isRecycled) return null
+        val sw = src.width.toFloat()
+        val sh = src.height.toFloat()
+        if (sw <= 0f || sh <= 0f) return null
+        val gw = sw + 2f * pad
+        val gh = sh + 2f * pad
+        if (gw <= 0f || gh <= 0f) return null
+        val mapped = List(8) { i ->
+            val q = quad[i]
+            if (i % 2 == 0) ((q * sw + pad) / gw).coerceIn(-0.5f, 1.5f)
+            else ((q * sh + pad) / gh).coerceIn(-0.5f, 1.5f)
+        }
+        return warpedBitmap("${layer.id}:glow", glowBmp, 0L, mapped, maxDim)
+    }
+
     /** Lookup displayName font -> filePath untuk jalur ekspor (diisi UI). */
     var exportFontLookup: ((String) -> String?)? = null
 
@@ -2172,14 +2201,21 @@ data class HistoryManifest(
     }
 
     /** Warp resolusi ekspor untuk layer teks (posisi absolut). */
-    fun resolveExportWarpedText(layer: Layer.TextLayer): ProjectExporter.WarpedDraw? {
-        val quad = layer.perspQuad ?: return null
+    fun resolveExportWarpedText(layer: Layer.TextLayer): ProjectExporter.WarpedDraw? {        val quad = layer.perspQuad ?: return null
         exporter.textRenderer.customFontPathResolver = exportFontLookup
         val (flat, origin) = exporter.textRenderer.renderToBitmap(layer) ?: return null
         val e = warpedBitmap(
             layer.id, flat, exporter.textRenderer.flatVersion, quad, 1600
         ) ?: return null
         return ProjectExporter.WarpedDraw(e.bitmap, origin.x + e.offX, origin.y + e.offY, e.scale)
+    }
+
+    /** Warp glow resolusi ekspor untuk layer gambar (posisi absolut). */
+    fun resolveExportWarpedImageGlow(layer: Layer.ImageLayer): ProjectExporter.WarpedDraw? {
+        if (layer.perspQuad == null) return null
+        val pad = resolveImageGlow(layer)?.second ?: return null
+        val e = resolveWarpedImageGlow(layer, 1600) ?: return null
+        return ProjectExporter.WarpedDraw(e.bitmap, layer.x - pad + e.offX, layer.y - pad + e.offY, e.scale)
     }
 
 
@@ -2217,6 +2253,7 @@ data class HistoryManifest(
                     imageGlowFor = { resolveImageGlow(it) },
                 imageWarpFor = { resolveExportWarpedImage(it) },
                 textWarpFor = { resolveExportWarpedText(it) },
+                imageGlowWarpFor = { resolveExportWarpedImageGlow(it) },
                 fontLookup = exportFontLookup
             )
             isExporting.value = false

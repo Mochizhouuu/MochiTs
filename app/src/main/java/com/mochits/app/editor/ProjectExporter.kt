@@ -30,6 +30,7 @@ class ProjectExporter(private val context: Context) {
         imageGlowFor: ((Layer.ImageLayer) -> Pair<Bitmap, Float>?)? = null,
         imageWarpFor: ((Layer.ImageLayer) -> WarpedDraw?)? = null,
         textWarpFor: ((Layer.TextLayer) -> WarpedDraw?)? = null,
+        imageGlowWarpFor: ((Layer.ImageLayer) -> WarpedDraw?)? = null,
         fontLookup: ((String) -> String?)? = null
     ): Bitmap = withContext(Dispatchers.Default) {
         // Guard dulu di level Kotlin: tanpa ini, drawBitmap(bitmap recycled)
@@ -98,12 +99,31 @@ class ProjectExporter(private val context: Context) {
                             ?: layer.bitmap?.takeIf { !it.isRecycled }
                         if (imgBmp != null) {
                             val layerAlpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
-                            imageGlowFor?.invoke(layer)?.let { (glowBmp, pad) ->
-                                if (!glowBmp.isRecycled) {
-                                    val glowPaint = android.graphics.Paint().apply {
-                                        alpha = layerAlpha
+                            val glowWarped = imageGlowWarpFor?.invoke(layer)
+                                ?.takeIf { !it.bitmap.isRecycled && it.scale > 1e-6f }
+                            if (glowWarped != null) {
+                                val glowPaint = android.graphics.Paint().apply {
+                                    alpha = layerAlpha
+                                    isFilterBitmap = true
+                                }
+                                canvas.drawBitmap(
+                                    glowWarped.bitmap,
+                                    null,
+                                    android.graphics.RectF(
+                                        glowWarped.x, glowWarped.y,
+                                        glowWarped.x + glowWarped.bitmap.width / glowWarped.scale,
+                                        glowWarped.y + glowWarped.bitmap.height / glowWarped.scale
+                                    ),
+                                    glowPaint
+                                )
+                            } else {
+                                imageGlowFor?.invoke(layer)?.let { (glowBmp, pad) ->
+                                    if (!glowBmp.isRecycled) {
+                                        val glowPaint = android.graphics.Paint().apply {
+                                            alpha = layerAlpha
+                                        }
+                                        canvas.drawBitmap(glowBmp, layer.x - pad, layer.y - pad, glowPaint)
                                     }
-                                    canvas.drawBitmap(glowBmp, layer.x - pad, layer.y - pad, glowPaint)
                                 }
                             }
                             val imgPaint = android.graphics.Paint().apply {
@@ -152,12 +172,13 @@ class ProjectExporter(private val context: Context) {
         imageGlowFor: ((Layer.ImageLayer) -> Pair<Bitmap, Float>?)? = null,
         imageWarpFor: ((Layer.ImageLayer) -> WarpedDraw?)? = null,
         textWarpFor: ((Layer.TextLayer) -> WarpedDraw?)? = null,
+        imageGlowWarpFor: ((Layer.ImageLayer) -> WarpedDraw?)? = null,
         fontLookup: ((String) -> String?)? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
             val bmp = exportToBitmap(
                 baseBitmap, layers, imageBitmapFor, imageGlowFor,
-                imageWarpFor, textWarpFor, fontLookup
+                imageWarpFor, textWarpFor, imageGlowWarpFor, fontLookup
             )
             FileOutputStream(outputFile).use { out ->
                 bmp.compress(format, quality, out)

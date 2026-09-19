@@ -10,6 +10,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
 import androidx.compose.ui.geometry.Offset
+import kotlin.math.abs
 import com.mochits.app.model.Layer
 import com.mochits.app.model.TextAlignment
 import com.mochits.app.model.TextContainerShape
@@ -700,13 +701,13 @@ class TextRenderer(private val context: Context) {
 
     /**
      * Render layer teks ke bitmap (untuk warp perspektif): seluruh
-     * [drawStyledText] digambar ke bitmap seukuran bounds.
+     * [drawStyledText] digambar ke bitmap seukuran bounds + bantalan efek.
      * @return bitmap + origin kiri-atasnya dalam koordinat kanvas,
      * atau null bila teks kosong.
      */
     fun renderToBitmap(layer: Layer.TextLayer): Pair<Bitmap, Offset>? {
         if (layer.text.isEmpty()) return null
-        val bounds = getTextBounds(layer)
+        val bounds = getWarpBounds(layer)
         val w = ceil(bounds.width()).toInt().coerceAtLeast(1)
         val h = ceil(bounds.height()).toInt().coerceAtLeast(1)
         if (w > 4096 || h > 4096) return null
@@ -727,6 +728,25 @@ class TextRenderer(private val context: Context) {
         drawStyledText(off, layer)
         flatVersion += 1
         return work to Offset(bounds.left, bounds.top)
+    }
+
+    /**
+     * Bounds konten + bantalan efek (glow/shadow/stroke/motion blur) agar
+     * render warp tidak memotong efek. Quad dinormalisasi ke box ini.
+     */
+    fun getWarpBounds(layer: Layer.TextLayer): RectF {
+        val b = getTextBounds(layer)
+        val s = layer.style
+        val pad = ceil(
+            maxOf(
+                s.glowRadius,
+                s.shadowRadius + abs(s.shadowDx) + abs(s.shadowDy),
+                s.strokeWidth,
+                s.motionBlurRadius,
+                4f
+            ).toDouble()
+        ).toFloat() + 2f
+        return RectF(b.left - pad, b.top - pad, b.right + pad, b.bottom + pad)
     }
 
     fun getTextBounds(
