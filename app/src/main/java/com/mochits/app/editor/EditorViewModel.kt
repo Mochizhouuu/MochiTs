@@ -1235,7 +1235,8 @@ data class HistoryManifest(
 
     fun setMaskToolMode(mode: MaskToolMode) {
         if (maskToolMode.value != mode) {
-            maskSelectionTools?.clearMask()
+            // Mask dipertahankan saat ganti alat agar seleksi bisa
+            // dilanjutkan/dikombinasikan (brush -> lasso, dst).
             maskToolMode.value = mode
         }
     }

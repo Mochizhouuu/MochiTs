@@ -337,6 +337,7 @@ fun EditorScreen(
     val lamaDownloadProgress by viewModel.lamaDownloadProgress.collectAsState()
     val userMessage by viewModel.userMessage.collectAsState()
 val defaultTextStyle by viewModel.defaultTextStyle.collectAsState()
+val defaultTextShape by viewModel.defaultTextShape.collectAsState()
 val stylePresets by viewModel.stylePresets.collectAsState()
 val pinnedPresetIds by viewModel.pinnedPresetIds.collectAsState()
 val allFonts by viewModel.allFonts.collectAsState()
@@ -632,11 +633,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         hasMask = hasMaskState,
                         onToggleCollapse = { isMaskPanelCollapsed = !isMaskPanelCollapsed },
                         onModeSelected = {
-                            // ViewModel clears the mask only when actually switching tools.
-                            if (it != maskToolMode) {
-                                viewModel.setMaskToolMode(it)
-                                hasMaskState = false
-                            }
+                            // Mask dipertahankan: ganti alat tidak menghapus seleksi.
+                            viewModel.setMaskToolMode(it)
                         },
                         onModelSelected = { viewModel.setInpaintModel(it) },
                         onSizeChange = { viewModel.setBrushSize(it) },
@@ -665,7 +663,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                     EditorPanel.TEXT -> TextToolPanel(
                         selectedLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer,
                         defaultStyle = defaultTextStyle,
-                        onAddText = { text -> viewModel.addTextLayer(text, viewportWidth = currentViewportW, viewportHeight = currentViewportH) },
+                        defaultShape = defaultTextShape,
+                        onAddText = { text, shape -> viewModel.addTextLayer(text, shape = shape, viewportWidth = currentViewportW, viewportHeight = currentViewportH) },
                         onUpdateTextContent = { text -> viewModel.updateSelectedTextContent(text, saveUndo = false) },
                         onEditStart = { viewModel.saveUndoSnapshot() },
                         onRequestAutosave = { viewModel.autoSave() },
@@ -2702,7 +2701,8 @@ fun EraseToolPanel(
 fun TextToolPanel(
     selectedLayer: Layer.TextLayer?,
     defaultStyle: TextStyleConfig,
-    onAddText: (String) -> Unit,
+    defaultShape: com.mochits.app.model.TextContainerShape,
+    onAddText: (String, com.mochits.app.model.TextContainerShape) -> Unit,
     onUpdateTextContent: ((String) -> Unit)? = null,
     onUpdateStyle: (TextStyleConfig, Boolean) -> Unit,
     onUpdateContainerShape: ((com.mochits.app.model.TextContainerShape) -> Unit)? = null,
@@ -2745,6 +2745,10 @@ fun TextToolPanel(
     }
 
     val currentStyle = selectedLayer?.style ?: defaultStyle
+    // Bentuk untuk teks baru (diingat mengikuti pilihan terakhir).
+    var pendingShape by remember(defaultShape) {
+        mutableStateOf(defaultShape)
+    }
 
     Surface(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
@@ -2788,7 +2792,7 @@ fun TextToolPanel(
                         if (selectedLayer != null) {
                             onUpdateTextContent?.invoke(textInput)
                         } else {
-                            onAddText(textInput)
+                            onAddText(textInput, pendingShape)
                             textInput = ""
                         }
                     }
@@ -2843,6 +2847,23 @@ fun TextToolPanel(
                     ),
                     selected = selectedLayer.textContainerShape,
                     onSelect = { onUpdateContainerShape?.invoke(it) },
+                    labelOf = {
+                        when (it) {
+                            com.mochits.app.model.TextContainerShape.BOX -> "Kotak"
+                            com.mochits.app.model.TextContainerShape.OVAL -> "Oval"
+                        }
+                    }
+                )
+            } else {
+                // Belum ada teks terpilih: pilih bentuk untuk teks baru.
+                OptionCycler(
+                    label = "Bentuk baru",
+                    options = listOf(
+                        com.mochits.app.model.TextContainerShape.BOX,
+                        com.mochits.app.model.TextContainerShape.OVAL
+                    ),
+                    selected = pendingShape,
+                    onSelect = { pendingShape = it },
                     labelOf = {
                         when (it) {
                             com.mochits.app.model.TextContainerShape.BOX -> "Kotak"
@@ -3006,9 +3027,9 @@ private enum class EffectType {
 }
 
 /**
- * Tombol cycler pilihan (ala AstralTyper): satu tombol menampilkan opsi
- * aktif; sentuh = lanjut ke opsi berikut (muter), tahan = lompat langsung
- * lewat menu. Hemat tempat dibanding deretan chips.
+ * Tombol cycler pilihan (ala AstralTyper): satu tombol penuh menampilkan
+ * opsi aktif; sentuh = lanjut ke opsi berikut (muter), tahan = lompat
+ * langsung lewat menu. Lebar penuh dan stabil saat label berganti.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -3022,56 +3043,55 @@ private fun <T> OptionCycler(
 ) {
     var showJump by remember { mutableStateOf(false) }
     val index = options.indexOf(selected).takeIf { it >= 0 } ?: 0
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(label, style = MaterialTheme.typography.labelLarge)
-        Box {
-            Surface(
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.combinedClickable(
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Surface(
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
                     onClick = { onSelect(options[(index + 1) % options.size]) },
                     onLongClick = { showJump = true }
                 )
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    iconOf?.invoke(selected)
-                    Text(labelOf(selected), style = MaterialTheme.typography.labelLarge)
-                    Icon(
-                        Icons.Default.Autorenew,
-                        contentDescription = "Sentuh: berikutnya; tahan: pilih langsung",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                iconOf?.invoke(selected)
+                Text(
+                    text = "$label: ${labelOf(selected)}",
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.weight(1f)
+                )
+                Icon(
+                    Icons.Default.ArrowDropDown,
+                    contentDescription = "Tahan untuk pilih langsung",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-            DropdownMenu(
-                expanded = showJump,
-                onDismissRequest = { showJump = false }
-            ) {
-                options.forEach { opt ->
-                    val isSel = opt == selected
-                    DropdownMenuItem(
-                        text = { Text(labelOf(opt)) },
-                        leadingIcon = {
-                            if (isSel) {
-                                Icon(Icons.Default.Check, contentDescription = null)
-                            }
-                        },
-                        onClick = {
-                            showJump = false
-                            onSelect(opt)
+        }
+        DropdownMenu(
+            expanded = showJump,
+            onDismissRequest = { showJump = false }
+        ) {
+            options.forEach { opt ->
+                val isSel = opt == selected
+                DropdownMenuItem(
+                    text = { Text(labelOf(opt)) },
+                    leadingIcon = {
+                        if (isSel) {
+                            Icon(Icons.Default.Check, contentDescription = null)
                         }
-                    )
-                }
+                    },
+                    onClick = {
+                        showJump = false
+                        onSelect(opt)
+                    }
+                )
             }
         }
     }
