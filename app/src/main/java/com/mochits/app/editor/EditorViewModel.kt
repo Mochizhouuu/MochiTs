@@ -232,7 +232,7 @@ class EditorViewModel @Inject constructor(
             }
             layers.value = layers.value.map { layer ->
                 if (layer.id == selectedId && layer is Layer.TextLayer) {
-                    layer.copy(text = newText)
+                    growBoxToFit(layer.copy(text = newText))
                 } else {
                     layer
                 }
@@ -241,6 +241,23 @@ class EditorViewModel @Inject constructor(
                 autoSave()
             }
         }
+    }
+
+    /**
+     * Besarkan box (bila eksplisit) agar konten muat — teks yang diperbesar
+     * tidak boleh nglebihin kotak. Hanya membesar, tidak mengecil.
+     */
+    private fun growBoxToFit(layer: Layer.TextLayer): Layer.TextLayer {
+        val bw = layer.boxWidth ?: return layer
+        val bh = layer.boxHeight ?: return layer
+        if (bw <= 0f || bh <= 0f) return layer
+        val minW = textRenderer.getMinBoxWidth(layer)
+        val minH = textRenderer.getMinBoxHeight(layer)
+        if (minW <= bw && minH <= bh) return layer
+        return layer.copy(
+            boxWidth = maxOf(bw, minW),
+            boxHeight = maxOf(bh, minH)
+        )
     }
 
     fun applyCapitalizationTransform(transformType: String) {
@@ -428,6 +445,12 @@ data class HistoryManifest(
     val canRedo = MutableStateFlow(false)
 
     init {
+        // Resolver font untuk pengukuran internal (box auto-grow) agar metrik
+        // font impor benar, bukan fallback default.
+        textRenderer.customFontPathResolver = { name ->
+            allFonts.value.find { it.name == name }?.filePath
+                ?: allFonts.value.find { it.name.equals(name, ignoreCase = true) }?.filePath
+        }
         // Magic Wand samples from a flattened composite. Any layer/base change must
         // invalidate the cached bitmap, otherwise taps sample a stale image and the
         // selection appears outside the tapped object.
@@ -1489,12 +1512,18 @@ data class HistoryManifest(
             defaultTextStyle.value = style
             return
         }
+        // Font yang dipilih menempel sebagai default teks baru berikutnya.
+        defaultTextStyle.value = defaultTextStyle.value.let { cur ->
+            if (cur.fontName != style.fontName || cur.fontStyle != style.fontStyle) {
+                cur.copy(fontName = style.fontName, fontStyle = style.fontStyle)
+            } else cur
+        }
         if (saveUndo) {
             saveUndoSnapshot()
         }
         layers.value = layers.value.map { layer ->
             if (layer.id == selectedId && layer is Layer.TextLayer) {
-                layer.copy(style = style)
+                growBoxToFit(layer.copy(style = style))
             } else {
                 layer
             }
@@ -2213,7 +2242,8 @@ data class HistoryManifest(
         val result: Bitmap,
         val offX: Float,
         val offY: Float,
-        val scale: Float
+        val scale: Float,
+        val maxDim: Int
     )
 
     private val warpCache = mutableMapOf<String, WarpEntry>()
@@ -2223,8 +2253,15 @@ data class HistoryManifest(
     }
 
     fun clearWarpCache(id: String) {
-        warpCache.remove(id)?.let { recycleWarpEntry(it) }
-        warpCache.remove("$id:glow")?.let { recycleWarpEntry(it) }
+        // Kunci cache "$id@$maxDim" (plus namespace ":glow"): bersihkan semua.
+        val it = warpCache.entries.iterator()
+        while (it.hasNext()) {
+            val (k, entry) = it.next()
+            if (k == id || k.startsWith("$id@") || k.startsWith("$id:glow")) {
+                recycleWarpEntry(entry)
+                it.remove()
+            }
+        }
     }
 
     /**
@@ -2240,13 +2277,14 @@ data class HistoryManifest(
         maxDim: Int = 640
     ): WarpedLayerDraw? {
         if (!Perspective.isActive(quad)) {
-            warpCache.remove(layerId)?.let { recycleWarpEntry(it) }
+            clearWarpCache(layerId)
             return null
         }
         if (src.isRecycled || src.width <= 0 || src.height <= 0) return null
-        val cached = warpCache[layerId]
+        val key = "$layerId@$maxDim"
+        val cached = warpCache[key]
         if (cached != null && cached.src === src && cached.srcVersion == srcVersion &&
-            cached.quad == quad && !cached.result.isRecycled
+            cached.quad == quad && cached.maxDim == maxDim && !cached.result.isRecycled
         ) {
             return WarpedLayerDraw(cached.result, cached.offX, cached.offY, cached.scale)
         }
@@ -2256,13 +2294,13 @@ data class HistoryManifest(
             val px = IntArray(w * h)
             src.getPixels(px, 0, w, 0, 0, w, h)
             val warped = Perspective.warpPixels(px, w, h, quad, maxDim) ?: run {
-                warpCache.remove(layerId)?.let { recycleWarpEntry(it) }
+                warpCache.remove(key)?.let { recycleWarpEntry(it) }
                 return null
             }
             val bmp = Bitmap.createBitmap(warped.pixels, warped.width, warped.height, Bitmap.Config.ARGB_8888)
-            warpCache.remove(layerId)?.let { recycleWarpEntry(it) }
-            val entry = WarpEntry(src, srcVersion, quad.toList(), bmp, warped.offsetX, warped.offsetY, warped.scale)
-            warpCache[layerId] = entry
+            warpCache.remove(key)?.let { recycleWarpEntry(it) }
+            val entry = WarpEntry(src, srcVersion, quad.toList(), bmp, warped.offsetX, warped.offsetY, warped.scale, maxDim)
+            warpCache[key] = entry
             return WarpedLayerDraw(bmp, warped.offsetX, warped.offsetY, warped.scale)
         } catch (t: Throwable) {
             Logger.e("Error warping layer: ${t.message}", t)
@@ -2270,11 +2308,16 @@ data class HistoryManifest(
         }
     }
 
-    /** Warp untuk layer gambar (sumber = bitmap hasil resolve efek). */
-    fun resolveWarpedImage(layer: Layer.ImageLayer, maxDim: Int = 640): WarpedLayerDraw? {
+    /**
+     * Warp untuk layer gambar (sumber = bitmap hasil resolve efek).
+     * @param maxDim <0 = otomatis (640 saat titik digeser, 1600 saat diam).
+     */
+    fun resolveWarpedImage(layer: Layer.ImageLayer, maxDim: Int = -1): WarpedLayerDraw? {
         val quad = layer.perspQuad ?: return null
         val src = resolveImageBitmap(layer) ?: return null
-        return warpedBitmap(layer.id, src, 0L, quad, maxDim)
+        val md = if (maxDim >= 0) maxDim
+        else if (perspEditId.value == layer.id) 640 else 1600
+        return warpedBitmap(layer.id, src, 0L, quad, md)
     }
 
     /**
@@ -2282,7 +2325,7 @@ data class HistoryManifest(
      * konten + pad di tiap sisi, jadi quad dipetakan ke ruang glow agar
      * selaras dengan isi yang di-warp.
      */
-    fun resolveWarpedImageGlow(layer: Layer.ImageLayer, maxDim: Int = 640): WarpedLayerDraw? {
+    fun resolveWarpedImageGlow(layer: Layer.ImageLayer, maxDim: Int = -1): WarpedLayerDraw? {
         val quad = layer.perspQuad ?: return null
         if (quad.size != 8) return null
         val (glowBmp, pad) = resolveImageGlow(layer) ?: return null
@@ -2295,12 +2338,14 @@ data class HistoryManifest(
         val gw = sw + 2f * pad
         val gh = sh + 2f * pad
         if (gw <= 0f || gh <= 0f) return null
+        val md = if (maxDim >= 0) maxDim
+        else if (perspEditId.value == layer.id) 640 else 1600
         val mapped = List(8) { i ->
             val q = quad[i]
             if (i % 2 == 0) ((q * sw + pad) / gw).coerceIn(-0.5f, 1.5f)
             else ((q * sh + pad) / gh).coerceIn(-0.5f, 1.5f)
         }
-        return warpedBitmap("${layer.id}:glow", glowBmp, 0L, mapped, maxDim)
+        return warpedBitmap("${layer.id}:glow", glowBmp, 0L, mapped, md)
     }
 
     /** Lookup displayName font -> filePath untuk jalur ekspor (diisi UI). */

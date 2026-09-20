@@ -1712,8 +1712,9 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                     val textQuad = layer.perspQuad
                                     if (textQuad != null && com.mochits.app.imaging.Perspective.isActive(textQuad)) {
                                         textRenderer.renderToBitmap(layer)?.let { (flat, origin) ->
+                                            // Teks full-res (murah): warp tajam, tanpa blur upscale.
                                             viewModel.warpedBitmap(
-                                                layer.id, flat, textRenderer.flatVersion, textQuad, 640
+                                                layer.id, flat, textRenderer.flatVersion, textQuad, 4096
                                             )?.let { entry ->
                                                 val sc = entry.scale.coerceAtLeast(1e-6f)
                                                 val left = origin.x + entry.offX
