@@ -34,6 +34,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.lazy.items
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
@@ -2230,19 +2232,18 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             label = { Text("Masukkan Teks") },
                             modifier = Modifier.fillMaxWidth()
                         )
-                        Text("Bentuk:", style = MaterialTheme.typography.labelLarge)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(
-                                selected = newTextShape == com.mochits.app.model.TextContainerShape.BOX,
-                                onClick = { newTextShape = com.mochits.app.model.TextContainerShape.BOX },
-                                label = { Text("Kotak") }
-                            )
-                            FilterChip(
-                                selected = newTextShape == com.mochits.app.model.TextContainerShape.OVAL,
-                                onClick = { newTextShape = com.mochits.app.model.TextContainerShape.OVAL },
-                                label = { Text("Oval") }
-                            )
-                        }
+                        OptionCycler(
+                            label = "Bentuk",
+                            options = listOf(
+                                com.mochits.app.model.TextContainerShape.BOX,
+                                com.mochits.app.model.TextContainerShape.OVAL
+                            ),
+                            selected = newTextShape,
+                            onSelect = { newTextShape = it },
+                            labelOf = {
+                                if (it == com.mochits.app.model.TextContainerShape.OVAL) "Oval" else "Kotak"
+                            }
+                        )
                     }
                 },
                 confirmButton = {
@@ -2562,34 +2563,25 @@ fun EraseToolPanel(
             if (!isCollapsed) {
                 Spacer(modifier = Modifier.height(4.dp))
 
-                Text("Alat:", style = MaterialTheme.typography.labelMedium)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    FilterChip(
-                        selected = mode == MaskToolMode.BRUSH,
-                        onClick = { onModeSelected(MaskToolMode.BRUSH) },
-                        label = { Text("Brush") }
-                    )
-                    FilterChip(
-                        selected = mode == MaskToolMode.ERASER,
-                        onClick = { onModeSelected(MaskToolMode.ERASER) },
-                        label = { Text("Eraser") }
-                    )
-                    FilterChip(
-                        selected = mode == MaskToolMode.LASSO,
-                        onClick = { onModeSelected(MaskToolMode.LASSO) },
-                        label = { Text("Lasso") }
-                    )
-                    FilterChip(
-                        selected = mode == MaskToolMode.MAGIC_WAND,
-                        onClick = { onModeSelected(MaskToolMode.MAGIC_WAND) },
-                        label = { Text("Magic Wand") }
-                    )
-                }
+                OptionCycler(
+                    label = "Alat",
+                    options = listOf(
+                        MaskToolMode.BRUSH,
+                        MaskToolMode.ERASER,
+                        MaskToolMode.LASSO,
+                        MaskToolMode.MAGIC_WAND
+                    ),
+                    selected = mode,
+                    onSelect = onModeSelected,
+                    labelOf = {
+                        when (it) {
+                            MaskToolMode.BRUSH -> "Brush"
+                            MaskToolMode.ERASER -> "Eraser"
+                            MaskToolMode.LASSO -> "Lasso"
+                            MaskToolMode.MAGIC_WAND -> "Magic Wand"
+                        }
+                    }
+                )
 
                 Spacer(modifier = Modifier.height(4.dp))
 
@@ -2813,48 +2805,51 @@ fun TextToolPanel(
                 Text(if (selectedLayer != null) "Simpan Perubahan" else "Tambah Teks ke Kanvas")
             }
 
-            Text("Alignment Teks:", style = MaterialTheme.typography.bodyMedium)
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip(
-                    selected = currentStyle.alignment == com.mochits.app.model.TextAlignment.LEFT,
-                    onClick = { onUpdateStyle(currentStyle.copy(alignment = com.mochits.app.model.TextAlignment.LEFT), true) },
-                    label = { Text("Rata Kiri") },
-                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.FormatAlignLeft, contentDescription = "Rata Kiri", modifier = Modifier.size(18.dp)) }
-                )
-                FilterChip(
-                    selected = currentStyle.alignment == com.mochits.app.model.TextAlignment.CENTER,
-                    onClick = { onUpdateStyle(currentStyle.copy(alignment = com.mochits.app.model.TextAlignment.CENTER), true) },
-                    label = { Text("Rata Tengah") },
-                    leadingIcon = { Icon(Icons.Default.FormatAlignCenter, contentDescription = "Rata Tengah", modifier = Modifier.size(18.dp)) }
-                )
-                FilterChip(
-                    selected = currentStyle.alignment == com.mochits.app.model.TextAlignment.RIGHT,
-                    onClick = { onUpdateStyle(currentStyle.copy(alignment = com.mochits.app.model.TextAlignment.RIGHT), true) },
-                    label = { Text("Rata Kanan") },
-                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.FormatAlignRight, contentDescription = "Rata Kanan", modifier = Modifier.size(18.dp)) }
-                )
-            }
-
-            if (selectedLayer != null) {
-                Text("Bentuk Kontainer Teks:", style = MaterialTheme.typography.bodyMedium)
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    FilterChip(
-                        selected = selectedLayer.textContainerShape == com.mochits.app.model.TextContainerShape.BOX,
-                        onClick = { onUpdateContainerShape?.invoke(com.mochits.app.model.TextContainerShape.BOX) },
-                        label = { Text("Kotak") }
-                    )
-                    FilterChip(
-                        selected = selectedLayer.textContainerShape == com.mochits.app.model.TextContainerShape.OVAL,
-                        onClick = { onUpdateContainerShape?.invoke(com.mochits.app.model.TextContainerShape.OVAL) },
-                        label = { Text("Oval") }
+            OptionCycler(
+                label = "Alignment",
+                options = listOf(
+                    com.mochits.app.model.TextAlignment.LEFT,
+                    com.mochits.app.model.TextAlignment.CENTER,
+                    com.mochits.app.model.TextAlignment.RIGHT
+                ),
+                selected = currentStyle.alignment,
+                onSelect = { onUpdateStyle(currentStyle.copy(alignment = it), true) },
+                labelOf = {
+                    when (it) {
+                        com.mochits.app.model.TextAlignment.LEFT -> "Rata Kiri"
+                        com.mochits.app.model.TextAlignment.CENTER -> "Rata Tengah"
+                        com.mochits.app.model.TextAlignment.RIGHT -> "Rata Kanan"
+                    }
+                },
+                iconOf = {
+                    Icon(
+                        when (it) {
+                            com.mochits.app.model.TextAlignment.LEFT -> Icons.AutoMirrored.Filled.FormatAlignLeft
+                            com.mochits.app.model.TextAlignment.CENTER -> Icons.Default.FormatAlignCenter
+                            com.mochits.app.model.TextAlignment.RIGHT -> Icons.AutoMirrored.Filled.FormatAlignRight
+                        },
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
+            )
+
+            if (selectedLayer != null) {
+                OptionCycler(
+                    label = "Bentuk",
+                    options = listOf(
+                        com.mochits.app.model.TextContainerShape.BOX,
+                        com.mochits.app.model.TextContainerShape.OVAL
+                    ),
+                    selected = selectedLayer.textContainerShape,
+                    onSelect = { onUpdateContainerShape?.invoke(it) },
+                    labelOf = {
+                        when (it) {
+                            com.mochits.app.model.TextContainerShape.BOX -> "Kotak"
+                            com.mochits.app.model.TextContainerShape.OVAL -> "Oval"
+                        }
+                    }
+                )
             }
 
             if (selectedLayer != null && onCapitalizationTransform != null) {
@@ -3010,9 +3005,80 @@ private enum class EffectType {
     IMAGE_WARP
 }
 
+/**
+ * Tombol cycler pilihan (ala AstralTyper): satu tombol menampilkan opsi
+ * aktif; sentuh = lanjut ke opsi berikut (muter), tahan = lompat langsung
+ * lewat menu. Hemat tempat dibanding deretan chips.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PerspectivePanel(
-    hasQuad: Boolean,
+private fun <T> OptionCycler(
+    label: String,
+    options: List<T>,
+    selected: T,
+    onSelect: (T) -> Unit,
+    labelOf: (T) -> String,
+    iconOf: @Composable ((T) -> Unit)? = null
+) {
+    var showJump by remember { mutableStateOf(false) }
+    val index = options.indexOf(selected).takeIf { it >= 0 } ?: 0
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, style = MaterialTheme.typography.labelLarge)
+        Box {
+            Surface(
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.combinedClickable(
+                    onClick = { onSelect(options[(index + 1) % options.size]) },
+                    onLongClick = { showJump = true }
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    iconOf?.invoke(selected)
+                    Text(labelOf(selected), style = MaterialTheme.typography.labelLarge)
+                    Icon(
+                        Icons.Default.Autorenew,
+                        contentDescription = "Sentuh: berikutnya; tahan: pilih langsung",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            DropdownMenu(
+                expanded = showJump,
+                onDismissRequest = { showJump = false }
+            ) {
+                options.forEach { opt ->
+                    val isSel = opt == selected
+                    DropdownMenuItem(
+                        text = { Text(labelOf(opt)) },
+                        leadingIcon = {
+                            if (isSel) {
+                                Icon(Icons.Default.Check, contentDescription = null)
+                            }
+                        },
+                        onClick = {
+                            showJump = false
+                            onSelect(opt)
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PerspectivePanel(    hasQuad: Boolean,
     editing: Boolean,
     onToggleEdit: () -> Unit,
     onReset: () -> Unit
@@ -4089,23 +4155,13 @@ fun FontToolPanel(
                 }
             }
 
-            Text("Gaya:", style = MaterialTheme.typography.labelLarge)
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.horizontalScroll(rememberScrollState())
-            ) {
-                listOf("Regular", "Bold", "Italic", "BoldItalic").forEach { styleName ->
-                    val isSelected = currentStyle.fontStyle.equals(styleName, ignoreCase = true)
-                    val labelText = if (styleName == "BoldItalic") "Bold+Italic" else styleName
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = {
-                            onUpdateStyle(currentStyle.copy(fontStyle = styleName), true)
-                        },
-                        label = { Text(labelText) }
-                    )
-                }
-            }
+            OptionCycler(
+                label = "Gaya",
+                options = listOf("Regular", "Bold", "Italic", "BoldItalic"),
+                selected = currentStyle.fontStyle,
+                onSelect = { onUpdateStyle(currentStyle.copy(fontStyle = it), true) },
+                labelOf = { if (it == "BoldItalic") "Bold+Italic" else it }
+            )
 
             Text("Ukuran: ${currentStyle.fontSize.toInt()} px", style = MaterialTheme.typography.labelLarge)
             Slider(
