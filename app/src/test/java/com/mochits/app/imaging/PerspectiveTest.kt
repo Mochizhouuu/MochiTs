@@ -28,6 +28,32 @@ class PerspectiveTest {
     }
 
     @Test
+    fun `subdivide identitas tetap identitas dan sudut pas`() {
+        val id = Perspective.identityGrid()
+        val dense = Perspective.subdivideGrid(id, 4)
+        val m = 3 * 4 + 1
+        assertEquals(2 * m * m, dense.size)
+        for (i in dense.indices) {
+            // Baris/kolom ke-i/(m-1) harus sama persis.
+            val k = i / 2
+            val axis = i % 2
+            val expected = if (axis == 0) (k % m).toFloat() / (m - 1) else (k / m).toFloat() / (m - 1)
+            assertTrue(kotlin.math.abs(dense[i] - expected) < 1e-5f, "i=$i: ${dense[i]} vs $expected")
+        }
+        // Sudut dipertahankan persis pada grid terdeformasi.
+        val moved = id.toMutableList().also {
+            it[0] = 0.1f; it[1] = 0.2f
+        }
+        val d2 = Perspective.subdivideGrid(moved, 2)
+        val m2 = 3 * 2 + 1
+        assertEquals(0.1f, d2[0], 1e-6f)
+        assertEquals(0.2f, d2[1], 1e-6f)
+        val last = (m2 * m2 - 1) * 2
+        assertEquals(id[id.size - 2], d2[last], 1e-6f)
+        assertEquals(id[id.size - 1], d2[last + 1], 1e-6f)
+    }
+
+    @Test
     fun `identitas mengembalikan null`() {
         val px = IntArray(16) { -1 }
         assertNull(Perspective.warpPixels(px, 4, 4, listOf(0f, 0f, 1f, 0f, 1f, 1f, 0f, 1f)))

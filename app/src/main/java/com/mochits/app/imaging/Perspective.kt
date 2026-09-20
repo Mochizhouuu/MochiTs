@@ -47,6 +47,10 @@ object Perspective {
      * Gambar [bitmap] mengikuti grid mesh via drawBitmapMesh bawaan
      * (native, full-res, API 1+). Grid dinormalisasi ke box konten
      * (originX/Y, contentW/H dalam koordinat kanvas tujuan).
+     *
+     * Grid kontrol 4x4 di-subdivide (bilinear) jadi mesh rapat agar
+     * lengkungan mulus — tanpa ini tiap sel dirender sebagai 2 segitiga
+     * kaku (affine) sehingga terlihat patah/berpasir saat ditarik.
      * @return true bila digambar.
      */
     fun drawMeshBitmap(
@@ -57,7 +61,8 @@ object Perspective {
         contentW: Float,
         contentH: Float,
         grid: List<Float>?,
-        paint: android.graphics.Paint
+        paint: android.graphics.Paint,
+        subdiv: Int = 4
     ): Boolean {
         if (!isMeshActive(grid)) return false
         if (bitmap.isRecycled || contentW <= 0f || contentH <= 0f) return false
@@ -65,19 +70,66 @@ object Perspective {
         val g = grid!!
         if (g.size != 2 * n * n) return false
         return try {
-            val verts = FloatArray(2 * n * n)
-            for (j in 0 until n) {
-                for (i in 0 until n) {
-                    val k = (j * n + i) * 2
-                    verts[k] = originX + g[k].coerceIn(-0.5f, 1.5f) * contentW
-                    verts[k + 1] = originY + g[k + 1].coerceIn(-0.5f, 1.5f) * contentH
+            val dense = subdivideGrid(g, subdiv.coerceIn(1, 8))
+            val m = (n - 1) * subdiv.coerceIn(1, 8) + 1
+            val verts = FloatArray(2 * m * m)
+            for (j in 0 until m) {
+                for (i in 0 until m) {
+                    val k = (j * m + i) * 2
+                    verts[k] = originX + dense[k].coerceIn(-0.5f, 1.5f) * contentW
+                    verts[k + 1] = originY + dense[k + 1].coerceIn(-0.5f, 1.5f) * contentH
                 }
             }
-            canvas.drawBitmapMesh(bitmap, n - 1, n - 1, verts, 0, null, 0, paint)
+            canvas.drawBitmapMesh(bitmap, m - 1, m - 1, verts, 0, null, 0, paint)
             true
         } catch (_: Exception) {
             false
         }
+    }
+
+    /**
+     * Upsample grid kontrol NxN menjadi grid rapat ((N-1)*subdiv+1)^2
+     * via interpolasi bilinear separabel (baris lalu kolom). Bentuk
+     * SAMA PERSIS dengan mesh kontrol (kombinasi konveks: tanpa overshoot
+     * dan tanpa melengkung sendiri); segitiga render yang kecil-kecil
+     * membuat lengkungan terlihat mulus.
+     */
+    fun subdivideGrid(grid: List<Float>, subdiv: Int): FloatArray {
+        val n = MESH_N
+        require(grid.size == 2 * n * n) { "grid harus 2*N*N" }
+        val s = subdiv.coerceIn(1, 8)
+        val m = (n - 1) * s + 1
+        // Subdivide tiap baris (n titik -> m titik).
+        val rows = FloatArray(2 * n * m)
+        for (j in 0 until n) {
+            for (k in 0 until m) {
+                val u = (k.toDouble() / (m - 1)) * (n - 1)
+                val seg = minOf(u.toInt(), n - 2)
+                val t = (u - seg).toFloat()
+                val ax = grid[(j * n + seg) * 2]
+                val bx = grid[(j * n + seg + 1) * 2]
+                val ay = grid[(j * n + seg) * 2 + 1]
+                val by = grid[(j * n + seg + 1) * 2 + 1]
+                rows[(j * m + k) * 2] = ax + (bx - ax) * t
+                rows[(j * m + k) * 2 + 1] = ay + (by - ay) * t
+            }
+        }
+        // Subdivide tiap kolom hasilnya.
+        val out = FloatArray(2 * m * m)
+        for (i in 0 until m) {
+            for (k in 0 until m) {
+                val u = (k.toDouble() / (m - 1)) * (n - 1)
+                val seg = minOf(u.toInt(), n - 2)
+                val t = (u - seg).toFloat()
+                val ax = rows[(seg * m + i) * 2]
+                val bx = rows[((seg + 1) * m + i) * 2]
+                val ay = rows[(seg * m + i) * 2 + 1]
+                val by = rows[((seg + 1) * m + i) * 2 + 1]
+                out[(k * m + i) * 2] = ax + (bx - ax) * t
+                out[(k * m + i) * 2 + 1] = ay + (by - ay) * t
+            }
+        }
+        return out
     }
 
     /** Hasil warp: piksel + ukuran + offset kiri-atas relatif konten asal. */
