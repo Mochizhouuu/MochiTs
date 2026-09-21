@@ -210,41 +210,52 @@ object Perspective {
                 val su = (hi[0] * px + hi[1] * py + hi[2]) / wInv
                 val sv = (hi[3] * px + hi[4] * py + hi[5]) / wInv
                 if (su < 0.0 || su > 1.0 || sv < 0.0 || sv > 1.0) continue
+                // Bikubik (Catmull-Rom): area yang direntangkan tetap tajam,
+                // tidak selembek bilinear.
                 val fx = (su * wMax).coerceIn(0.0, wMax)
                 val fy = (sv * hMax).coerceIn(0.0, hMax)
-                val x0 = fx.toInt()
-                val y0 = fy.toInt()
-                val x1 = min(x0 + 1, width - 1)
-                val y1 = min(y0 + 1, height - 1)
-                val tx = fx - x0
-                val ty = fy - y0
-                val p00 = pixels[y0 * width + x0]
-                val p10 = pixels[y0 * width + x1]
-                val p01 = pixels[y1 * width + x0]
-                val p11 = pixels[y1 * width + x1]
-                // Bilinear premultiplied: tepi warp tidak menggelap.
+                val ix = fx.toInt()
+                val iy = fy.toInt()
+                val dx = fx - ix
+                val dy = fy - iy
                 var a = 0.0; var r = 0.0; var g = 0.0; var b = 0.0
-                fun acc(pxv: Int, wgt: Double) {
-                    val pa = ((pxv ushr 24) and 0xFF).toDouble()
-                    a += wgt * pa
-                    r += wgt * pa * ((pxv shr 16) and 0xFF)
-                    g += wgt * pa * ((pxv shr 8) and 0xFF)
-                    b += wgt * pa * (pxv and 0xFF)
+                for (m in -1..2) {
+                    val sx = (ix + m).coerceIn(0, width - 1)
+                    val wx = cubicWeight(m - dx)
+                    for (n in -1..2) {
+                        val sy = (iy + n).coerceIn(0, height - 1)
+                        val wgt = wx * cubicWeight(n - dy)
+                        if (wgt == 0.0) continue
+                        val pxv = pixels[sy * width + sx]
+                        a += wgt * (((pxv ushr 24) and 0xFF).toDouble())
+                        r += wgt * (((pxv shr 16) and 0xFF).toDouble())
+                        g += wgt * (((pxv shr 8) and 0xFF).toDouble())
+                        b += wgt * ((pxv and 0xFF).toDouble())
+                    }
                 }
-                acc(p00, (1 - tx) * (1 - ty))
-                acc(p10, tx * (1 - ty))
-                acc(p01, (1 - tx) * ty)
-                acc(p11, tx * ty)
-                if (a >= 0.5) {
+                val aOut = a.coerceIn(0.0, 255.0)
+                if (aOut >= 0.5) {
                     out[oy * ow + ox] =
-                        (((a + 0.5).toInt().coerceIn(0, 255)) shl 24) or
-                            (((r / a + 0.5).toInt().coerceIn(0, 255)) shl 16) or
-                            (((g / a + 0.5).toInt().coerceIn(0, 255)) shl 8) or
-                            ((b / a + 0.5).toInt().coerceIn(0, 255))
+                        (((aOut + 0.5).toInt().coerceIn(0, 255)) shl 24) or
+                            (((r + 0.5).toInt().coerceIn(0, 255)) shl 16) or
+                            (((g + 0.5).toInt().coerceIn(0, 255)) shl 8) or
+                            ((b + 0.5).toInt().coerceIn(0, 255))
                 }
             }
         }
         return WarpedPixels(out, ow, oh, minX.toFloat(), minY.toFloat(), scale.toFloat())
+    }
+
+    /** Kernel Catmull-Rom (a = -0.5) untuk sampling bikubik. */
+    fun cubicWeight(x: Double): Double {
+        val ax = abs(x)
+        return if (ax <= 1.0) {
+            1.5 * ax * ax * ax - 2.5 * ax * ax + 1.0
+        } else if (ax < 2.0) {
+            -0.5 * ax * ax * ax + 2.5 * ax * ax - 4.0 * ax + 2.0
+        } else {
+            0.0
+        }
     }
 
     /**

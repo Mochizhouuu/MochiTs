@@ -3045,33 +3045,38 @@ private fun <T> OptionCycler(
     var showJump by remember { mutableStateOf(false) }
     val index = options.indexOf(selected).takeIf { it >= 0 } ?: 0
     Box(modifier = Modifier.fillMaxWidth()) {
-        OutlinedButton(
-            // Klik & tahan ditangani combinedClickable (tap = berikut,
-            // tahan = menu); onClick dikosongkan agar tidak double.
-            onClick = {},
+        // Surface (bukan Button): clickable bawaan Button menelan tap
+        // sehingga combinedClickable tidak pernah jalan.
+        Surface(
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            color = MaterialTheme.colorScheme.surface,
             modifier = Modifier
                 .fillMaxWidth()
                 .combinedClickable(
                     onClick = { onSelect(options[(index + 1) % options.size]) },
                     onLongClick = { showJump = true }
-                ),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                )
         ) {
-            iconOf?.invoke(selected)
-            Text(
-                text = "$label: ${labelOf(selected)}",
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = if (iconOf != null) 8.dp else 0.dp),
-                maxLines = 1
-            )
-            Icon(
-                Icons.Default.ArrowDropDown,
-                contentDescription = "Tahan untuk pilih langsung",
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                iconOf?.invoke(selected)
+                Text(
+                    text = "$label: ${labelOf(selected)}",
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1
+                )
+                Icon(
+                    Icons.Default.ArrowDropDown,
+                    contentDescription = "Tahan untuk pilih langsung",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
         DropdownMenu(
             expanded = showJump,
