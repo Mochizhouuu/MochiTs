@@ -3070,12 +3070,6 @@ private fun <T> OptionCycler(
                     modifier = Modifier.weight(1f),
                     maxLines = 1
                 )
-                Icon(
-                    Icons.Default.ArrowDropDown,
-                    contentDescription = "Tahan untuk pilih langsung",
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
         }
         DropdownMenu(
