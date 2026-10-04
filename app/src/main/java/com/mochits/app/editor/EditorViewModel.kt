@@ -646,8 +646,10 @@ data class HistoryManifest(
                     project.value = proj
 
                     var loadedBmp: Bitmap? = null
-                    val baseFile = proj.thumbnailPath?.let { File(it) }?.takeIf { it.exists() }
-                        ?: File(context.filesDir, "projects/${proj.id}/base_image.png").takeIf { it.exists() }
+                    // Sumber tunggal: base_image.png (B8). thumbnailPath hanya
+                    // untuk kartu Home, bukan sumber gambar dasar.
+                    val baseFile =
+                        File(context.filesDir, "projects/${proj.id}/base_image.png").takeIf { it.exists() }
 
                     if (baseFile != null && baseFile.length() > 0) {
                         try {
@@ -777,6 +779,16 @@ data class HistoryManifest(
         }
     }
 
+    /**
+     * Path thumbnail kanonis (B8): thumbnail.jpg bila ada, kalau tidak
+     * pertahankan yang lama (proyek lama menunjuk base_image.png — tetap
+     * valid dibaca dengan sampling di Home).
+     */
+    private fun thumbnailFor(projId: String, fallback: String?): String? {
+        val thumb = File(context.filesDir, "projects/$projId/thumbnail.jpg")
+        return if (thumb.exists() && thumb.length() > 0) thumb.absolutePath else fallback
+    }
+
     private suspend fun saveProjectInternal(currentProj: ProjectEntity, currentBmp: Bitmap?) {
         val layersToSave = persistImageLayersInternal(currentProj.id)
         if (!baseImageSuspect) {
@@ -784,10 +796,9 @@ data class HistoryManifest(
         }
         persistSelectedLayerInternal(currentProj.id, selectedLayerId.value)
         val json = serializer.serialize(layersToSave)
-        val imageFile = File(context.filesDir, "projects/${currentProj.id}/base_image.png")
         val updatedProj = currentProj.copy(
             layersJson = json,
-            thumbnailPath = if (imageFile.exists()) imageFile.absolutePath else currentProj.thumbnailPath
+            thumbnailPath = thumbnailFor(currentProj.id, currentProj.thumbnailPath)
         )
         project.value = updatedProj
         if (!repository.saveProject(updatedProj)) {
@@ -911,10 +922,24 @@ data class HistoryManifest(
             if (atomicReplace(tmpFile, imageFile)) {
                 lastSavedBaseRef = bmp
                 lastSavedBaseProj = projId
+                refreshThumbnail(projId, bmp)
                 Logger.d("Atomic save base_image.png successful: ${imageFile.length()} bytes, dimensions=${bmp.width}x${bmp.height}")
             }
         } catch (e: Exception) {
             Logger.e("Error saving base bitmap to disk: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Tulis ulang thumbnail JPEG kecil setiap base berubah (B8).
+     * Dipanggil dengan saveMutex dipegang, di thread IO.
+     */
+    private fun refreshThumbnail(projId: String, bmp: Bitmap) {
+        try {
+            val thumbFile = File(context.filesDir, "projects/$projId/thumbnail.jpg")
+            com.mochits.app.util.writeThumbnail(bmp, thumbFile)
+        } catch (t: Throwable) {
+            Logger.e("Error refreshing thumbnail: ${t.message}", t)
         }
     }
 
@@ -1192,8 +1217,8 @@ data class HistoryManifest(
             try {
                 val currentProj = project.value ?: repository.getProject(projectId)
                 if (currentProj != null) {
-                    val baseFile = currentProj.thumbnailPath?.let { File(it) }?.takeIf { it.exists() }
-                        ?: File(context.filesDir, "projects/${currentProj.id}/base_image.png").takeIf { it.exists() }
+                    val baseFile =
+                        File(context.filesDir, "projects/${currentProj.id}/base_image.png").takeIf { it.exists() }
 
                     if (baseFile != null) {
                         val options = android.graphics.BitmapFactory.Options().apply {
@@ -1274,11 +1299,10 @@ data class HistoryManifest(
 
                     val currentProj = project.value
                     if (currentProj != null) {
-                        val imageFile = File(context.filesDir, "projects/$projectId/base_image.png")
                         val updated = currentProj.copy(
                             width = bitmap.width,
                             height = bitmap.height,
-                            thumbnailPath = if (imageFile.exists()) imageFile.absolutePath else currentProj.thumbnailPath,
+                            thumbnailPath = thumbnailFor(projectId, currentProj.thumbnailPath),
                             layersJson = serializer.serialize(layers.value)
                         )
                         project.value = updated

@@ -86,6 +86,11 @@ class ProjectRepository @Inject constructor(
                     if (decodedBmp != null) {
                         finalWidth = decodedBmp.width
                         finalHeight = decodedBmp.height
+                        // Thumbnail terpisah (B8) sebelum bitmap di-recycle.
+                        val thumbFile = java.io.File(projectDir, "thumbnail.jpg")
+                        if (com.mochits.app.util.writeThumbnail(decodedBmp, thumbFile)) {
+                            thumbnailPath = thumbFile.absolutePath
+                        }
                         val tmpFile = java.io.File(imageFile.parentFile, "${imageFile.name}.tmp")
                         FileOutputStream(tmpFile).use { output ->
                             decodedBmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output)
@@ -93,9 +98,7 @@ class ProjectRepository @Inject constructor(
                             try { output.fd.sync() } catch (_: Exception) {}
                         }
                         decodedBmp.recycle()
-                        if (atomicReplace(tmpFile, imageFile)) {
-                            thumbnailPath = imageFile.absolutePath
-                        }
+                        atomicReplace(tmpFile, imageFile)
                     }
                 }
             } catch (t: Throwable) {

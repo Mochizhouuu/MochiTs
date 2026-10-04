@@ -1,5 +1,6 @@
 package com.mochits.app.util
 
+import android.graphics.Bitmap
 import java.io.File
 import java.nio.file.StandardCopyOption
 
@@ -30,5 +31,35 @@ fun atomicReplace(tmpFile: File, targetFile: File): Boolean {
         } catch (_: Exception) {
             false
         }
+    }
+}
+
+/**
+ * Thumbnail JPEG kecil (B8) terpisah dari base full-res agar kartu Home
+ * tidak men-decode puluhan megapiksel. @return true bila tertulis valid.
+ */
+fun writeThumbnail(src: Bitmap, thumbFile: File, maxDim: Int = 512): Boolean {
+    if (src.isRecycled || src.width <= 0 || src.height <= 0) return false
+    return try {
+        val scale = minOf(1f, maxDim / maxOf(src.width, src.height).toFloat())
+        val tw = maxOf(1, (src.width * scale).toInt())
+        val th = maxOf(1, (src.height * scale).toInt())
+        val small = if (tw == src.width && th == src.height) src
+        else Bitmap.createScaledBitmap(src, tw, th, true)
+        try {
+            val tmp = File(thumbFile.parentFile, "${thumbFile.name}.tmp")
+            java.io.FileOutputStream(tmp).use { out ->
+                if (!small.compress(Bitmap.CompressFormat.JPEG, 85, out)) return false
+                out.flush()
+                try { out.fd.sync() } catch (_: Exception) {}
+            }
+            atomicReplace(tmp, thumbFile)
+        } finally {
+            if (small !== src) {
+                try { small.recycle() } catch (_: Exception) {}
+            }
+        }
+    } catch (_: Throwable) {
+        false
     }
 }

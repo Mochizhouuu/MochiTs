@@ -425,7 +425,12 @@ fun RecentProjectCard(
                 val file = File(path)
                 if (file.exists()) {
                     try {
-                        BitmapFactory.decodeFile(file.absolutePath)
+                        // Sampling kartu (B8): cukup ~512px untuk thumbnail.
+                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeFile(file.absolutePath, bounds)
+                        val sample = maxOf(bounds.outWidth / 512, bounds.outHeight / 512, 1)
+                        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+                        BitmapFactory.decodeFile(file.absolutePath, opts)
                     } catch (_: Throwable) {
                         null
                     }
