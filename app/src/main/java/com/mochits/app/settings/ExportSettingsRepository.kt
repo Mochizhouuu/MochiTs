@@ -37,9 +37,13 @@ class ExportSettingsRepository @Inject constructor(
             )
             prefs.edit().putString(KEY_EXPORT_FOLDER_URI, uri.toString()).apply()
             true
+        } catch (e: SecurityException) {
+            // JANGAN simpan URI yang izinnya tidak bisa dipegang (B9):
+            // kalau tidak ekspor gagal SecurityException di tengah jalan.
+            com.mochits.app.util.Logger.e("Gagal mengambil izin persist folder ekspor: ${e.message}", e)
+            false
         } catch (e: Exception) {
-            // Even if takePersistableUriPermission fails, we still try to save if readable
-            prefs.edit().putString(KEY_EXPORT_FOLDER_URI, uri.toString()).apply()
+            com.mochits.app.util.Logger.e("Gagal menyimpan folder ekspor: ${e.message}", e)
             false
         }
     }
@@ -65,6 +69,17 @@ class ExportSettingsRepository @Inject constructor(
     }
 
     fun clearExportFolderUri() {
+        // Lepas grant lama agar slot persistable tidak menumpuk (B9).
+        getExportFolderUri()?.let { old ->
+            try {
+                context.contentResolver.releasePersistableUriPermission(
+                    old,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (_: Exception) {
+                // Grant mungkin sudah tidak ada; abaikan.
+            }
+        }
         prefs.edit().remove(KEY_EXPORT_FOLDER_URI).apply()
     }
 }

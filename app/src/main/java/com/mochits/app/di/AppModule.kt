@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.mochits.app.font.CustomFontDao
 import com.mochits.app.font.FontRepository
 import com.mochits.app.imaging.LaMaModelManager
+import com.mochits.app.project.MIGRATION_1_2
 import com.mochits.app.project.MochiTsDatabase
 import com.mochits.app.project.ProjectDao
 import dagger.Module
@@ -25,7 +26,9 @@ object AppModule {
             context,
             MochiTsDatabase::class.java,
             "mochits.db"
-        ).fallbackToDestructiveMigration().build()
+        ).addMigrations(MIGRATION_1_2)
+            .fallbackToDestructiveMigrationOnDowngrade()
+            .build()
     }
 
     @Provides

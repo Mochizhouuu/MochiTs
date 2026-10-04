@@ -248,8 +248,9 @@ class ProjectExporter(private val context: Context) {
         imageMeshGlowFor: ((Layer.ImageLayer) -> MeshGlow?)? = null,
         fontLookup: ((String) -> String?)? = null
     ): Boolean = withContext(Dispatchers.IO) {
+        var bmp: Bitmap? = null
         try {
-            val bmp = exportToBitmap(
+            bmp = exportToBitmap(
                 baseBitmap, layers, imageBitmapFor, imageGlowFor,
                 imageWarpFor, textWarpFor, imageGlowWarpFor,
                 textMeshFor, imageMeshGlowFor, fontLookup
@@ -258,8 +259,13 @@ class ProjectExporter(private val context: Context) {
                 bmp.compress(format, quality, out)
             }
             true
-        } catch (e: Exception) {
+        } catch (t: Throwable) {
+            com.mochits.app.util.Logger.e(
+                "Ekspor gagal ke ${outputFile.absolutePath}: ${t.message}", t
+            )
             false
+        } finally {
+            bmp?.let { if (!it.isRecycled) it.recycle() }
         }
     }
 }

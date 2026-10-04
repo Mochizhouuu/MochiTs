@@ -63,7 +63,8 @@ class HomeViewModel @Inject constructor(
     }
 
     fun updateExportFolderUri(uri: Uri) {
-        exportSettingsRepository.saveExportFolderUri(uri)
+        // Hanya tampilkan bila benar-benar tersimpan (izin grant valid).
+        if (!exportSettingsRepository.saveExportFolderUri(uri)) return
         _defaultExportFolderUri.value = uri
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             _defaultExportFolderName.value = exportSettingsRepository.getFolderName(uri)

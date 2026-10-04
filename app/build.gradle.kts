@@ -98,6 +98,11 @@ android {
     }
 }
 
+// Lokasi skema Room ter-export (B7): diff skema bisa diaudit di git.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     implementation(project(":core-imaging"))
 

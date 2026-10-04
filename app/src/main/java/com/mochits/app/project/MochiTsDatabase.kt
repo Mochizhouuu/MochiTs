@@ -8,7 +8,7 @@ import com.mochits.app.font.CustomFontEntity
 @Database(
     entities = [ProjectEntity::class, CustomFontEntity::class],
     version = 2,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class MochiTsDatabase : RoomDatabase() {
     abstract fun projectDao(): ProjectDao
