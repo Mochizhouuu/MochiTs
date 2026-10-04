@@ -93,7 +93,7 @@ object ProjectBundle {
         filesDir: File,
         readLayers: (String) -> List<com.mochits.app.model.Layer>,
         writeLayers: (List<com.mochits.app.model.Layer>) -> String,
-        insert: (ProjectEntity) -> Unit
+        insert: suspend (ProjectEntity) -> Unit
     ): ProjectEntity? {
         val staging = File(filesDir, "cache/bundle_import_${UUID.randomUUID()}")
         try {

@@ -178,7 +178,7 @@ fun HomeScreen(
                     // Impor bundel .mts (F8).
                     IconButton(onClick = { bundleImportLauncher.launch(arrayOf("*/*")) }) {
                         Icon(
-                            imageVector = Icons.Default.Unarchive,
+                            imageVector = Icons.Default.Download,
                             contentDescription = "Impor bundel (.mts)",
                             tint = MaterialTheme.colorScheme.onSurface
                         )
@@ -428,6 +428,12 @@ fun HomeScreen(
                 },
                 onDeleteProject = { id ->
                     selectedDeleteProjectId = id
+                },
+                onExportBundle = { project ->
+                    pendingBundleExportId = project.id
+                    bundleExportLauncher.launch(
+                        com.mochits.app.project.ProjectBundle.fileNameFor(project.title)
+                    )
                 }
             )
         }
@@ -750,7 +756,8 @@ fun OpenProjectDialog(
     projects: List<ProjectEntity>,
     onDismiss: () -> Unit,
     onSelectProject: (String) -> Unit,
-    onDeleteProject: (String) -> Unit
+    onDeleteProject: (String) -> Unit,
+    onExportBundle: (ProjectEntity) -> Unit = {}
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -811,14 +818,9 @@ fun OpenProjectDialog(
                                         tint = MaterialTheme.colorScheme.error
                                     )
                                 }
-                                IconButton(onClick = {
-                                    pendingBundleExportId = project.id
-                                    bundleExportLauncher.launch(
-                                        com.mochits.app.project.ProjectBundle.fileNameFor(project.title)
-                                    )
-                                }) {
+                                IconButton(onClick = { onExportBundle(project) }) {
                                     Icon(
-                                        imageVector = Icons.Default.Share,
+                                        imageVector = Icons.Default.Save,
                                         contentDescription = "Ekspor bundel (.mts)"
                                     )
                                 }
