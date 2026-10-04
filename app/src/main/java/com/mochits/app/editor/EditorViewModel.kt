@@ -421,7 +421,9 @@ data class HistoryStepEntry(
     val layersJson: String,
     val bitmapFileName: String? = null,
     val maskFileName: String? = null,
-    val rawMaskFileName: String? = null
+    val rawMaskFileName: String? = null,
+    /** Label aksi (F3); null = proyek lama. */
+    val label: String? = null
 )
 
 data class HistoryManifest(
@@ -434,7 +436,10 @@ data class HistoryManifest(
         val baseBitmap: Bitmap? = null,
         val bitmapFilePath: String? = null,
         val maskBytes: ByteArray? = null,
-        val rawMaskBytes: ByteArray? = null
+        val rawMaskBytes: ByteArray? = null,
+        /** Label aksi untuk panel histori (F3). */
+        val label: String = "",
+        val timestamp: Long = 0L
     ) {
         fun getOrLoadBitmap(): Bitmap? {
             if (baseBitmap != null && !baseBitmap.isRecycled) return baseBitmap
@@ -468,6 +473,33 @@ data class HistoryManifest(
     val canUndo = MutableStateFlow(false)
     val canRedo = MutableStateFlow(false)
 
+    /** Satu entri panel histori (F3): undo terbaru dulu, lalu redo. */
+    data class HistoryEntry(
+        val label: String,
+        val timestamp: Long,
+        val isRedo: Boolean,
+        /** Langkah undo()/redo() untuk mencapai state ini. */
+        val steps: Int
+    )
+
+    val historyEntries = MutableStateFlow<List<HistoryEntry>>(emptyList())
+
+    /** Lompat ke entri histori dengan mengulang undo()/redo(). */
+    fun jumpToHistory(entry: HistoryEntry) {
+        val n = entry.steps.coerceAtLeast(1)
+        if (entry.isRedo) {
+            repeat(n) {
+                if (!canRedo.value) return
+                redo()
+            }
+        } else {
+            repeat(n) {
+                if (!canUndo.value) return
+                undo()
+            }
+        }
+    }
+
     init {
         // Resolver font untuk pengukuran internal (box auto-grow) agar metrik
         // font impor benar, bukan fallback default.
@@ -496,6 +528,16 @@ data class HistoryManifest(
         synchronized(undoStack) {
             canUndo.value = undoStack.isNotEmpty()
             canRedo.value = redoStack.isNotEmpty()
+            val undo = undoStack.toList()
+            val redo = redoStack.toList()
+            historyEntries.value = buildList {
+                undo.asReversed().forEachIndexed { i, s ->
+                    add(HistoryEntry(s.label.ifBlank { "Edit" }, s.timestamp, false, i + 1))
+                }
+                redo.asReversed().forEachIndexed { i, s ->
+                    add(HistoryEntry(s.label.ifBlank { "Edit" }, s.timestamp, true, i + 1))
+                }
+            }
         }
     }
 
@@ -539,12 +581,14 @@ data class HistoryManifest(
         maskSelectionTools?.restoreRawMaskByteArray(bytes)
     }
 
-    fun saveUndoSnapshot() {
+    fun saveUndoSnapshot(label: String = "") {
         val snapshot = HistorySnapshot(
             layers = layers.value,
             baseBitmap = baseBitmap.value,
             maskBytes = getMaskByteArray(),
-            rawMaskBytes = getRawMaskByteArray()
+            rawMaskBytes = getRawMaskByteArray(),
+            label = label,
+            timestamp = System.currentTimeMillis()
         )
         synchronized(undoStack) {
             undoStack.addLast(snapshot)
@@ -1076,7 +1120,8 @@ data class HistoryManifest(
                 if (validName != null) referencedFiles.add(validName)
                 HistoryStepEntry(
                     layersJson = serializer.serialize(healImagePaths(projId, snapshot.layers)),
-                    bitmapFileName = fileName
+                    bitmapFileName = fileName,
+                    label = snapshot.label.ifBlank { null }
                 )
             }
 
@@ -1090,7 +1135,8 @@ data class HistoryManifest(
                 if (validName != null) referencedFiles.add(validName)
                 HistoryStepEntry(
                     layersJson = serializer.serialize(healImagePaths(projId, snapshot.layers)),
-                    bitmapFileName = fileName
+                    bitmapFileName = fileName,
+                    label = snapshot.label.ifBlank { null }
                 )
             }
 
@@ -1165,7 +1211,8 @@ data class HistoryManifest(
                         HistorySnapshot(
                             layers = snapshotLayers,
                             baseBitmap = loadedBmp,
-                            bitmapFilePath = bmpPath
+                            bitmapFilePath = bmpPath,
+                            label = entry.label ?: ""
                         )
                     )
                 }
@@ -1184,7 +1231,8 @@ data class HistoryManifest(
                         HistorySnapshot(
                             layers = snapshotLayers,
                             baseBitmap = loadedBmp,
-                            bitmapFilePath = bmpPath
+                            bitmapFilePath = bmpPath,
+                            label = entry.label ?: ""
                         )
                     )
                 }
@@ -1350,8 +1398,8 @@ data class HistoryManifest(
         }
     }
 
-    fun addImageLayer(bitmap: Bitmap) {
-        saveUndoSnapshot()
+        fun addImageLayer(bitmap: Bitmap) {
+            saveUndoSnapshot("Tambah gambar")
         val newLayer = Layer.ImageLayer(
             id = UUID.randomUUID().toString(),
             name = "Image ${layers.value.size + 1}",
@@ -1429,7 +1477,7 @@ data class HistoryManifest(
                     }
                 }
 
-                saveUndoSnapshot()
+                saveUndoSnapshot("Hapus objek (LaMa)")
                 try {
                     when (val lamaResult = lamaInpaintEngine.inpaintLaMa(currentBase, tools.maskBitmap)) {
                         is Result.Success -> {
@@ -1460,7 +1508,7 @@ data class HistoryManifest(
                     runTeleaFallback(currentBase, tools)
                 }
             } else {
-                saveUndoSnapshot()
+                saveUndoSnapshot("Hapus objek (Telea)")
                 runTeleaFallback(currentBase, tools)
             }
 
@@ -1512,10 +1560,10 @@ data class HistoryManifest(
         text: String,
         style: TextStyleConfig = defaultTextStyle.value,
         shape: com.mochits.app.model.TextContainerShape? = null,
-        viewportWidth: Float = 0f,
-        viewportHeight: Float = 0f
-    ) {
-        saveUndoSnapshot()
+            viewportWidth: Float = 0f,
+            viewportHeight: Float = 0f
+        ) {
+            saveUndoSnapshot("Tambah teks")
         // Pilihan bentuk di dialog diingat untuk teks berikutnya.
         if (shape != null) {
             defaultTextShape.value = shape
@@ -2075,8 +2123,8 @@ data class HistoryManifest(
         val index = list.indexOfFirst { it.id == id }
         if (index == -1) return
         val newIndex = index + direction
-        if (newIndex in 0 until list.size) {
-            saveUndoSnapshot()
+            if (newIndex in 0 until list.size) {
+                saveUndoSnapshot("Susunan layer")
             val item = list.removeAt(index)
             list.add(newIndex, item)
             layers.value = list
@@ -2084,8 +2132,8 @@ data class HistoryManifest(
         }
     }
 
-    fun toggleLayerVisibility(id: String) {
-        saveUndoSnapshot()
+        fun toggleLayerVisibility(id: String) {
+            saveUndoSnapshot("Visibilitas layer")
         layers.value = layers.value.map { layer ->
             if (layer.id == id) {
                 when (layer) {
@@ -2097,8 +2145,8 @@ data class HistoryManifest(
         autoSave()
     }
 
-    fun deleteLayer(id: String) {
-        saveUndoSnapshot()
+        fun deleteLayer(id: String) {
+            saveUndoSnapshot("Hapus layer")
         clearImageBlurCache(id)
         clearWarpCache(id)
         layers.value = layers.value.filter { it.id != id }
@@ -2116,8 +2164,8 @@ data class HistoryManifest(
     fun duplicateLayer(id: String) {
         val list = layers.value.toMutableList()
         val index = list.indexOfFirst { it.id == id }
-        if (index == -1) return
-        saveUndoSnapshot()
+            if (index == -1) return
+            saveUndoSnapshot("Duplikat layer")
         val src = list[index]
         val newId = UUID.randomUUID().toString()
         val copy = when (src) {
@@ -2204,8 +2252,8 @@ data class HistoryManifest(
         invalidateFlattenedCache()
     }
     /** Kembalikan ke persegi (matikan perspektif) untuk satu layer. */
-    fun resetPerspective(layerId: String) {
-        saveUndoSnapshot()
+        fun resetPerspective(layerId: String) {
+            saveUndoSnapshot("Reset perspektif")
         clearWarpCache(layerId)
         layers.value = layers.value.map { layer ->
             if (layer.id != layerId) layer
@@ -2259,8 +2307,8 @@ data class HistoryManifest(
     }
 
     /** Kembalikan ke grid seragam (matikan warp mesh) untuk satu layer. */
-    fun resetMesh(layerId: String) {
-        saveUndoSnapshot()
+        fun resetMesh(layerId: String) {
+            saveUndoSnapshot("Reset warp")
         layers.value = layers.value.map { layer ->
             if (layer.id != layerId) layer
             else when (layer) {

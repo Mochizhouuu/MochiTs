@@ -94,6 +94,28 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun testJumpToHistory_labeledEntriesRoundTrip() {
+        viewModel.addTextLayer("First")
+
+        val entries = viewModel.historyEntries.value
+        assertEquals(1, entries.size)
+        assertEquals("Tambah teks", entries[0].label)
+        assertFalse(entries[0].isRedo)
+
+        // Lompat ke satu-satunya entri = undo ke kondisi sebelum tambah.
+        viewModel.jumpToHistory(entries[0])
+        assertEquals(0, viewModel.layers.value.size)
+        assertTrue(viewModel.canRedo.value)
+
+        // Entri redo muncul; lompat balik = redo.
+        val redoEntries = viewModel.historyEntries.value.filter { it.isRedo }
+        assertEquals(1, redoEntries.size)
+        viewModel.jumpToHistory(redoEntries[0])
+        assertEquals(1, viewModel.layers.value.size)
+        assertEquals("First", (viewModel.layers.value.first() as Layer.TextLayer).text)
+    }
+
+    @Test
     fun testUpdateSelectedTextLayerStyle_changesFontSize() {
         viewModel.addTextLayer("Sample Text")
 

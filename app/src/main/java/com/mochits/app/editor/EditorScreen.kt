@@ -30,6 +30,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
@@ -345,6 +346,7 @@ val favoriteFontKeys by viewModel.favoriteFontKeys.collectAsState()
 val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
     val canUndo by viewModel.canUndo.collectAsState()
     val canRedo by viewModel.canRedo.collectAsState()
+    val historyEntries by viewModel.historyEntries.collectAsState()
     val isEyedropperActive by viewModel.isEyedropperActive.collectAsState()
     val eyedropperCanvasPt by viewModel.eyedropperCanvasPt.collectAsState()
     val sampledColorPreview by viewModel.sampledColorPreview.collectAsState()
@@ -723,8 +725,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onResetMesh = { viewModel.resetMesh(it) },
                         onClearMeshEdit = { viewModel.setMeshEdit(null) }
                     )
-                    EditorPanel.LAYERS -> LayersToolPanel(
-                        layers = layers,
+                    EditorPanel.LAYERS -> LayersToolPanel(                        layers = layers,
                         selectedId = selectedLayerId,
                         onSelectLayer = { viewModel.selectLayer(it) },
                         onMoveLayer = { id, dir -> viewModel.moveLayer(id, dir) },
@@ -735,6 +736,13 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onUpdateOpacity = { opacity, saveUndo -> viewModel.updateSelectedLayerOpacity(opacity, saveUndo = saveUndo) },
                         onSliderDragStart = { viewModel.onSliderDragStart() },
                         onSliderDragEnd = { viewModel.onSliderDragEnd() }
+                    )
+                    EditorPanel.HISTORY -> HistoryPanel(
+                        entries = historyEntries,
+                        onJump = {
+                            viewModel.jumpToHistory(it)
+                            refreshMaskState()
+                        }
                     )
                     else -> {}
                 }
@@ -2501,6 +2509,13 @@ fun EditorBottomBar(
             label = { Text("Style") },
             modifier = Modifier.widthIn(min = 72.dp)
         )
+        NavigationBarItem(
+            selected = activePanel == EditorPanel.HISTORY,
+            onClick = { onPanelSelect(EditorPanel.HISTORY) },
+            icon = { Icon(Icons.Default.History, contentDescription = "Riwayat") },
+            label = { Text("Riwayat") },
+            modifier = Modifier.widthIn(min = 72.dp)
+        )
         }
     }
 }
@@ -3889,6 +3904,89 @@ fun EffectToolPanel(
                                 }
                             }
                             null -> {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Panel riwayat undo/redo bernama (F3): ketuk entri untuk lompat ke state itu.
+ */
+@Composable
+private fun HistoryPanel(
+    entries: List<EditorViewModel.HistoryEntry>,
+    onJump: (EditorViewModel.HistoryEntry) -> Unit
+) {
+    val timeFmt = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        tonalElevation = 6.dp,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 340.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text("Riwayat", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            if (entries.isEmpty()) {
+                Text(
+                    "Belum ada riwayat.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 270.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    itemsIndexed(
+                        entries,
+                        key = { i, e -> "$i-${e.isRedo}-${e.timestamp}-${e.label}" }
+                    ) { _, entry ->
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (entry.isRedo) {
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant
+                                }
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { onJump(entry) }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    if (entry.isRedo) Icons.AutoMirrored.Filled.Redo else Icons.AutoMirrored.Filled.Undo,
+                                    contentDescription = if (entry.isRedo) "Redo" else "Undo",
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = entry.label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1
+                                )
+                                Text(
+                                    text = if (entry.timestamp > 0L) {
+                                        timeFmt.format(java.util.Date(entry.timestamp))
+                                    } else {
+                                        ""
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
