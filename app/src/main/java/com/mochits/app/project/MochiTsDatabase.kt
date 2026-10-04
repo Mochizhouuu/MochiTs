@@ -8,10 +8,9 @@ import com.mochits.app.font.CustomFontEntity
 @Database(
     entities = [ProjectEntity::class, CustomFontEntity::class],
     version = 2,
-    // exportSchema dimatikan (B7-revisi): exportSchema=true membuat KSP
-    // Room 2.6.1 gagal ("Empty schema file") di CI. Proteksi data tetap
-    // dipegang MIGRATION_1_2 + fallback downgrade-only di AppModule.
-    exportSchema = false
+    // exportSchema dinyalakan lagi dengan provider resmi (docs Room):
+    // arg string mentah terbukti mematahkan KSP ("Empty schema file").
+    exportSchema = true
 )
 abstract class MochiTsDatabase : RoomDatabase() {
     abstract fun projectDao(): ProjectDao

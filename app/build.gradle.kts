@@ -5,6 +5,10 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+
 android {
     namespace = "com.mochits.app"
     compileSdk = 34
@@ -145,4 +149,24 @@ dependencies {
     testImplementation("app.cash.turbine:turbine:1.1.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
+}
+
+// Cara resmi docs Room (bukan arg string mentah): provider ini memberi tahu
+// Gradle bahwa direktori skema adalah input+output (incremental/cache aman).
+abstract class RoomSchemaArgProvider(
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    val schemaDir: java.io.File
+) : org.gradle.process.CommandLineArgumentProvider {
+    override fun asArguments(): Iterable<String> {
+        return listOf("room.schemaLocation=${schemaDir.path}")
+    }
+}
+
+// Direktori skema harus ada (input provider); dibuat saat konfigurasi
+// agar checkout bersih tetap bisa build. Tanpa file placeholder.
+File(projectDir, "schemas").mkdirs()
+
+ksp {
+    arg(RoomSchemaArgProvider(File(projectDir, "schemas")))
 }
