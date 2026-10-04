@@ -5,6 +5,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.mochits.app.model.Layer
 import com.mochits.app.model.TextStyleConfig
+import com.mochits.app.util.atomicReplace
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -89,14 +90,10 @@ class ProjectRepository @Inject constructor(
                         FileOutputStream(tmpFile).use { output ->
                             decodedBmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output)
                             output.flush()
+                            try { output.fd.sync() } catch (_: Exception) {}
                         }
                         decodedBmp.recycle()
-                        if (tmpFile.exists() && tmpFile.length() > 0) {
-                            if (imageFile.exists()) imageFile.delete()
-                            if (!tmpFile.renameTo(imageFile)) {
-                                tmpFile.copyTo(imageFile, overwrite = true)
-                                tmpFile.delete()
-                            }
+                        if (atomicReplace(tmpFile, imageFile)) {
                             thumbnailPath = imageFile.absolutePath
                         }
                     }
@@ -164,11 +161,14 @@ class ProjectRepository @Inject constructor(
         entity
     }
 
-    suspend fun saveProject(project: ProjectEntity) {
-        try {
+    /** @return true bila tersimpan; false + log bila DB gagal (B19). */
+    suspend fun saveProject(project: ProjectEntity): Boolean {
+        return try {
             projectDao.updateProject(project.copy(updatedAt = System.currentTimeMillis()))
+            true
         } catch (e: Exception) {
-            // Handle error safely
+            com.mochits.app.util.Logger.e("Gagal menyimpan proyek ${project.id}: ${e.message}", e)
+            false
         }
     }
 

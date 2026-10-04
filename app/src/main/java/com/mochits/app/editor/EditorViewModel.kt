@@ -12,6 +12,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mochits.app.canvas.CanvasEditorState
+import com.mochits.app.util.atomicReplace
 import com.mochits.core.imaging.InpaintEngine
 import com.mochits.core.imaging.MaskSelectionTools
 import com.mochits.core.imaging.Result
@@ -716,11 +717,14 @@ data class HistoryManifest(
     }
 
     private suspend fun saveNow() {
-        val currentProj = project.value ?: return
-        val currentBmp = baseBitmap.value
+        if (project.value == null) return
         // Dipanggil dari coroutine yang sudah di-IO; kunci agar tidak balapan
         // dengan flush/exit yang memakai file base_image.png.tmp yang sama.
         saveMutex.withLock {
+            // Baca DI DALAM lock (B10): snapshot di luar bisa menimpa judul
+            // baru dengan judul lama (last-writer-wins).
+            val currentProj = project.value ?: return@withLock
+            val currentBmp = baseBitmap.value
             isSaving.value = true
             try {
                 saveProjectInternal(currentProj, currentBmp)
@@ -745,7 +749,9 @@ data class HistoryManifest(
             thumbnailPath = if (imageFile.exists()) imageFile.absolutePath else currentProj.thumbnailPath
         )
         project.value = updatedProj
-        repository.saveProject(updatedProj)
+        if (!repository.saveProject(updatedProj)) {
+            userMessage.value = "Perubahan gagal disimpan ke database."
+        }
         syncHistoryToDiskInternal(currentProj.id)
     }
 
@@ -859,15 +865,9 @@ data class HistoryManifest(
             java.io.FileOutputStream(tmpFile).use { out ->
                 bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
                 out.flush()
+                try { out.fd.sync() } catch (_: Exception) {}
             }
-            if (tmpFile.exists() && tmpFile.length() > 0) {
-                if (imageFile.exists()) {
-                    imageFile.delete()
-                }
-                if (!tmpFile.renameTo(imageFile)) {
-                    tmpFile.copyTo(imageFile, overwrite = true)
-                    tmpFile.delete()
-                }
+            if (atomicReplace(tmpFile, imageFile)) {
                 lastSavedBaseRef = bmp
                 lastSavedBaseProj = projId
                 Logger.d("Atomic save base_image.png successful: ${imageFile.length()} bytes, dimensions=${bmp.width}x${bmp.height}")
@@ -910,13 +910,9 @@ data class HistoryManifest(
                         java.io.FileOutputStream(tmp).use { out ->
                             bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
                             out.flush()
+                            try { out.fd.sync() } catch (_: Exception) {}
                         }
-                        if (tmp.exists() && tmp.length() > 0) {
-                            if (file.exists()) file.delete()
-                            if (!tmp.renameTo(file)) {
-                                tmp.copyTo(file, overwrite = true)
-                                tmp.delete()
-                            }
+                        if (atomicReplace(tmp, file)) {
                             changed = true
                             layer.copy(imagePath = file.absolutePath)
                         } else layer
@@ -955,16 +951,24 @@ data class HistoryManifest(
      * Fills imagePath=null image layers (from snapshots taken before the bitmap
      * was persisted) using the current layer list, matched by id.
      */
-    private fun healImagePaths(snapshotLayers: List<Layer>): List<Layer> {
+    private fun healImagePaths(projId: String, snapshotLayers: List<Layer>): List<Layer> {
         val pathsById = layers.value
             .filterIsInstance<Layer.ImageLayer>()
             .associate { it.id to it.imagePath }
-        if (pathsById.isEmpty()) return snapshotLayers
         return snapshotLayers.map { layer ->
             if (layer is Layer.ImageLayer && layer.imagePath == null) {
-                layer.copy(imagePath = pathsById[layer.id])
+                // Layer hanya hidup di snapshot (sudah dihapus dari daftar):
+                // cari filenya langsung di disk (B17), jangan null buta.
+                val fixed = pathsById[layer.id] ?: resolveSnapshotImagePath(projId, layer.id)
+                if (fixed != null) layer.copy(imagePath = fixed) else layer
             } else layer
         }
+    }
+
+    /** File layer berdasarkan id, tanpa lewat layers.value saat ini. */
+    private fun resolveSnapshotImagePath(projId: String, layerId: String): String? {
+        val f = File(context.filesDir, "projects/$projId/layers/layer_$layerId.png")
+        return if (f.exists() && f.length() > 0) f.absolutePath else null
     }
 
     /**
@@ -987,13 +991,10 @@ data class HistoryManifest(
             java.io.FileOutputStream(tmpFile).use { out ->
                 bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
                 out.flush()
+                try { out.fd.sync() } catch (_: Exception) {}
             }
-            if (tmpFile.exists() && tmpFile.length() > 0) {
-                val file = File(historyDir, fName)
-                if (!tmpFile.renameTo(file)) {
-                    tmpFile.copyTo(file, overwrite = true)
-                    tmpFile.delete()
-                }
+            val file = File(historyDir, fName)
+            if (atomicReplace(tmpFile, file)) {
                 historyBitmapFiles[bmp] = fName
                 fName
             } else null
@@ -1020,7 +1021,7 @@ data class HistoryManifest(
                 val validName = fileName
                 if (validName != null) referencedFiles.add(validName)
                 HistoryStepEntry(
-                    layersJson = serializer.serialize(healImagePaths(snapshot.layers)),
+                    layersJson = serializer.serialize(healImagePaths(projId, snapshot.layers)),
                     bitmapFileName = fileName
                 )
             }
@@ -1034,7 +1035,7 @@ data class HistoryManifest(
                 val validName = fileName
                 if (validName != null) referencedFiles.add(validName)
                 HistoryStepEntry(
-                    layersJson = serializer.serialize(healImagePaths(snapshot.layers)),
+                    layersJson = serializer.serialize(healImagePaths(projId, snapshot.layers)),
                     bitmapFileName = fileName
                 )
             }
@@ -1235,7 +1236,9 @@ data class HistoryManifest(
                             layersJson = serializer.serialize(layers.value)
                         )
                         project.value = updated
-                        repository.saveProject(updated)
+                        if (!repository.saveProject(updated)) {
+                            userMessage.value = "Gagal menyimpan proyek ke database."
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -1283,7 +1286,9 @@ data class HistoryManifest(
         val updated = currentProj.copy(title = newTitle)
         project.value = updated
         viewModelScope.launch {
-            repository.saveProject(updated)
+            if (!repository.saveProject(updated)) {
+                userMessage.value = "Gagal menyimpan judul proyek."
+            }
         }
     }
 
