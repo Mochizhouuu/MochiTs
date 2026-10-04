@@ -88,7 +88,7 @@ object ProjectBundle {
      * di layersJson di-remap ke filesDir kini; zip-slip dijaga.
      * @return entity baru yang sudah diinsert, atau null bila gagal.
      */
-    fun importFrom(
+    suspend fun importFrom(
         input: InputStream,
         filesDir: File,
         readLayers: (String) -> List<com.mochits.app.model.Layer>,

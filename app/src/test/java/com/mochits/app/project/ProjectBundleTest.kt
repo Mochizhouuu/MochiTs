@@ -31,7 +31,7 @@ class ProjectBundleTest {
     }
 
     @Test
-    fun `exportImport round trip remaps paths to new id`() {
+    fun `exportImport round trip remaps paths to new id`() = kotlinx.coroutines.runBlocking {
         val ctx = RuntimeEnvironment.getApplication()
         val filesDir = File(ctx.cacheDir, "bundle_t_${UUID.randomUUID()}").apply { mkdirs() }
         try {
