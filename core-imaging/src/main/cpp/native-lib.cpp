@@ -294,54 +294,78 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
     uint32_t* srcPtr = static_cast<uint32_t*>(srcPixels);
     uint8_t* maskPtr = static_cast<uint8_t*>(maskPixels);
 
-    uint32_t targetColor = srcPtr[startY * width + startX];
-    int targetR = (targetColor) & 0xFF;
-    int targetG = (targetColor >> 8) & 0xFF;
-    int targetB = (targetColor >> 16) & 0xFF;
+    // B16: seluruh alokasi + flood dalam try. bad_alloc di dalam fungsi
+    // extern "C" JNI = std::terminate (SIGABRT) bila lolos; tangkap dan
+    // pulang dengan unlock yang benar. Bitset 8x hemat + stack vektor datar
+    // (bukan queue<pair> yang boros) untuk kanvas puluhan MP.
+    try {
+        uint32_t targetColor = srcPtr[startY * width + startX];
+        int targetR = (targetColor) & 0xFF;
+        int targetG = (targetColor >> 8) & 0xFF;
+        int targetB = (targetColor >> 16) & 0xFF;
 
-    // Euclidean RGB distance (tolerance already mapped to 0..441.673).
-    // Tighter than per-channel Chebyshev; prevents diagonal color leaks outside target.
-    float tolSq = tolerance * tolerance;
+        // Euclidean RGB distance (tolerance already mapped to 0..441.673).
+        // Tighter than per-channel Chebyshev; prevents diagonal color leaks outside target.
+        float tolSq = tolerance * tolerance;
 
-    std::vector<uint8_t> visited(width * height, 0);
-    std::queue<std::pair<int, int>> q;
-    q.push({startX, startY});
-    visited[startY * width + startX] = 1;
+        size_t total = (size_t) width * (size_t) height;
+        std::vector<uint8_t> visitedBits((total + 7) / 8, 0);
+        auto isVisited = [&](size_t i) -> bool {
+            return (visitedBits[i >> 3] >> (i & 7)) & 1;
+        };
+        auto markVisited = [&](size_t i) {
+            visitedBits[i >> 3] |= (uint8_t) (1 << (i & 7));
+        };
 
-    const int dx[4] = {0, 0, -1, 1};
-    const int dy[4] = {-1, 1, 0, 0};
+        std::vector<int> stack;
+        stack.reserve(1024);
+        stack.push_back(startY * width + startX);
+        markVisited((size_t) startY * (size_t) width + (size_t) startX);
 
-    while (!q.empty()) {
-        auto [cx, cy] = q.front();
-        q.pop();
+        const int dx[4] = {0, 0, -1, 1};
+        const int dy[4] = {-1, 1, 0, 0};
 
-        int currIdx = cy * width + cx;
-        maskPtr[currIdx] = 255; // Union with existing mask
+        size_t head = 0;
+        while (head < stack.size()) {
+            int cur = stack[head++];
+            int cx = cur % width;
+            int cy = cur / width;
 
-        for (int i = 0; i < 4; ++i) {
-            int nx = cx + dx[i];
-            int ny = cy + dy[i];
+            maskPtr[cur] = 255; // Union with existing mask
 
-            if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                int nIdx = ny * width + nx;
-                if (!visited[nIdx]) {
-                    visited[nIdx] = 1;
-                    uint32_t c = srcPtr[nIdx];
-                    int r = (c) & 0xFF;
-                    int g = (c >> 8) & 0xFF;
-                    int b = (c >> 16) & 0xFF;
+            for (int i = 0; i < 4; ++i) {
+                int nx = cx + dx[i];
+                int ny = cy + dy[i];
 
-                    float dr = static_cast<float>(r - targetR);
-                    float dg = static_cast<float>(g - targetG);
-                    float db = static_cast<float>(b - targetB);
-                    float distSq = dr * dr + dg * dg + db * db;
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                    size_t nIdx = (size_t) ny * (size_t) width + (size_t) nx;
+                    if (!isVisited(nIdx)) {
+                        markVisited(nIdx);
+                        uint32_t c = srcPtr[nIdx];
+                        int r = (c) & 0xFF;
+                        int g = (c >> 8) & 0xFF;
+                        int b = (c >> 16) & 0xFF;
 
-                    if (distSq <= tolSq) {
-                        q.push({nx, ny});
+                        float dr = static_cast<float>(r - targetR);
+                        float dg = static_cast<float>(g - targetG);
+                        float db = static_cast<float>(b - targetB);
+                        float distSq = dr * dr + dg * dg + db * db;
+
+                        if (distSq <= tolSq) {
+                            stack.push_back((int) nIdx);
+                        }
                     }
                 }
             }
         }
+    } catch (const std::exception&) {
+        AndroidBitmap_unlockPixels(env, maskBitmap);
+        AndroidBitmap_unlockPixels(env, srcBitmap);
+        return;
+    } catch (...) {
+        AndroidBitmap_unlockPixels(env, maskBitmap);
+        AndroidBitmap_unlockPixels(env, srcBitmap);
+        return;
     }
 
     AndroidBitmap_unlockPixels(env, maskBitmap);
