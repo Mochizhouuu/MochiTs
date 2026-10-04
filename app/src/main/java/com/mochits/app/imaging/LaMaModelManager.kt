@@ -58,6 +58,7 @@ class LaMaModelManager @Inject constructor(
     private val appContext = context.applicationContext
     private val modelFileName = "lama_manga.onnx"
     private val minValidSizeBytes = 50_000_000L // Valid model is ~196MB
+    private val prefs = appContext.getSharedPreferences("lama_model_fp", Context.MODE_PRIVATE)
 
     // HuggingFace primary and fallback URLs for LaMa Manga ONNX model (~196MB)
     private val modelUrls = listOf(
@@ -88,22 +89,70 @@ class LaMaModelManager @Inject constructor(
     }
 
     fun checkModelStatus(): LaMaModelStatus {
+        // Murni query tanpa efek samping (B15): JANGAN hapus .tmp di sini,
+        // kalau tidak resume selalu mulai dari nol.
         val targetFile = getModelFile()
-        val tempFile = getTempFile()
-
-        if (tempFile.exists() && _modelStatus.value != LaMaModelStatus.DOWNLOADING) {
-            tempFile.delete()
-        }
 
         val status = when {
+            isKnownGood(targetFile) -> LaMaModelStatus.DOWNLOADED
             targetFile.exists() && targetFile.length() > minValidSizeBytes -> LaMaModelStatus.DOWNLOADED
-            targetFile.exists() && targetFile.length() <= minValidSizeBytes -> LaMaModelStatus.CORRUPTED_ERROR
+            targetFile.exists() -> LaMaModelStatus.CORRUPTED_ERROR
             else -> LaMaModelStatus.NOT_DOWNLOADED
         }
         if (_modelStatus.value != LaMaModelStatus.DOWNLOADING) {
             _modelStatus.value = status
         }
         return status
+    }
+
+    /** Hapus unduhan parsial secara eksplisit (aksi user / reset). */
+    fun discardPartialDownload(): Boolean {
+        val tmp = getTempFile()
+        return if (tmp.exists()) tmp.delete() else true
+    }
+
+    /**
+     * Fingerprint kalibrasi-sendiri: ukuran file yang TERBUKTI bisa dibuka
+     * sesinya. Tanpa hash resmi, ini yang mencegah file terpotong 51-195MB
+     * lolos sebagai DOWNLOADED untuk selamanya (B11).
+     */
+    private fun knownGoodSize(): Long =
+        prefs.getLong("known_good_size", 0L)
+
+    private fun isKnownGood(file: File): Boolean {
+        val known = knownGoodSize()
+        return known > 0L && file.exists() && file.length() == known
+    }
+
+    /** Dipanggil setelah satu inference LaMa sukses: file ini terbukti valid. */
+    fun confirmModelUsable() {
+        val f = getModelFile()
+        if (f.exists() && f.length() > 0L) {
+            prefs.edit().putLong("known_good_size", f.length()).apply()
+        }
+    }
+
+    /**
+     * File gagal dibuka sesinya (bukan OOM): tandai korup dengan meminggirkan
+     * file agar unduh ulang mulai bersih, fingerprint ikut dibuang.
+     */
+    fun reportModelBroken(reason: String?) {
+        prefs.edit().remove("known_good_size").apply()
+        try {
+            val f = getModelFile()
+            if (f.exists()) {
+                val bad = File(f.parentFile, "$modelFileName.bad")
+                try { if (bad.exists()) bad.delete() } catch (_: Exception) {}
+                if (!f.renameTo(bad)) {
+                    try { f.delete() } catch (_: Exception) {}
+                }
+            }
+        } catch (_: Exception) {}
+        _modelStatus.value = LaMaModelStatus.CORRUPTED_ERROR
+        _lastDownloadError.value = _lastDownloadError.value?.copy(
+            exceptionMessage = (reason ?: "File model tidak bisa dibuka") +
+                ". File lama dipinggirkan, akan diunduh ulang."
+        )
     }
 
     fun isModelDownloaded(): Boolean {
@@ -115,6 +164,7 @@ class LaMaModelManager @Inject constructor(
         val tempFile = getTempFile()
         if (tempFile.exists()) tempFile.delete()
         val deleted = if (targetFile.exists()) targetFile.delete() else true
+        prefs.edit().remove("known_good_size").apply()
         _modelStatus.value = LaMaModelStatus.NOT_DOWNLOADED
         _downloadProgress.value = 0f
         _lastDownloadError.value = null
@@ -283,6 +333,20 @@ class LaMaModelManager @Inject constructor(
 
                     Log.d(TAG, "Download stream completed for $urlString. Temp file size: ${tempFile.length()} bytes")
 
+                    // Server tahu panjangnya: WAJIB pas persis, kalau tidak
+                    // berarti terpotong — simpan tmp untuk resume, coba lagi.
+                    if (totalExpectedLength > 0 && tempFile.length() != totalExpectedLength) {
+                        Log.w(TAG, "Incomplete download (${tempFile.length()}/$totalExpectedLength), keeping tmp for resume")
+                        _lastDownloadError.value = LaMaDownloadErrorInfo(
+                            stage = "Verifikasi Kelengkapan Unduhan",
+                            exceptionMessage = "Unduhan belum lengkap (${tempFile.length()}/$totalExpectedLength bytes), dilanjutkan lagi",
+                            url = currentUrl
+                        )
+                        retryCount++
+                        if (retryCount < maxRetries) delay(1000L * retryCount)
+                        continue
+                    }
+
                     if (tempFile.exists() && tempFile.length() > minValidSizeBytes) {
                         if (targetFile.exists()) targetFile.delete()
                         val renamed = tempFile.renameTo(targetFile)
@@ -333,7 +397,7 @@ class LaMaModelManager @Inject constructor(
             }
         }
 
-        if (tempFile.exists()) tempFile.delete()
+        // JANGAN hapus tmp di sini (B15): biarkan untuk resume di lain waktu.
         Log.e(TAG, "All download attempts failed across all configured URLs.")
         _modelStatus.value = LaMaModelStatus.CORRUPTED_ERROR
         if (_lastDownloadError.value == null) {

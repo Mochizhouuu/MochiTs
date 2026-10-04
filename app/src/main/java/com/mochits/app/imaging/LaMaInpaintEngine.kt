@@ -20,6 +20,9 @@ class LaMaInpaintEngine(
     private var ortEnv: OrtEnvironment? = null
     @Volatile
     private var ortSession: OrtSession? = null
+    /** Kunci file saat sesi dibuat; file diganti -> sesi dibuat ulang (B12). */
+    @Volatile
+    private var sessionModelKey: String? = null
     private val sessionLock = Any()
 
     suspend fun inpaintLaMa(
@@ -50,10 +53,23 @@ class LaMaInpaintEngine(
             // Guarded: concurrent inpaints must not create two sessions (native leak)
             // and SessionOptions must be closed after use.
             val session = synchronized(sessionLock) {
-                if (ortSession == null) {
-                    OrtSession.SessionOptions().use { opts ->
-                        opts.setIntraOpNumThreads(4)
-                        ortSession = env.createSession(modelFile.absolutePath, opts)
+                val modelKey = modelFile.absolutePath + "|" + modelFile.length() + "|" + modelFile.lastModified()
+                if (ortSession == null || sessionModelKey != modelKey) {
+                    try { ortSession?.close() } catch (_: Throwable) {}
+                    ortSession = null
+                    try {
+                        OrtSession.SessionOptions().use { opts ->
+                            opts.setIntraOpNumThreads(4)
+                            ortSession = env.createSession(modelFile.absolutePath, opts)
+                        }
+                        sessionModelKey = modelKey
+                    } catch (oom: OutOfMemoryError) {
+                        throw oom
+                    } catch (t: Throwable) {
+                        // Sesi gagal dibuat (bukan OOM): file korup — pinggirkan
+                        // agar unduh ulang, jangan stuck DOWNLOADED selamanya.
+                        try { modelManager.reportModelBroken(t.message) } catch (_: Throwable) {}
+                        throw t
                     }
                 }
                 ortSession
@@ -326,6 +342,7 @@ class LaMaInpaintEngine(
             synchronized(sessionLock) {
                 ortSession?.close()
                 ortSession = null
+                sessionModelKey = null
                 ortEnv?.close()
                 ortEnv = null
             }

@@ -87,7 +87,7 @@ class LaMaModelManagerTest {
     }
 
     @Test
-    fun testTempFileCleanupOnCheckStatusWhenNotDownloading() {
+    fun testTempFilePreservedOnCheckStatusForResume() {
         val targetFile = managerSettings.getModelFile()
         targetFile.parentFile?.mkdirs()
         val tempFile = File(targetFile.parentFile, "lama_manga.onnx.tmp")
@@ -95,8 +95,24 @@ class LaMaModelManagerTest {
 
         assertTrue(tempFile.exists())
         val status = managerSettings.checkModelStatus()
+        // B15: status poll tidak boleh menghapus parsial (resume dipertahankan).
         assertEquals(LaMaModelStatus.NOT_DOWNLOADED, status)
-        assertFalse(tempFile.exists())
+        assertTrue(tempFile.exists())
+        tempFile.delete()
+    }
+
+    @Test
+    fun testKnownGoodSizeEnforcedAfterConfirm() {
+        val file = managerSettings.getModelFile()
+        file.parentFile?.mkdirs()
+        file.writeBytes(ByteArray(2048))
+        managerSettings.confirmModelUsable()
+
+        // File lain dengan ukuran beda tidak lagi dianggap DOWNLOADED.
+        file.writeBytes(ByteArray(4096))
+        assertEquals(LaMaModelStatus.CORRUPTED_ERROR, managerSettings.checkModelStatus())
+
+        file.delete()
     }
 
     @Test

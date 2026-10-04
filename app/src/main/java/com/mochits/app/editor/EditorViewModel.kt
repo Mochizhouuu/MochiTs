@@ -1415,6 +1415,8 @@ data class HistoryManifest(
                         is Result.Success -> {
                             baseBitmap.value = lamaResult.data
                             baseImageSuspect = false
+                            // File terbukti bisa dibuka sesinya: kalibrasi validasi.
+                            lamaModelManager.confirmModelUsable()
                             tools.clearMask()
                             autoSave()
                         }
