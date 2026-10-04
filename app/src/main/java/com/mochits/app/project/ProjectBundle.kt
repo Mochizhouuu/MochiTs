@@ -14,8 +14,8 @@ import java.util.zip.ZipOutputStream
  * snapshot baris database, sehingga bisa dipindah antar device dan tetap
  * bisa diedit penuh (mirip peran PSD, secara teknis seperti .kra).
  *
- * Isi: project.json + base_image.png + thumbnail.jpg + layers/* +
- * history/* + selected_layer.txt.
+ * Isi: project.json + base_image.png + thumbnail.jpg + folder layers dan
+ * folder history + selected_layer.txt.
  */
 object ProjectBundle {
 
