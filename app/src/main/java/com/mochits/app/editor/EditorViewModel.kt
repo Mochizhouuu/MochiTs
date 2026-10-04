@@ -2334,6 +2334,32 @@ data class HistoryManifest(
                 it.remove()
             }
         }
+        lastWarpNote.remove(id)
+    }
+
+    /** Laporkan kegagalan warp sekali per transisi (S3): jangan spam tiap frame drag. */
+    private val lastWarpNote = mutableMapOf<String, String?>()
+
+    private fun noteWarpFailure(layerId: String, outcome: Perspective.WarpOutcome) {
+        val key = when (outcome) {
+            is Perspective.WarpOutcome.Ok -> null
+            Perspective.WarpOutcome.Inactive -> null
+            is Perspective.WarpOutcome.TooLarge -> "too-large"
+            is Perspective.WarpOutcome.Degenerate -> "degenerate"
+        }
+        if (lastWarpNote[layerId] == key) return
+        lastWarpNote[layerId] = key
+        when (outcome) {
+            is Perspective.WarpOutcome.TooLarge -> userMessage.value = UiMessage(
+                "Area warp terlalu besar, perkecil sudut.",
+                UiMessage.Kind.WARNING
+            )
+            is Perspective.WarpOutcome.Degenerate -> userMessage.value = UiMessage(
+                "Bentuk warp tidak valid (titik bertumpuk/bersilang).",
+                UiMessage.Kind.WARNING
+            )
+            else -> {}
+        }
     }
 
     /**
@@ -2365,10 +2391,13 @@ data class HistoryManifest(
             val h = src.height
             val px = IntArray(w * h)
             src.getPixels(px, 0, w, 0, 0, w, h)
-            val warped = Perspective.warpPixels(px, w, h, quad, maxDim) ?: run {
+            val outcome = Perspective.warpPixelsOutcome(px, w, h, quad, maxDim)
+            val warped = (outcome as? Perspective.WarpOutcome.Ok)?.pixels ?: run {
                 warpCache.remove(key)?.let { recycleWarpEntry(it) }
+                noteWarpFailure(layerId, outcome)
                 return null
             }
+            noteWarpFailure(layerId, outcome)
             val bmp = Bitmap.createBitmap(warped.pixels, warped.width, warped.height, Bitmap.Config.ARGB_8888)
             warpCache.remove(key)?.let { recycleWarpEntry(it) }
             val entry = WarpEntry(src, srcVersion, quad.toList(), bmp, warped.offsetX, warped.offsetY, warped.scale, maxDim)

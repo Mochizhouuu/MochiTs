@@ -28,8 +28,21 @@ class PerspectiveTest {
     }
 
     @Test
-    fun `subdivide identitas tetap identitas dan sudut pas`() {
-        val id = Perspective.identityGrid()
+    fun `outcome menjelaskan hasil warp`() {
+        val px = IntArray(16) { -1 }
+        val identity = listOf(0f, 0f, 1f, 0f, 1f, 1f, 0f, 1f)
+        assertTrue(Perspective.warpPixelsOutcome(px, 4, 4, identity) is Perspective.WarpOutcome.Inactive)
+        assertTrue(Perspective.warpPixelsOutcome(px, 4, 4, List(8) { 0.5f }) is Perspective.WarpOutcome.Degenerate)
+        val shifted = listOf(0.25f, 0f, 1f, 0f, 1f, 1f, 0.25f, 1f)
+        assertTrue(Perspective.warpPixelsOutcome(px, 4, 4, shifted, 64) is Perspective.WarpOutcome.Ok)
+        // 2000x2000 = 4M px > batas 2.56M.
+        val big = IntArray(2000 * 2000)
+        val tooLarge = Perspective.warpPixelsOutcome(big, 2000, 2000, shifted, 4096)
+        assertTrue(tooLarge is Perspective.WarpOutcome.TooLarge, "was $tooLarge")
+    }
+
+    @Test
+    fun `subdivide identitas tetap identitas dan sudut pas`() {        val id = Perspective.identityGrid()
         val dense = Perspective.subdivideGrid(id, 4)
         val m = 3 * 4 + 1
         assertEquals(2 * m * m, dense.size)

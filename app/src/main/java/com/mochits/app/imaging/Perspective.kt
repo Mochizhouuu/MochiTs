@@ -155,6 +155,14 @@ object Perspective {
         return false
     }
 
+    /** Hasil warp beralasan (S3): gagal harus bisa dijelaskan ke user. */
+    sealed interface WarpOutcome {
+        data class Ok(val pixels: WarpedPixels) : WarpOutcome
+        object Inactive : WarpOutcome
+        data class TooLarge(val pixels: Long) : WarpOutcome
+        data class Degenerate(val reason: String) : WarpOutcome
+    }
+
     /**
      * Warp [pixels] (w*h) mengikuti [quad] ternormalisasi.
      * @return null bila quad tidak aktif atau degenerat (luas ~nol).
@@ -165,9 +173,18 @@ object Perspective {
         height: Int,
         quad: List<Float>,
         maxDim: Int = 768
-    ): WarpedPixels? {
-        if (!isActive(quad)) return null
-        if (pixels.size != width * height || width <= 0 || height <= 0) return null
+    ): WarpedPixels? = (warpPixelsOutcome(pixels, width, height, quad, maxDim) as? WarpOutcome.Ok)?.pixels
+
+    /** Varian beralasan dari [warpPixels]. */
+    fun warpPixelsOutcome(
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        quad: List<Float>,
+        maxDim: Int = 768
+    ): WarpOutcome {
+        if (!isActive(quad)) return WarpOutcome.Inactive
+        if (pixels.size != width * height || width <= 0 || height <= 0) return WarpOutcome.Inactive
 
         // Quad dalam piksel.
         val qx = DoubleArray(4) { i -> quad[i * 2].toDouble() * width }
@@ -183,19 +200,21 @@ object Perspective {
             if (qy[i] > maxY) maxY = qy[i]
         }
         val span = maxOf(maxX - minX, maxY - minY)
-        if (span <= 0.5) return null
+        if (span <= 0.5) return WarpOutcome.Degenerate("luas ~nol")
         val scale = min(1.0, maxDim / span)
         val ow = maxOf(1, ceil((maxX - minX) * scale).toInt())
         val oh = maxOf(1, ceil((maxY - minY) * scale).toInt())
-        if (ow * oh > 1600 * 1600) return null
+        if (ow.toLong() * oh.toLong() > 1600L * 1600L) {
+            return WarpOutcome.TooLarge(ow.toLong() * oh.toLong())
+        }
 
         // Homografi: persegi satuan -> quad (ruang kerja).
         val src = doubleArrayOf(0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0)
         val dst = DoubleArray(8) { i ->
             if (i % 2 == 0) (qx[i / 2] - minX) * scale else (qy[i / 2] - minY) * scale
         }
-        val h = solveHomography(src, dst) ?: return null
-        val hi = invert3x3(h) ?: return null
+        val h = solveHomography(src, dst) ?: return WarpOutcome.Degenerate("homografi singular")
+        val hi = invert3x3(h) ?: return WarpOutcome.Degenerate("homografi singular")
 
         val out = IntArray(ow * oh)
         val wMax = (width - 1).toDouble()
@@ -243,7 +262,7 @@ object Perspective {
                 }
             }
         }
-        return WarpedPixels(out, ow, oh, minX.toFloat(), minY.toFloat(), scale.toFloat())
+        return WarpOutcome.Ok(WarpedPixels(out, ow, oh, minX.toFloat(), minY.toFloat(), scale.toFloat()))
     }
 
     /** Kernel Catmull-Rom (a = -0.5) untuk sampling bikubik. */

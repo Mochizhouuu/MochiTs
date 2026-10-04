@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import com.mochits.app.text.MotionBlur
+import com.mochits.app.util.Logger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -73,6 +74,8 @@ object ImageEffects {
             }
             result
         } catch (t: Throwable) {
+            // S3: gagal blur bukan null misterius — catat, pemanggil fallback normal.
+            Logger.e("motionBlurredBitmap gagal: ${t.message}", t)
             null
         }
     }
@@ -138,6 +141,7 @@ object ImageEffects {
             }
             Pair(glow, padFull.toFloat())
         } catch (t: Throwable) {
+            Logger.e("outerGlowBitmap gagal: ${t.message}", t)
             null
         }
     }
