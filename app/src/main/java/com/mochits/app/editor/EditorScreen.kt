@@ -733,6 +733,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onDeleteLayer = { viewModel.deleteLayer(it) },
                         onDuplicateLayer = { viewModel.duplicateLayer(it) },
                         onLoadBaseImage = { baseImagePickerLauncher.launch("image/*") },
+                        onDuplicateBackground = { viewModel.duplicateBackground() },
+                        backgroundLabel = baseBitmap?.let { "${it.width} x ${it.height}" } ?: "",
                         onUpdateOpacity = { opacity, saveUndo -> viewModel.updateSelectedLayerOpacity(opacity, saveUndo = saveUndo) },
                         onSliderDragStart = { viewModel.onSliderDragStart() },
                         onSliderDragEnd = { viewModel.onSliderDragEnd() }
@@ -4005,6 +4007,8 @@ fun LayersToolPanel(
     onDeleteLayer: (String) -> Unit,
     onDuplicateLayer: (String) -> Unit,
     onLoadBaseImage: () -> Unit = {},
+    onDuplicateBackground: () -> Unit = {},
+    backgroundLabel: String = "",
     onUpdateOpacity: ((Float, Boolean) -> Unit)? = null,
     onSliderDragStart: () -> Unit = {},
     onSliderDragEnd: () -> Unit = {}
@@ -4017,15 +4021,6 @@ fun LayersToolPanel(
         modifier = Modifier.fillMaxWidth().height(220.dp)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            OutlinedButton(
-                onClick = onLoadBaseImage,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp)
-            ) {
-                Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Ganti Gambar Latar (Base Image)")
-            }
-
             if (selectedLayer != null) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
@@ -4116,6 +4111,51 @@ fun LayersToolPanel(
                                     )
                                 }
                             }
+                        }
+                    }
+                }
+            }
+
+            // Baris Background terkunci: selalu paling bawah, posisi tetap.
+            // Aksi: ganti gambar + duplikat jadi layer (bisa disalin).
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(8.dp).fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.Lock,
+                            contentDescription = "Terkunci",
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(text = "Background", style = MaterialTheme.typography.bodyMedium)
+                            if (backgroundLabel.isNotBlank()) {
+                                Text(
+                                    text = backgroundLabel,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onDuplicateBackground) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Salin jadi layer")
+                        }
+                        IconButton(onClick = onLoadBaseImage) {
+                            Icon(Icons.Default.Image, contentDescription = "Ganti gambar latar")
                         }
                     }
                 }

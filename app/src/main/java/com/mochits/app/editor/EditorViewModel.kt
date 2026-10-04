@@ -2157,6 +2157,27 @@ data class HistoryManifest(
     }
 
     /**
+     * Salin background jadi image layer baru (tetap di posisi, langsung aktif).
+     * Bitmap dipakai bersama (aman: semua mutasi mengganti objek); file-nya
+     * ditulis terpisah saat save berikutnya.
+     */
+    fun duplicateBackground() {
+        val src = baseBitmap.value
+        if (src == null || src.isRecycled) return
+        saveUndoSnapshot("Duplikat background")
+        val newId = UUID.randomUUID().toString()
+        val copy = Layer.ImageLayer(
+            id = newId,
+            name = "Background copy",
+            bitmap = src,
+            imagePath = null
+        )
+        layers.value = layers.value + copy
+        selectedLayerId.value = newId
+        autoSave()
+    }
+
+    /**
      * Duplikat layer (teks/gambar): salinan menumpuk pas di atas aslinya
      * dan langsung aktif. File gambar ikut disalin agar salinan tidak putus
      * saat layer asli dihapus.
