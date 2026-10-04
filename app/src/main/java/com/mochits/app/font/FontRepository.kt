@@ -20,16 +20,14 @@ class FontRepository(
     private val context: Context,
     private val customFontDao: CustomFontDao
 ) {
+    private val fileStore = com.mochits.app.project.ProjectFileStore(context)
+
     private val customFontsDir: File by lazy {
-        File(context.filesDir, "custom_fonts").apply {
-            if (!exists()) mkdirs()
-        }
+        fileStore.customFontsDir()
     }
 
     private val builtInFontsDir: File by lazy {
-        File(context.filesDir, "fonts").apply {
-            if (!exists()) mkdirs()
-        }
+        fileStore.fontsDir()
     }
 
     private val builtInFontsCache = mutableListOf<FontItem>()

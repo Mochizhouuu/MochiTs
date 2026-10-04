@@ -99,6 +99,8 @@ class EditorViewModel @Inject constructor(
     val serializer = LayerSerializer()
     val exporter = ProjectExporter(context)
     val textRenderer = com.mochits.app.text.TextRenderer(context)
+    /** Satu-satunya sumber path file (S2). */
+    val fileStore = com.mochits.app.project.ProjectFileStore(context)
 
     val project = MutableStateFlow<ProjectEntity?>(null)
     val baseBitmap = MutableStateFlow<Bitmap?>(null)
@@ -650,7 +652,7 @@ data class HistoryManifest(
                     // Sumber tunggal: base_image.png (B8). thumbnailPath hanya
                     // untuk kartu Home, bukan sumber gambar dasar.
                     val baseFile =
-                        File(context.filesDir, "projects/${proj.id}/base_image.png").takeIf { it.exists() }
+                        fileStore.baseImage(proj.id).takeIf { it.exists() }
 
                     if (baseFile != null && baseFile.length() > 0) {
                         try {
@@ -786,7 +788,7 @@ data class HistoryManifest(
      * valid dibaca dengan sampling di Home).
      */
     private fun thumbnailFor(projId: String, fallback: String?): String? {
-        val thumb = File(context.filesDir, "projects/$projId/thumbnail.jpg")
+        val thumb = fileStore.thumbnail(projId)
         return if (thumb.exists() && thumb.length() > 0) thumb.absolutePath else fallback
     }
 
@@ -856,7 +858,7 @@ data class HistoryManifest(
     }
 
     private fun selectedLayerFile(projId: String): File =
-        File(context.filesDir, "projects/$projId/selected_layer.txt")
+        fileStore.selectedLayerFile(projId)
 
     private fun persistSelectedLayerInternal(projId: String, selectedId: String?) {
         try {
@@ -904,8 +906,7 @@ data class HistoryManifest(
     private fun saveBaseBitmapToDiskInternal(projId: String, bmp: Bitmap?) {
         if (bmp == null || bmp.isRecycled) return
         try {
-            val projectDir = File(context.filesDir, "projects/$projId").apply { mkdirs() }
-            val imageFile = File(projectDir, "base_image.png")
+            val imageFile = fileStore.baseImage(projId)
             // Bitmap yang sama (semua mutasi mengganti objek, tidak ada yang
             // mengubah in-place) tidak perlu dikompresi ulang tiap save.
             if (projId == lastSavedBaseProj && bmp === lastSavedBaseRef &&
@@ -913,14 +914,7 @@ data class HistoryManifest(
             ) {
                 return
             }
-            val tmpFile = File(projectDir, "base_image.png.tmp")
-
-            java.io.FileOutputStream(tmpFile).use { out ->
-                bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
-                out.flush()
-                try { out.fd.sync() } catch (_: Exception) {}
-            }
-            if (atomicReplace(tmpFile, imageFile)) {
+            if (fileStore.writeBitmapAtomic(imageFile, bmp)) {
                 lastSavedBaseRef = bmp
                 lastSavedBaseProj = projId
                 refreshThumbnail(projId, bmp)
@@ -937,7 +931,7 @@ data class HistoryManifest(
      */
     private fun refreshThumbnail(projId: String, bmp: Bitmap) {
         try {
-            val thumbFile = File(context.filesDir, "projects/$projId/thumbnail.jpg")
+            val thumbFile = fileStore.thumbnail(projId)
             com.mochits.app.util.writeThumbnail(bmp, thumbFile)
         } catch (t: Throwable) {
             Logger.e("Error refreshing thumbnail: ${t.message}", t)
@@ -971,15 +965,8 @@ data class HistoryManifest(
                 val fileOk = layer.imagePath?.let { File(it).let { f -> f.exists() && f.length() > 0 } } == true
                 if (bmp != null && !bmp.isRecycled && !fileOk) {
                     try {
-                        val dir = File(context.filesDir, "projects/$projId/layers").apply { mkdirs() }
-                        val file = File(dir, "layer_${layer.id}.png")
-                        val tmp = File(dir, "layer_${layer.id}.png.tmp")
-                        java.io.FileOutputStream(tmp).use { out ->
-                            bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
-                            out.flush()
-                            try { out.fd.sync() } catch (_: Exception) {}
-                        }
-                        if (atomicReplace(tmp, file)) {
+                        val file = fileStore.layerFile(projId, layer.id)
+                        if (fileStore.writeBitmapAtomic(file, bmp)) {
                             changed = true
                             layer.copy(imagePath = file.absolutePath)
                         } else layer
@@ -995,7 +982,7 @@ data class HistoryManifest(
         }
 
         try {
-            val dir = File(context.filesDir, "projects/$projId/layers")
+            val dir = fileStore.layersDir(projId)
             dir.listFiles()?.forEach { f ->
                 val n = f.name
                 if (n.endsWith(".tmp")) {
@@ -1034,7 +1021,7 @@ data class HistoryManifest(
 
     /** File layer berdasarkan id, tanpa lewat layers.value saat ini. */
     private fun resolveSnapshotImagePath(projId: String, layerId: String): String? {
-        val f = File(context.filesDir, "projects/$projId/layers/layer_$layerId.png")
+        val f = fileStore.layerFile(projId, layerId)
         return if (f.exists() && f.length() > 0) f.absolutePath else null
     }
 
@@ -1073,7 +1060,7 @@ data class HistoryManifest(
 
     private fun syncHistoryToDiskInternal(projId: String) {
         try {
-            val historyDir = File(context.filesDir, "projects/$projId/history").apply { mkdirs() }
+            val historyDir = fileStore.historyDir(projId)
             val referencedFiles = mutableSetOf<String>()
 
             val undoSnapshotList = synchronized(undoStack) { undoStack.toList() }
@@ -1156,7 +1143,7 @@ data class HistoryManifest(
 
     private fun loadHistoryFromDiskInternal(projId: String) {
         try {
-            val historyDir = File(context.filesDir, "projects/$projId/history")
+            val historyDir = fileStore.historyDir(projId)
             val manifestFile = File(historyDir, "manifest.json")
             if (!manifestFile.exists()) return
 
@@ -1219,7 +1206,7 @@ data class HistoryManifest(
                 val currentProj = project.value ?: repository.getProject(projectId)
                 if (currentProj != null) {
                     val baseFile =
-                        File(context.filesDir, "projects/${currentProj.id}/base_image.png").takeIf { it.exists() }
+                        fileStore.baseImage(currentProj.id).takeIf { it.exists() }
 
                     if (baseFile != null) {
                         val options = android.graphics.BitmapFactory.Options().apply {
@@ -2159,8 +2146,7 @@ data class HistoryManifest(
             val srcFile = File(srcPath)
             if (!srcFile.isFile || srcFile.length() <= 0) return null
             val projId = project.value?.id ?: return null
-            val dir = File(context.filesDir, "projects/$projId/layers").apply { mkdirs() }
-            val dst = File(dir, "layer_$newId.png")
+            val dst = fileStore.layerFile(projId, newId)
             srcFile.copyTo(dst, overwrite = true)
             dst.absolutePath
         } catch (t: Throwable) {

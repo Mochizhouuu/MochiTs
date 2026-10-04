@@ -839,9 +839,10 @@ class TextRenderer(private val context: Context) {
             }
         }
 
+        val store = com.mochits.app.project.ProjectFileStore(context)
         val fontDirs = listOf(
-            File(context.filesDir, "fonts"),
-            File(context.filesDir, "custom_fonts")
+            store.fontsDir(),
+            store.customFontsDir()
         )
 
         for (dir in fontDirs) {

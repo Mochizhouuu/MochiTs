@@ -23,6 +23,7 @@ class ProjectRepository @Inject constructor(
     private val projectDao: ProjectDao
 ) {
     private val gson = Gson()
+    private val fileStore = ProjectFileStore(context)
 
     fun getAllProjects(): Flow<List<ProjectEntity>> = projectDao.getAllProjects()
 
@@ -46,8 +47,8 @@ class ProjectRepository @Inject constructor(
         val now = System.currentTimeMillis()
         var thumbnailPath: String? = null
 
-        val projectDir = File(context.filesDir, "projects/$id").apply { mkdirs() }
-        val imageFile = File(projectDir, "base_image.png")
+        val projectDir = fileStore.projectDir(id)
+        val imageFile = fileStore.baseImage(id)
 
         var finalWidth = width.coerceIn(1, 32768)
         var finalHeight = height.coerceIn(1, 32768)
@@ -178,7 +179,7 @@ class ProjectRepository @Inject constructor(
     suspend fun deleteProject(id: String) {
         withContext(Dispatchers.IO) {
             try {
-                val projectDir = File(context.filesDir, "projects/$id")
+                val projectDir = fileStore.projectDir(id)
                 if (projectDir.exists()) {
                     projectDir.deleteRecursively()
                 }

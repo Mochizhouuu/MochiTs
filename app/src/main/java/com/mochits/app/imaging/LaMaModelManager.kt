@@ -56,6 +56,7 @@ class LaMaModelManager @Inject constructor(
 ) {
 
     private val appContext = context.applicationContext
+    private val fileStore = com.mochits.app.project.ProjectFileStore(appContext)
     private val modelFileName = "lama_manga.onnx"
     private val minValidSizeBytes = 50_000_000L // Valid model is ~196MB
     private val prefs = appContext.getSharedPreferences("lama_model_fp", Context.MODE_PRIVATE)
@@ -79,8 +80,7 @@ class LaMaModelManager @Inject constructor(
     }
 
     fun getModelFile(): File {
-        val dir = File(appContext.filesDir, "models").apply { mkdirs() }
-        return File(dir, modelFileName)
+        return File(fileStore.modelsDir(), modelFileName)
     }
 
     private fun getTempFile(): File {
