@@ -468,11 +468,12 @@ Java_com_mochits_core_imaging_NativeBridge_nativeInpaintTelea(
     return JNI_TRUE;
 #else
     // Fallback if compiled without OpenCV (e.g. initial test phase before OpenCV CMake linking)
+    // Laporkan GAGAL (bukan sukses-semu): penyalin buta membuat UI mengira inpaint berhasil.
     std::memcpy(dstPixels, srcPixels, srcInfo.height * srcInfo.stride);
     AndroidBitmap_unlockPixels(env, dstBitmap);
     AndroidBitmap_unlockPixels(env, maskBitmap);
     AndroidBitmap_unlockPixels(env, srcBitmap);
-    return JNI_TRUE;
+    return JNI_FALSE;
 #endif
 }
 

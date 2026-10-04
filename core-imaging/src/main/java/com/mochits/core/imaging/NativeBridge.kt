@@ -3,11 +3,18 @@ package com.mochits.core.imaging
 import android.graphics.Bitmap
 
 object NativeBridge {
+    /** Sekali gagal dimuat, jangan pernah panggil native lagi (B4). */
+    @Volatile
+    var isNativeAvailable: Boolean = false
+        private set
+
     init {
-        try {
+        isNativeAvailable = try {
             System.loadLibrary("imaging_native")
+            true
         } catch (e: UnsatisfiedLinkError) {
-            e.printStackTrace()
+            android.util.Log.e("NativeBridge", "imaging_native gagal dimuat, pakai fallback JVM", e)
+            false
         }
     }
 
@@ -202,6 +209,146 @@ object NativeBridge {
         } catch (e: UnsatisfiedLinkError) {
             fallbackHasMask(bitmap)
         }
+    }
+
+    // ---------- Draw/invert Safe + fallback JVM (B4) ----------
+
+    private fun paintCircleInto(px: IntArray, w: Int, h: Int, cx: Float, cy: Float, radius: Float, color: Int) {
+        if (radius <= 0f) return
+        val r2 = radius * radius
+        val y0 = maxOf(0, (cy - radius).toInt())
+        val y1 = minOf(h - 1, (cy + radius).toInt())
+        val x0 = maxOf(0, (cx - radius).toInt())
+        val x1 = minOf(w - 1, (cx + radius).toInt())
+        for (y in y0..y1) {
+            val dy = y - cy
+            var idx = y * w + x0
+            for (x in x0..x1) {
+                val dx = x - cx
+                if (dx * dx + dy * dy <= r2) px[idx] = color
+                idx++
+            }
+        }
+    }
+
+    private fun fallbackDrawCircle(bitmap: Bitmap, cx: Float, cy: Float, radius: Float, draw: Boolean) {
+        val w = bitmap.width
+        val h = bitmap.height
+        if (w <= 0 || h <= 0) return
+        val px = IntArray(w * h)
+        bitmap.getPixels(px, 0, w, 0, 0, w, h)
+        paintCircleInto(px, w, h, cx, cy, radius, if (draw) 0xFFFFFFFF.toInt() else 0)
+        bitmap.setPixels(px, 0, w, 0, 0, w, h)
+    }
+
+    private fun fallbackDrawLine(
+        bitmap: Bitmap, x0: Float, y0: Float, x1: Float, y1: Float, radius: Float, draw: Boolean
+    ) {
+        val w = bitmap.width
+        val h = bitmap.height
+        if (w <= 0 || h <= 0) return
+        val px = IntArray(w * h)
+        bitmap.getPixels(px, 0, w, 0, 0, w, h)
+        val color = if (draw) 0xFFFFFFFF.toInt() else 0
+        val dx = x1 - x0
+        val dy = y1 - y0
+        val dist = kotlin.math.sqrt(dx * dx + dy * dy)
+        val steps = maxOf(1, (dist / maxOf(radius / 2f, 1f)).toInt())
+        for (i in 0..steps) {
+            val t = i.toFloat() / steps
+            paintCircleInto(px, w, h, x0 + dx * t, y0 + dy * t, radius, color)
+        }
+        bitmap.setPixels(px, 0, w, 0, 0, w, h)
+    }
+
+    private fun fallbackDrawPolygon(bitmap: Bitmap, pointsX: FloatArray, pointsY: FloatArray, draw: Boolean) {
+        val n = pointsX.size
+        if (n < 3 || pointsY.size != n) return
+        val w = bitmap.width
+        val h = bitmap.height
+        if (w <= 0 || h <= 0) return
+        val px = IntArray(w * h)
+        bitmap.getPixels(px, 0, w, 0, 0, w, h)
+        val color = if (draw) 0xFFFFFFFF.toInt() else 0
+        for (y in 0 until h) {
+            val fy = y.toFloat()
+            // Kumpulkan perpotongan scanline dengan sisi poligon (even-odd).
+            var count = 0
+            val xs = FloatArray(n)
+            for (i in 0 until n) {
+                val j = (i + 1) % n
+                val y1 = pointsY[i]
+                val y2 = pointsY[j]
+                if ((y1 <= fy && fy < y2) || (y2 <= fy && fy < y1)) {
+                    val x1 = pointsX[i]
+                    val x2 = pointsX[j]
+                    xs[count++] = x1 + (fy - y1) / (y2 - y1) * (x2 - x1)
+                }
+            }
+            xs.sort(0, count)
+            var k = 0
+            while (k + 1 < count) {
+                val xa = maxOf(0, xs[k].toInt())
+                val xb = minOf(w - 1, xs[k + 1].toInt())
+                for (x in xa..xb) px[y * w + x] = color
+                k += 2
+            }
+        }
+        bitmap.setPixels(px, 0, w, 0, 0, w, h)
+    }
+
+    private fun fallbackInvertMask(bitmap: Bitmap) {
+        val w = bitmap.width
+        val h = bitmap.height
+        if (w <= 0 || h <= 0) return
+        val px = IntArray(w * h)
+        bitmap.getPixels(px, 0, w, 0, 0, w, h)
+        for (i in px.indices) {
+            val a = 255 - ((px[i] ushr 24) and 0xFF)
+            px[i] = (a shl 24) or (px[i] and 0x00FFFFFF)
+        }
+        bitmap.setPixels(px, 0, w, 0, 0, w, h)
+    }
+
+    private inline fun <T> runNativeOrFallback(crossinline native: () -> T, crossinline fallback: () -> T): T {
+        if (isNativeAvailable) {
+            try {
+                return native()
+            } catch (e: UnsatisfiedLinkError) {
+                isNativeAvailable = false
+            }
+        }
+        return fallback()
+    }
+
+    fun drawCircleSafe(bitmap: Bitmap, cx: Float, cy: Float, radius: Float, draw: Boolean) {
+        runNativeOrFallback(
+            { nativeDrawCircle(bitmap, cx, cy, radius, draw) },
+            { fallbackDrawCircle(bitmap, cx, cy, radius, draw) }
+        )
+    }
+
+    fun drawLineSafe(
+        bitmap: Bitmap, x0: Float, y0: Float, x1: Float, y1: Float, radius: Float, draw: Boolean
+    ) {
+        runNativeOrFallback(
+            { nativeDrawLine(bitmap, x0, y0, x1, y1, radius, draw) },
+            { fallbackDrawLine(bitmap, x0, y0, x1, y1, radius, draw) }
+        )
+    }
+
+    fun drawPolygonSafe(bitmap: Bitmap, pointsX: FloatArray, pointsY: FloatArray, draw: Boolean) {
+        runNativeOrFallback(
+            { nativeDrawPolygon(bitmap, pointsX, pointsY, draw) },
+            { fallbackDrawPolygon(bitmap, pointsX, pointsY, draw) }
+        )
+    }
+
+    fun invertMaskSafe(bitmap: Bitmap) {
+        runNativeOrFallback(
+            { nativeInvertMask(bitmap) },
+            { fallbackInvertMask(bitmap) }
+        )
     }
 
     // Native OpenCV Inpaint

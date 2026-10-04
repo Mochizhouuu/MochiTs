@@ -85,8 +85,8 @@ class MaskSelectionTools(
 
         when (mode) {
             MaskToolMode.BRUSH, MaskToolMode.ERASER -> {
-                NativeBridge.nativeDrawCircle(rawMaskBitmap, point.x, point.y, radius, draw)
-                NativeBridge.nativeDrawCircle(maskBitmap, point.x, point.y, radius, draw)
+                NativeBridge.drawCircleSafe(rawMaskBitmap, point.x, point.y, radius, draw)
+                NativeBridge.drawCircleSafe(maskBitmap, point.x, point.y, radius, draw)
                 lastPoint = point
             }
             MaskToolMode.LASSO -> {
@@ -110,8 +110,8 @@ class MaskSelectionTools(
         when (mode) {
             MaskToolMode.BRUSH, MaskToolMode.ERASER -> {
                 lastPoint?.let { prev ->
-                    NativeBridge.nativeDrawLine(rawMaskBitmap, prev.x, prev.y, point.x, point.y, radius, draw)
-                    NativeBridge.nativeDrawLine(maskBitmap, prev.x, prev.y, point.x, point.y, radius, draw)
+                    NativeBridge.drawLineSafe(rawMaskBitmap, prev.x, prev.y, point.x, point.y, radius, draw)
+                    NativeBridge.drawLineSafe(maskBitmap, prev.x, prev.y, point.x, point.y, radius, draw)
                 }
                 lastPoint = point
             }
@@ -132,7 +132,7 @@ class MaskSelectionTools(
                 lassoPathY.add(point.y)
                 currentLassoPoints.add(point)
                 if (lassoPathX.size >= 3) {
-                    NativeBridge.nativeDrawPolygon(rawMaskBitmap, lassoPathX.toFloatArray(), lassoPathY.toFloatArray(), true)
+                    NativeBridge.drawPolygonSafe(rawMaskBitmap, lassoPathX.toFloatArray(), lassoPathY.toFloatArray(), true)
                     applyExpandInternal()
                 }
                 lassoPathX.clear()
@@ -250,18 +250,8 @@ class MaskSelectionTools(
 
     fun invertMask() {
         invalidateCache()
-        try {
-            NativeBridge.nativeInvertMask(rawMaskBitmap)
-            applyExpandInternal()
-        } catch (e: UnsatisfiedLinkError) {
-            for (y in 0 until rawMaskBitmap.height) {
-                for (x in 0 until rawMaskBitmap.width) {
-                    val current = rawMaskBitmap.getPixel(x, y) and 0xFF
-                    rawMaskBitmap.setPixel(x, y, (255 - current) shl 24)
-                }
-            }
-            applyExpandInternal()
-        }
+        NativeBridge.invertMaskSafe(rawMaskBitmap)
+        applyExpandInternal()
     }
 
     fun hasMask(): Boolean {

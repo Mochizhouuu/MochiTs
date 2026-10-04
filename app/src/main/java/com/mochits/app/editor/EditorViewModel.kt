@@ -34,6 +34,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
@@ -123,18 +125,22 @@ class EditorViewModel @Inject constructor(
     private var cachedFlattenedBitmap: Bitmap? = null
     private var isFlattenedDirty = true
     private var eyedropperTargetConsumer: ((Int) -> Unit)? = null
+    /** Job render komposit eyedropper; dibatalkan saat cancel/ganti mode. */
+    private var eyedropperJob: Job? = null
+    /** Serialkan flatten agar tap wand cepat tidak recycle-balapan. */
+    private val flattenMutex = Mutex()
 
     fun invalidateFlattenedCache() {
         isFlattenedDirty = true
     }
 
-    suspend fun flattenForSelection(): Bitmap? {
-        val base = baseBitmap.value ?: return null
+    suspend fun flattenForSelection(): Bitmap? = flattenMutex.withLock {
+        val base = baseBitmap.value ?: return@withLock null
         val cached = cachedFlattenedBitmap
         if (!isFlattenedDirty && cached != null && !cached.isRecycled &&
             cached.width == base.width && cached.height == base.height
         ) {
-            return cached
+            return@withLock cached
         }
         cachedFlattenedBitmap?.let { if (!it.isRecycled) it.recycle() }
         prepareImageEffects(layers.value)
@@ -152,10 +158,14 @@ class EditorViewModel @Inject constructor(
         )
         cachedFlattenedBitmap = flattened
         isFlattenedDirty = false
-        return flattened
+        return@withLock flattened
     }
 
     fun startEyedropper(onColorSelected: (Int) -> Unit) {
+        // Batalkan render lama dulu (B20): tanpa ini job Default yang telat
+        // selesai menimpa compositeBitmap sesudah cancel (leak + race).
+        eyedropperJob?.cancel()
+        eyedropperJob = null
         val base = baseBitmap.value ?: return
         compositeBitmap?.let { if (!it.isRecycled) it.recycle() }
         compositeBitmap = null
@@ -167,7 +177,7 @@ class EditorViewModel @Inject constructor(
         sampledColorPreview.value = initialColor
         isEyedropperActive.value = true
 
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+        eyedropperJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
             try {
                 prepareImageEffects(layers.value)
                 val comp = exporter.exportToBitmap(
@@ -182,9 +192,17 @@ class EditorViewModel @Inject constructor(
                     imageMeshGlowFor = { meshGlowData(it) },
                     fontLookup = exportFontLookup
                 )
-                compositeBitmap = comp
-                val compColor = ColorUtils.samplePixelColor(comp, initialPt.x, initialPt.y) ?: initialColor
-                sampledColorPreview.value = compColor
+                // Dibatalkan saat render → buang, jangan assign (B20).
+                if (!isActive) {
+                    try { comp.recycle() } catch (_: Exception) {}
+                    return@launch
+                }
+                // Tulis field bersama dari Main saja (B20).
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                    compositeBitmap = comp
+                    val compColor = ColorUtils.samplePixelColor(comp, initialPt.x, initialPt.y) ?: initialColor
+                    sampledColorPreview.value = compColor
+                }
             } catch (t: Throwable) {
                 Logger.e("Error: ${t.message}", t)
             }
@@ -214,6 +232,8 @@ class EditorViewModel @Inject constructor(
     }
 
     fun cancelEyedropper() {
+        eyedropperJob?.cancel()
+        eyedropperJob = null
         isEyedropperActive.value = false
         eyedropperCanvasPt.value = null
         sampledColorPreview.value = null
@@ -578,6 +598,9 @@ data class HistoryManifest(
         autoSave()
     }
 
+    /** Generasi load bitmap histori; load basi dari undo cepat tidak dipakai. */
+    private var bitmapLoadGen = 0L
+
     private fun restoreSnapshot(snapshot: HistorySnapshot) {
         layers.value = snapshot.layers
         // Jaga seleksi agar tidak dangling setelah undo/redo.
@@ -586,9 +609,22 @@ data class HistoryManifest(
             selectedLayerId.value = snapshot.layers.lastOrNull()?.id
         }
         invalidateFlattenedCache()
-        val loadedBmp = snapshot.getOrLoadBitmap()
-        if (loadedBmp != null) {
-            baseBitmap.value = loadedBmp
+        // Decode bitmap histori di IO (B2): undo tetap instan, gambar
+        // menyusul. Generasi mencegah load basi menimpa yang baru.
+        val immediate = snapshot.baseBitmap?.takeIf { !it.isRecycled }
+        if (immediate != null) {
+            bitmapLoadGen++
+            baseBitmap.value = immediate
+        } else if (snapshot.bitmapFilePath != null) {
+            val gen = ++bitmapLoadGen
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val bmp = snapshot.getOrLoadBitmap() ?: return@launch
+                if (gen == bitmapLoadGen) {
+                    baseBitmap.value = bmp
+                } else if (bmp !== snapshot.baseBitmap) {
+                    try { bmp.recycle() } catch (_: Exception) {}
+                }
+            }
         }
         snapshot.maskBytes?.let { bytes ->
             restoreMaskByteArray(bytes)
@@ -664,8 +700,11 @@ data class HistoryManifest(
                         lastSavedBaseProj = proj.id
                         setupCanvasSize(loadedBmp.width, loadedBmp.height)
 
-                        val deserialized = serializer.deserialize(proj.layersJson)
-                        applyLoadedLayers(deserialized, proj.id)
+                        // Deserialize + histori di IO (B2): puluhan PNG full-res.
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            val deserialized = serializer.deserialize(proj.layersJson)
+                            applyLoadedLayers(deserialized, proj.id)
+                        }
 
                         loadHistoryFromDisk(proj.id)
                     } else {
@@ -678,8 +717,10 @@ data class HistoryManifest(
                         val h = proj.height.coerceIn(1, 32768)
                         setupCanvasSize(w, h)
 
-                        val deserialized = serializer.deserialize(proj.layersJson)
-                        applyLoadedLayers(deserialized, proj.id)
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            val deserialized = serializer.deserialize(proj.layersJson)
+                            applyLoadedLayers(deserialized, proj.id)
+                        }
                     }
                 } else {
                     setupCanvasSize(1080, 1920)
@@ -1082,7 +1123,12 @@ data class HistoryManifest(
         }
     }
 
-    private fun loadHistoryFromDisk(projId: String) {
+    private suspend fun loadHistoryFromDisk(projId: String) =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        loadHistoryFromDiskInternal(projId)
+    }
+
+    private fun loadHistoryFromDiskInternal(projId: String) {
         try {
             val historyDir = File(context.filesDir, "projects/$projId/history")
             val manifestFile = File(historyDir, "manifest.json")

@@ -138,7 +138,20 @@ class LayerSerializer {
                     val file = File(path)
                     if (file.exists()) {
                         try {
-                            val opts = android.graphics.BitmapFactory.Options().apply { inMutable = true }
+                            // Batasi decode (B2): layer raksasa di-sample seperti base.
+                            val bounds = android.graphics.BitmapFactory.Options().apply {
+                                inJustDecodeBounds = true
+                            }
+                            android.graphics.BitmapFactory.decodeFile(file.absolutePath, bounds)
+                            val sample = maxOf(
+                                bounds.outWidth / 8192,
+                                bounds.outHeight / 8192,
+                                1
+                            )
+                            val opts = android.graphics.BitmapFactory.Options().apply {
+                                inMutable = true
+                                inSampleSize = sample
+                            }
                             android.graphics.BitmapFactory.decodeFile(file.absolutePath, opts)
                         } catch (t: Throwable) {
                             null

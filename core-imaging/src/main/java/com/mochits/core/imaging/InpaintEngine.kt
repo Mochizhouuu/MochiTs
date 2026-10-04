@@ -12,11 +12,27 @@ sealed class Result<out T> {
 
 class InpaintEngine {
 
+    /** OpenCV benar-benar tersedia (bukan fallback no-op). */
+    private val openCvAvailable: Boolean by lazy {
+        NativeBridge.isNativeAvailable && try {
+            NativeBridge.nativeGetOpenCVVersion() != "OpenCV Not Loaded"
+        } catch (e: UnsatisfiedLinkError) {
+            false
+        }
+    }
+
     suspend fun inpaintTelea(
         sourceBitmap: Bitmap,
         maskBitmap: Bitmap,
         radius: Float = 5f
     ): Result<Bitmap> = withContext(Dispatchers.Default) {
+        if (!openCvAvailable) {
+            return@withContext Result.Error(
+                IllegalStateException(
+                    "Mesin inpaint Telea (OpenCV) tidak tersedia di build ini. Gunakan model LaMa."
+                )
+            )
+        }
         try {
             val width = sourceBitmap.width
             val height = sourceBitmap.height
@@ -46,7 +62,10 @@ class InpaintEngine {
                 resultBitmap.recycle()
                 Result.Error(RuntimeException("Native inpaint Telea failed"))
             }
-        } catch (e: Exception) {
+        } catch (oom: OutOfMemoryError) {
+            System.gc()
+            Result.Error(Exception("Memori tidak cukup untuk menginpaint gambar sebesar ini.", oom))
+        } catch (e: Throwable) {
             Result.Error(e)
         }
     }
