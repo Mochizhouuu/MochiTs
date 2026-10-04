@@ -153,7 +153,7 @@ dependencies {
 
 // Cara resmi docs Room (bukan arg string mentah): provider ini memberi tahu
 // Gradle bahwa direktori skema adalah input+output (incremental/cache aman).
-abstract class RoomSchemaArgProvider(
+class RoomSchemaArgProvider(
     @get:InputDirectory
     @get:PathSensitive(PathSensitivity.RELATIVE)
     val schemaDir: java.io.File
