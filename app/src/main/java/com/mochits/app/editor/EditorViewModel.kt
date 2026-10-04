@@ -27,6 +27,7 @@ import com.mochits.app.ui.color.ColorUtils
 import androidx.compose.ui.geometry.Offset
 import com.mochits.app.model.TextStyleConfig
 import com.mochits.app.model.TextStylePreset
+import com.mochits.app.model.UiMessage
 import com.mochits.app.project.ProjectEntity
 import com.mochits.app.project.ProjectRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -110,7 +111,7 @@ class EditorViewModel @Inject constructor(
     val selectedInpaintModel = MutableStateFlow(InpaintModel.TELEA)
     val isDownloadingLaMaModel = MutableStateFlow(false)
     val lamaDownloadProgress = MutableStateFlow(0f)
-    val userMessage = MutableStateFlow<String?>(null)
+    val userMessage = MutableStateFlow<UiMessage?>(null)
     val lamaInpaintEngine = com.mochits.app.imaging.LaMaInpaintEngine(lamaModelManager)
 
     val maskToolMode = MutableStateFlow(MaskToolMode.BRUSH)
@@ -802,7 +803,7 @@ data class HistoryManifest(
         )
         project.value = updatedProj
         if (!repository.saveProject(updatedProj)) {
-            userMessage.value = "Perubahan gagal disimpan ke database."
+            userMessage.value = UiMessage("Perubahan gagal disimpan ke database.", UiMessage.Kind.ERROR)
         }
         syncHistoryToDiskInternal(currentProj.id)
     }
@@ -1307,13 +1308,13 @@ data class HistoryManifest(
                         )
                         project.value = updated
                         if (!repository.saveProject(updated)) {
-                            userMessage.value = "Gagal menyimpan proyek ke database."
+                            userMessage.value = UiMessage("Gagal menyimpan proyek ke database.", UiMessage.Kind.ERROR)
                         }
                     }
                 }
             } catch (e: Exception) {
                 Logger.e("Error setting base image: ${e.message}", e)
-                userMessage.value = "Gagal memuat gambar: ${e.message}"
+                userMessage.value = UiMessage("Gagal memuat gambar: ${e.message}", UiMessage.Kind.ERROR)
             } finally {
                 isLoadingImage.value = false
             }
@@ -1357,7 +1358,7 @@ data class HistoryManifest(
         project.value = updated
         viewModelScope.launch {
             if (!repository.saveProject(updated)) {
-                userMessage.value = "Gagal menyimpan judul proyek."
+                userMessage.value = UiMessage("Gagal menyimpan judul proyek.", UiMessage.Kind.ERROR)
             }
         }
     }
@@ -1398,9 +1399,13 @@ data class HistoryManifest(
             }
             isDownloadingLaMaModel.value = false
             if (success) {
-                userMessage.value = "Model LaMa berhasil diunduh."
+                userMessage.value = UiMessage("Model LaMa berhasil diunduh.", UiMessage.Kind.SUCCESS)
             } else {
-                userMessage.value = "Gagal mengunduh model LaMa. Periksa koneksi internet Anda."
+                userMessage.value = UiMessage(
+                    "Gagal mengunduh model LaMa. Periksa koneksi internet Anda.",
+                    UiMessage.Kind.ERROR,
+                    lamaModelManager.lastDownloadError.value?.toFormattedString()
+                )
             }
             onComplete(success)
         }
@@ -1417,9 +1422,9 @@ data class HistoryManifest(
                 val status = lamaModelManager.checkModelStatus()
                 if (status != com.mochits.app.imaging.LaMaModelStatus.DOWNLOADED) {
                     if (status == com.mochits.app.imaging.LaMaModelStatus.CORRUPTED_ERROR) {
-                        userMessage.value = "File model LaMa rusak. Mengunduh ulang..."
+                        userMessage.value = UiMessage("File model LaMa rusak. Mengunduh ulang...", UiMessage.Kind.WARNING)
                     } else {
-                        userMessage.value = "Mengunduh model LaMa..."
+                        userMessage.value = UiMessage("Mengunduh model LaMa...", UiMessage.Kind.INFO)
                     }
                     isDownloadingLaMaModel.value = true
                     val downloaded = lamaModelManager.downloadModel { progress ->
@@ -1427,7 +1432,11 @@ data class HistoryManifest(
                     }
                     isDownloadingLaMaModel.value = false
                     if (!downloaded) {
-                        userMessage.value = "Gagal mengunduh model LaMa. Periksa koneksi internet atau unduh via Pengaturan."
+                        userMessage.value = UiMessage(
+                        "Gagal mengunduh model LaMa. Periksa koneksi internet atau unduh via Pengaturan.",
+                        UiMessage.Kind.ERROR,
+                        lamaModelManager.lastDownloadError.value?.toFormattedString()
+                    )
                         isProcessingInpaint.value = false
                         return@launch
                     }
@@ -1447,9 +1456,9 @@ data class HistoryManifest(
                         is Result.Error -> {
                             val msg = lamaResult.exception.message ?: "Memori rendah"
                             userMessage.value = if (msg.contains("memori rendah", ignoreCase = true) || lamaResult.exception is OutOfMemoryError) {
-                                "Inpainting gagal karena memori rendah. Coba pilih area yang lebih kecil. Mengalihkan ke Telea..."
+                                UiMessage("Inpainting gagal karena memori rendah. Coba pilih area yang lebih kecil. Mengalihkan ke Telea...", UiMessage.Kind.WARNING)
                             } else {
-                                "Inference LaMa gagal: $msg. Mengalihkan ke Telea..."
+                                UiMessage("Inference LaMa gagal: $msg. Mengalihkan ke Telea...", UiMessage.Kind.WARNING)
                             }
                             runTeleaFallback(currentBase, tools)
                         }
@@ -1457,10 +1466,10 @@ data class HistoryManifest(
                     }
                 } catch (oom: OutOfMemoryError) {
                     System.gc()
-                    userMessage.value = "Inpainting gagal karena memori rendah. Coba pilih area yang lebih kecil. Mengalihkan ke Telea..."
+                    userMessage.value = UiMessage("Inpainting gagal karena memori rendah. Coba pilih area yang lebih kecil. Mengalihkan ke Telea...", UiMessage.Kind.WARNING)
                     runTeleaFallback(currentBase, tools)
                 } catch (t: Throwable) {
-                    userMessage.value = "Inference LaMa gagal: ${t.message}. Mengalihkan ke Telea..."
+                    userMessage.value = UiMessage("Inference LaMa gagal: ${t.message}. Mengalihkan ke Telea...", UiMessage.Kind.WARNING)
                     runTeleaFallback(currentBase, tools)
                 }
             } else {
@@ -1481,7 +1490,7 @@ data class HistoryManifest(
                 autoSave()
             }
             is Result.Error -> {
-                userMessage.value = "Gagal memproses inpaint Telea: ${result.exception.message}"
+                userMessage.value = UiMessage("Gagal memproses inpaint Telea: ${result.exception.message}", UiMessage.Kind.ERROR)
             }
             else -> {}
         }

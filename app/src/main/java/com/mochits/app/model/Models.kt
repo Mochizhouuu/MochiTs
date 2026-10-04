@@ -31,6 +31,18 @@ enum class EditorPanel {
     SETTINGS
 }
 
+/**
+ * Pesan UI terstruktur (B18): sukses/warning/error tidak lagi satu string
+ * campur; [detail] opsional (mis. diagnosis unduhan) dibuka via aksi.
+ */
+data class UiMessage(
+    val text: String,
+    val kind: Kind = Kind.INFO,
+    val detail: String? = null
+) {
+    enum class Kind { SUCCESS, INFO, WARNING, ERROR }
+}
+
 data class ColorStop(
     val color: Int = Color.BLACK,
     val position: Float = 0f

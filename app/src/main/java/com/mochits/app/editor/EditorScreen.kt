@@ -373,15 +373,22 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
         }
     }
 
+    val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(userMessage) {
         userMessage?.let { msg ->
-            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+            val result = snackbarHostState.showSnackbar(
+                message = msg.text,
+                actionLabel = if (msg.detail != null) "Detail" else null,
+                duration = SnackbarDuration.Short
+            )
+            if (result == SnackbarResult.ActionPerformed && msg.detail != null) {
+                snackbarHostState.showSnackbar(msg.detail, duration = SnackbarDuration.Long)
+            }
             viewModel.clearUserMessage()
         }
     }
 
-    val textRenderer = remember(allFonts) {
-        TextRenderer(context).apply {
+    val textRenderer = remember(allFonts) {        TextRenderer(context).apply {
             customFontPathResolver = { name ->
                 allFonts.find { it.name == name }?.filePath
                     ?: allFonts.find { it.name.equals(name, ignoreCase = true) }?.filePath
@@ -533,6 +540,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { },
