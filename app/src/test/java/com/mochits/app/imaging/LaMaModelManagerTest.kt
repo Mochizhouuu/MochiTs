@@ -57,8 +57,9 @@ class LaMaModelManagerTest {
         val file = managerSettings.getModelFile()
         file.parentFile?.mkdirs()
 
+        // Ukuran resmi (sparse, cepat): DOWNLOADED tanpa perlu SHA di status.
         val randomAccessFile = java.io.RandomAccessFile(file, "rw")
-        randomAccessFile.setLength(55_000_000L)
+        randomAccessFile.setLength(207_482_644L)
         randomAccessFile.close()
 
         val status = managerSettings.checkModelStatus()
@@ -67,6 +68,33 @@ class LaMaModelManagerTest {
         assertTrue(managerSettings.isModelDownloaded())
 
         file.delete()
+    }
+
+    @Test
+    fun testTruncatedFile_rejectedAsCorrupted() {
+        val file = managerSettings.getModelFile()
+        file.parentFile?.mkdirs()
+
+        // 55MB lolos lantai lama, tapi bukan ukuran resmi -> CORRUPT.
+        val randomAccessFile = java.io.RandomAccessFile(file, "rw")
+        randomAccessFile.setLength(55_000_000L)
+        randomAccessFile.close()
+
+        assertEquals(LaMaModelStatus.CORRUPTED_ERROR, managerSettings.checkModelStatus())
+        assertFalse(managerSettings.isModelDownloaded())
+
+        file.delete()
+    }
+
+    @Test
+    fun testSha256Hex_knownVector() {
+        val f = File.createTempFile("sha", ".bin")
+        f.writeBytes("abc".toByteArray())
+        assertEquals(
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            managerSettings.sha256Hex(f)
+        )
+        f.delete()
     }
 
     @Test

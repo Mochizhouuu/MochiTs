@@ -58,7 +58,11 @@ class LaMaModelManager @Inject constructor(
     private val appContext = context.applicationContext
     private val fileStore = com.mochits.app.project.ProjectFileStore(appContext)
     private val modelFileName = "lama_manga.onnx"
-    private val minValidSizeBytes = 50_000_000L // Valid model is ~196MB
+    private val minValidSizeBytes = 50_000_000L // Lantai darurat bila konstanta resmi tak cocok
+    // Identitas resmi model (F1, dari API HuggingFace mayocream/lama-manga-onnx):
+    // ukuran + SHA-256 konten. Ganti keduanya bila URL model diganti.
+    private val expectedSizeBytes = 207_482_644L
+    private val expectedSha256 = "4512adab295ee5a5e02ccd1bdf8d45dccbac88309d9cff1532ffd5de876f02a4"
     private val prefs = appContext.getSharedPreferences("lama_model_fp", Context.MODE_PRIVATE)
 
     // HuggingFace primary and fallback URLs for LaMa Manga ONNX model (~196MB)
@@ -94,8 +98,7 @@ class LaMaModelManager @Inject constructor(
         val targetFile = getModelFile()
 
         val status = when {
-            isKnownGood(targetFile) -> LaMaModelStatus.DOWNLOADED
-            targetFile.exists() && targetFile.length() > minValidSizeBytes -> LaMaModelStatus.DOWNLOADED
+            isModelValid(targetFile) -> LaMaModelStatus.DOWNLOADED
             targetFile.exists() -> LaMaModelStatus.CORRUPTED_ERROR
             else -> LaMaModelStatus.NOT_DOWNLOADED
         }
@@ -105,6 +108,35 @@ class LaMaModelManager @Inject constructor(
         return status
     }
 
+    /**
+     * Valid: ukuran PAS persis resmi, atau fingerprint kalibrasi-sendiri
+     * (kompatibel ke belakang bila URL berganti sebelum konstanta ikut).
+     */
+    fun isModelValid(file: File): Boolean {
+        if (!file.exists()) return false
+        if (file.length() == expectedSizeBytes) return true
+        val known = prefs.getLong("known_good_size", 0L)
+        if (known > 0L && file.length() == known) return true
+        return file.length() > minValidSizeBytes && expectedSizeBytes <= 0L
+    }
+
+    /** SHA-256 hex streaming (hemat memori untuk file 200MB). */
+    fun sha256Hex(file: File): String? {
+        return try {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buf = ByteArray(1024 * 1024)
+                var n: Int
+                while (input.read(buf).also { n = it } != -1) {
+                    digest.update(buf, 0, n)
+                }
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     /** Hapus unduhan parsial secara eksplisit (aksi user / reset). */
     fun discardPartialDownload(): Boolean {
         val tmp = getTempFile()
@@ -112,18 +144,9 @@ class LaMaModelManager @Inject constructor(
     }
 
     /**
-     * Fingerprint kalibrasi-sendiri: ukuran file yang TERBUKTI bisa dibuka
-     * sesinya. Tanpa hash resmi, ini yang mencegah file terpotong 51-195MB
-     * lolos sebagai DOWNLOADED untuk selamanya (B11).
+     * Fingerprint kalibrasi-sendiri (pelengkap hash resmi): ukuran file yang
+     * TERBUKTI bisa dibuka sesinya.
      */
-    private fun knownGoodSize(): Long =
-        prefs.getLong("known_good_size", 0L)
-
-    private fun isKnownGood(file: File): Boolean {
-        val known = knownGoodSize()
-        return known > 0L && file.exists() && file.length() == known
-    }
-
     /** Dipanggil setelah satu inference LaMa sukses: file ini terbukti valid. */
     fun confirmModelUsable() {
         val f = getModelFile()
@@ -348,6 +371,32 @@ class LaMaModelManager @Inject constructor(
                     }
 
                     if (tempFile.exists() && tempFile.length() > minValidSizeBytes) {
+                        // F1: ukuran wajib pas resmi; SHA-256 wajib cocok sebelum
+                        // dipromosikan. Isi salah -> tmp dibuang (resume tak berguna).
+                        if (tempFile.length() != expectedSizeBytes) {
+                            Log.w(TAG, "Ukuran tmp tidak cocok resmi (${tempFile.length()}/$expectedSizeBytes)")
+                            _lastDownloadError.value = LaMaDownloadErrorInfo(
+                                stage = "Verifikasi Ukuran Resmi Model",
+                                exceptionMessage = "Ukuran file (${tempFile.length()} bytes) tidak cocok dengan resmi ($expectedSizeBytes bytes)",
+                                url = currentUrl
+                            )
+                            retryCount++
+                            if (retryCount < maxRetries) delay(1000L * retryCount)
+                            continue
+                        }
+                        val digest = sha256Hex(tempFile)
+                        if (digest == null || !digest.equals(expectedSha256, ignoreCase = true)) {
+                            Log.w(TAG, "SHA-256 tidak cocok, tmp dibuang: $digest")
+                            try { tempFile.delete() } catch (_: Exception) {}
+                            _lastDownloadError.value = LaMaDownloadErrorInfo(
+                                stage = "Verifikasi SHA-256 Model",
+                                exceptionMessage = "Checksum tidak cocok (dapat: ${digest ?: "?"}), file dibuang dan diunduh ulang",
+                                url = currentUrl
+                            )
+                            retryCount++
+                            if (retryCount < maxRetries) delay(1000L * retryCount)
+                            continue
+                        }
                         if (targetFile.exists()) targetFile.delete()
                         val renamed = tempFile.renameTo(targetFile)
                         if (renamed || (targetFile.exists() && targetFile.length() > minValidSizeBytes)) {
