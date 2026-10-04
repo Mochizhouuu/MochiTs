@@ -68,8 +68,24 @@ class ExportSettingsRepository @Inject constructor(
         }
     }
 
-    fun clearExportFolderUri() {
-        // Lepas grant lama agar slot persistable tidak menumpuk (B9).
+    /** Buka stream tulis/ baca URI SAF untuk bundel (F8). */
+    fun openExportOutput(uri: Uri): java.io.OutputStream? {
+        return try {
+            context.contentResolver.openOutputStream(uri)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun openExportInput(uri: Uri): java.io.InputStream? {
+        return try {
+            context.contentResolver.openInputStream(uri)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun clearExportFolderUri() {        // Lepas grant lama agar slot persistable tidak menumpuk (B9).
         getExportFolderUri()?.let { old ->
             try {
                 context.contentResolver.releasePersistableUriPermission(

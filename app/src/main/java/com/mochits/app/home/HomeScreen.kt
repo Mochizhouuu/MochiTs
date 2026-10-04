@@ -68,6 +68,54 @@ fun HomeScreen(
     var showOpenProjectDialog by remember { mutableStateOf(false) }
     var selectedDeleteProjectId by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var pendingBundleExportId by remember { mutableStateOf<String?>(null) }
+
+    fun toast(msg: String) {
+        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+    }
+
+    val bundleExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri: Uri? ->
+        val id = pendingBundleExportId
+        pendingBundleExportId = null
+        if (uri != null && id != null) {
+            coroutineScope.launch {
+                viewModel.isLoading.value = true
+                try {
+                    if (viewModel.exportBundleTo(uri, id)) {
+                        toast("Bundel tersimpan.")
+                    } else {
+                        toast("Gagal menyimpan bundel.")
+                    }
+                } finally {
+                    viewModel.isLoading.value = false
+                }
+            }
+        }
+    }
+
+    val bundleImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            coroutineScope.launch {
+                viewModel.isLoading.value = true
+                try {
+                    val newId = viewModel.importBundleFrom(uri)
+                    if (newId != null) {
+                        toast("Bundel diimpor.")
+                        onOpenEditor(newId)
+                    } else {
+                        toast("Gagal mengimpor bundel.")
+                    }
+                } finally {
+                    viewModel.isLoading.value = false
+                }
+            }
+        }
+    }
 
     val galleryPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -127,6 +175,14 @@ fun HomeScreen(
                     )
                 },
                 actions = {
+                    // Impor bundel .mts (F8).
+                    IconButton(onClick = { bundleImportLauncher.launch(arrayOf("*/*")) }) {
+                        Icon(
+                            imageVector = Icons.Default.Unarchive,
+                            contentDescription = "Impor bundel (.mts)",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                     IconButton(onClick = onOpenSettings) {
                         Icon(
                             imageVector = Icons.Default.Settings,
@@ -753,6 +809,17 @@ fun OpenProjectDialog(
                                         imageVector = Icons.Default.Delete,
                                         contentDescription = "Hapus",
                                         tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                                IconButton(onClick = {
+                                    pendingBundleExportId = project.id
+                                    bundleExportLauncher.launch(
+                                        com.mochits.app.project.ProjectBundle.fileNameFor(project.title)
+                                    )
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Share,
+                                        contentDescription = "Ekspor bundel (.mts)"
                                     )
                                 }
                             }

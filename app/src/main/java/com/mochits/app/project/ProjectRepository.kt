@@ -24,6 +24,7 @@ class ProjectRepository @Inject constructor(
 ) {
     private val gson = Gson()
     private val fileStore = ProjectFileStore(context)
+    private val layerSerializer = com.mochits.app.editor.LayerSerializer()
 
     fun getAllProjects(): Flow<List<ProjectEntity>> = projectDao.getAllProjects()
 
@@ -175,6 +176,30 @@ class ProjectRepository @Inject constructor(
             false
         }
     }
+
+    /** Tulis bundel .mts proyek ke stream (F8). */
+    suspend fun exportBundle(id: String, output: java.io.OutputStream): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                val entity = projectDao.getProjectById(id) ?: return@withContext false
+                ProjectBundle.exportTo(output, fileStore.projectDir(id), entity)
+            } catch (t: Throwable) {
+                com.mochits.app.util.Logger.e("Gagal ekspor bundel $id: ${t.message}", t)
+                false
+            }
+        }
+
+    /** Impor bundel .mts dari stream; @return entity baru atau null. */
+    suspend fun importBundle(input: java.io.InputStream): ProjectEntity? =
+        withContext(Dispatchers.IO) {
+            ProjectBundle.importFrom(
+                input,
+                context.filesDir,
+                readLayers = { json -> layerSerializer.deserialize(json) },
+                writeLayers = { layers -> layerSerializer.serialize(layers) },
+                insert = { entity -> projectDao.insertProject(entity) }
+            )
+        }
 
     suspend fun deleteProject(id: String) {
         withContext(Dispatchers.IO) {

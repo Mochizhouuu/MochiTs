@@ -124,4 +124,28 @@ class HomeViewModel @Inject constructor(
             }
         }
     }
+
+    /** Ekspor bundel .mts proyek ke URI SAF; @return true bila sukses. */
+    suspend fun exportBundleTo(uri: Uri, projectId: String): Boolean =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                exportSettingsRepository.openExportOutput(uri)?.use { out ->
+                    repository.exportBundle(projectId, out)
+                } ?: false
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+    /** Impor bundel .mts dari URI SAF; @return id proyek baru atau null. */
+    suspend fun importBundleFrom(uri: Uri): String? =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                exportSettingsRepository.openExportInput(uri)?.use { inp ->
+                    repository.importBundle(inp)?.id
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
 }
