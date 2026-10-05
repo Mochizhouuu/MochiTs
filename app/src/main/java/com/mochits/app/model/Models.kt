@@ -29,6 +29,7 @@ enum class EditorPanel {
     STYLE,
     LAYERS,
     HISTORY,
+    SCRIPT,
     SETTINGS
 }
 

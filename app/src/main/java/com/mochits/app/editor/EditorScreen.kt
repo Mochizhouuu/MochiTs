@@ -708,13 +708,6 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onUpdateStyle = { style, saveUndo -> viewModel.updateSelectedTextLayerStyle(style, saveUndo = saveUndo) },
                         onUpdateContainerShape = { shape -> viewModel.updateSelectedTextLayerContainerShape(shape) },
                         onCapitalizationTransform = { transformType -> viewModel.applyCapitalizationTransform(transformType) },
-                        scriptQueue = scriptQueue,
-                        onLoadScriptFile = {
-                            scriptFilePickerLauncher.launch(arrayOf("text/plain", "*/*"))
-                        },
-                        onApplyScriptLine = { viewModel.applyScriptCurrent() },
-                        onSkipScriptLine = { viewModel.skipScriptLine() },
-                        onScriptPage = { viewModel.setScriptPage(it) },
                         autoFocus = shouldFocusTextField,
                         onFocused = { shouldFocusTextField = false }
                     )
@@ -780,6 +773,16 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             viewModel.jumpToHistory(it)
                             refreshMaskState()
                         }
+                    )
+                    EditorPanel.SCRIPT -> ScriptPanel(
+                        scriptQueue = scriptQueue,
+                        hasSelection = selectedLayerId != null,
+                        onLoadScriptFile = {
+                            scriptFilePickerLauncher.launch(arrayOf("text/plain", "*/*"))
+                        },
+                        onApplyScriptLine = { viewModel.applyScriptCurrent() },
+                        onSkipScriptLine = { viewModel.skipScriptLine() },
+                        onScriptPage = { viewModel.setScriptPage(it) }
                     )
                     else -> {}
                 }
@@ -2605,6 +2608,13 @@ fun EditorBottomBar(
             label = { Text("Riwayat", maxLines = 1) },
             modifier = Modifier.widthIn(min = 60.dp)
         )
+        NavigationBarItem(
+            selected = activePanel == EditorPanel.SCRIPT,
+            onClick = { onPanelSelect(EditorPanel.SCRIPT) },
+            icon = { Icon(Icons.Default.List, contentDescription = "Script") },
+            label = { Text("Script", maxLines = 1) },
+            modifier = Modifier.widthIn(min = 60.dp)
+        )
         }
     }
 }
@@ -2820,11 +2830,6 @@ fun TextToolPanel(
     onUpdateStyle: (TextStyleConfig, Boolean) -> Unit,
     onUpdateContainerShape: ((com.mochits.app.model.TextContainerShape) -> Unit)? = null,
     onCapitalizationTransform: ((String) -> Unit)? = null,
-    scriptQueue: EditorViewModel.ScriptQueue? = null,
-    onLoadScriptFile: () -> Unit = {},
-    onApplyScriptLine: () -> Unit = {},
-    onSkipScriptLine: () -> Unit = {},
-    onScriptPage: ((Int) -> Unit)? = null,
     autoFocus: Boolean = false,
     onFocused: (() -> Unit)? = null,
     // Called once when a typing session starts (first keystroke after layer
@@ -2989,66 +2994,6 @@ fun TextToolPanel(
                         }
                     }
                 )
-            }
-
-            // Antrean script TL: muat .txt, masukkan baris per baris.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Script TL:", style = MaterialTheme.typography.labelLarge)
-                OutlinedButton(onClick = onLoadScriptFile) {
-                    Text(if (scriptQueue != null) "Ganti file" else "Muat .txt")
-                }
-            }
-            if (scriptQueue != null) {
-                val q = scriptQueue
-                val entry = q.currentEntry
-                val pageLabel = q.pageLabel.ifBlank { "Hal. ${q.pageIdx + 1}" }
-                Text(
-                    text = if (entry != null) {
-                        "$pageLabel • Baris ${q.lineIdx + 1}/${q.lineCount}: ${entry.text.take(80)}"
-                    } else {
-                        "$pageLabel • Habis."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 3
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Button(
-                        onClick = onApplyScriptLine,
-                        enabled = entry != null
-                    ) {
-                        Text(if (selectedLayer != null) "Masukkan" else "Buat baru")
-                    }
-                    OutlinedButton(
-                        onClick = onSkipScriptLine,
-                        enabled = entry != null
-                    ) {
-                        Text("Lewati")
-                    }
-                    if (q.pageCount > 1 && onScriptPage != null) {
-                        OutlinedButton(
-                            onClick = { onScriptPage(q.pageIdx - 1) },
-                            enabled = q.pageIdx > 0,
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                        ) {
-                            Text("‹")
-                        }
-                        OutlinedButton(
-                            onClick = { onScriptPage(q.pageIdx + 1) },
-                            enabled = q.pageIdx < q.pageCount - 1,
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                        ) {
-                            Text("›")
-                        }
-                    }
-                }
             }
 
             if (selectedLayer != null && onCapitalizationTransform != null) {
@@ -4069,6 +4014,98 @@ fun EffectToolPanel(
 /**
  * Panel riwayat undo/redo bernama (F3): ketuk entri untuk lompat ke state itu.
  */
+/**
+ * Panel antrean script TL (muat .txt, masukkan baris per baris).
+ */
+@Composable
+private fun ScriptPanel(
+    scriptQueue: EditorViewModel.ScriptQueue?,
+    hasSelection: Boolean,
+    onLoadScriptFile: () -> Unit,
+    onApplyScriptLine: () -> Unit,
+    onSkipScriptLine: () -> Unit,
+    onScriptPage: (Int) -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        tonalElevation = 6.dp,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 340.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Script TL", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                OutlinedButton(onClick = onLoadScriptFile) {
+                    Text(if (scriptQueue != null) "Ganti file" else "Muat .txt")
+                }
+            }
+            if (scriptQueue != null) {
+                val q = scriptQueue
+                val entry = q.currentEntry
+                val pageLabel = q.pageLabel.ifBlank { "Hal. ${q.pageIdx + 1}" }
+                Text(
+                    text = if (entry != null) {
+                        "$pageLabel • Baris ${q.lineIdx + 1}/${q.lineCount}: ${entry.text.take(120)}"
+                    } else {
+                        "$pageLabel • Habis."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 4
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = onApplyScriptLine,
+                        enabled = entry != null
+                    ) {
+                        Text(if (hasSelection) "Masukkan" else "Buat baru")
+                    }
+                    OutlinedButton(
+                        onClick = onSkipScriptLine,
+                        enabled = entry != null
+                    ) {
+                        Text("Lewati")
+                    }
+                    if (q.pageCount > 1) {
+                        OutlinedButton(
+                            onClick = { onScriptPage(q.pageIdx - 1) },
+                            enabled = q.pageIdx > 0,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        ) {
+                            Text("‹")
+                        }
+                        OutlinedButton(
+                            onClick = { onScriptPage(q.pageIdx + 1) },
+                            enabled = q.pageIdx < q.pageCount - 1,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        ) {
+                            Text("›")
+                        }
+                    }
+                }
+            } else {
+                Text(
+                    "Muat file .txt terjemahan untuk mengantre baris per baris.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun HistoryPanel(
     entries: List<EditorViewModel.HistoryEntry>,
