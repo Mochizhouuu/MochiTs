@@ -363,6 +363,17 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
     val canUndo by viewModel.canUndo.collectAsState()
     val canRedo by viewModel.canRedo.collectAsState()
     val historyEntries by viewModel.historyEntries.collectAsState()
+    val scriptQueue by viewModel.scriptQueue.collectAsState()
+
+    // Picker file script TL (.txt).
+    val scriptFilePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            val name = getFileNameFromUri(context, uri)
+            viewModel.loadScriptFile(uri, name)
+        }
+    }
     val isEyedropperActive by viewModel.isEyedropperActive.collectAsState()
     val eyedropperCanvasPt by viewModel.eyedropperCanvasPt.collectAsState()
     val sampledColorPreview by viewModel.sampledColorPreview.collectAsState()
@@ -697,6 +708,13 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onUpdateStyle = { style, saveUndo -> viewModel.updateSelectedTextLayerStyle(style, saveUndo = saveUndo) },
                         onUpdateContainerShape = { shape -> viewModel.updateSelectedTextLayerContainerShape(shape) },
                         onCapitalizationTransform = { transformType -> viewModel.applyCapitalizationTransform(transformType) },
+                        scriptQueue = scriptQueue,
+                        onLoadScriptFile = {
+                            scriptFilePickerLauncher.launch(arrayOf("text/plain", "*/*"))
+                        },
+                        onApplyScriptLine = { viewModel.applyScriptCurrent() },
+                        onSkipScriptLine = { viewModel.skipScriptLine() },
+                        onScriptPage = { viewModel.setScriptPage(it) },
                         autoFocus = shouldFocusTextField,
                         onFocused = { shouldFocusTextField = false }
                     )
@@ -2802,6 +2820,11 @@ fun TextToolPanel(
     onUpdateStyle: (TextStyleConfig, Boolean) -> Unit,
     onUpdateContainerShape: ((com.mochits.app.model.TextContainerShape) -> Unit)? = null,
     onCapitalizationTransform: ((String) -> Unit)? = null,
+    scriptQueue: EditorViewModel.ScriptQueue? = null,
+    onLoadScriptFile: () -> Unit = {},
+    onApplyScriptLine: () -> Unit = {},
+    onSkipScriptLine: () -> Unit = {},
+    onScriptPage: ((Int) -> Unit)? = null,
     autoFocus: Boolean = false,
     onFocused: (() -> Unit)? = null,
     // Called once when a typing session starts (first keystroke after layer
@@ -2966,6 +2989,66 @@ fun TextToolPanel(
                         }
                     }
                 )
+            }
+
+            // Antrean script TL: muat .txt, masukkan baris per baris.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Script TL:", style = MaterialTheme.typography.labelLarge)
+                OutlinedButton(onClick = onLoadScriptFile) {
+                    Text(if (scriptQueue != null) "Ganti file" else "Muat .txt")
+                }
+            }
+            if (scriptQueue != null) {
+                val q = scriptQueue
+                val entry = q.currentEntry
+                val pageLabel = q.pageLabel.ifBlank { "Hal. ${q.pageIdx + 1}" }
+                Text(
+                    text = if (entry != null) {
+                        "$pageLabel • Baris ${q.lineIdx + 1}/${q.lineCount}: ${entry.text.take(80)}"
+                    } else {
+                        "$pageLabel • Habis."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 3
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = onApplyScriptLine,
+                        enabled = entry != null && selectedLayer != null
+                    ) {
+                        Text("Masukkan")
+                    }
+                    OutlinedButton(
+                        onClick = onSkipScriptLine,
+                        enabled = entry != null
+                    ) {
+                        Text("Lewati")
+                    }
+                    if (q.pageCount > 1 && onScriptPage != null) {
+                        OutlinedButton(
+                            onClick = { onScriptPage(q.pageIdx - 1) },
+                            enabled = q.pageIdx > 0,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        ) {
+                            Text("‹")
+                        }
+                        OutlinedButton(
+                            onClick = { onScriptPage(q.pageIdx + 1) },
+                            enabled = q.pageIdx < q.pageCount - 1,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        ) {
+                            Text("›")
+                        }
+                    }
+                }
             }
 
             if (selectedLayer != null && onCapitalizationTransform != null) {

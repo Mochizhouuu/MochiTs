@@ -2526,6 +2526,145 @@ data class HistoryManifest(
     /** Lookup displayName font -> filePath untuk jalur ekspor (diisi UI). */
     var exportFontLookup: ((String) -> String?)? = null
 
+    // ---------- Antrean script TL (F-script) ----------
+
+    /** Satu posisi antrean: halaman + baris dalam halaman. */
+    data class ScriptQueue(
+        val pages: List<com.mochits.app.script.ScriptParser.ScriptPage>,
+        val pageIdx: Int,
+        val lineIdx: Int,
+        val uriString: String,
+        val fileName: String
+    ) {
+        val currentEntry: com.mochits.app.script.ScriptParser.ScriptEntry? get() =
+            pages.getOrNull(pageIdx)?.entries?.getOrNull(lineIdx)
+        val pageCount: Int get() = pages.size
+        val lineCount: Int get() = pages.getOrNull(pageIdx)?.entries?.size ?: 0
+        /** Label halaman (mis. "P2"); kosong bila file tanpa pemisah. */
+        val pageLabel: String get() = pages.getOrNull(pageIdx)?.label ?: ""
+    }
+
+    val scriptQueue = MutableStateFlow<ScriptQueue?>(null)
+
+    private fun scriptPrefs() = context.getSharedPreferences("mochits_script_state", Context.MODE_PRIVATE)
+
+    private fun saveScriptPosition(projId: String, uri: String, page: Int, line: Int) {
+        try {
+            scriptPrefs().edit()
+                .putString("uri_$projId", uri)
+                .putInt("page_$projId", page)
+                .putInt("line_$projId", line)
+                .apply()
+        } catch (_: Exception) {}
+    }
+
+    /** Muat file .txt script dari URI SAF; posisi per proyek dipulihkan. */
+    fun loadScriptFile(uri: android.net.Uri, displayName: String? = null) {
+        val projId = project.value?.id ?: return
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: Exception) {}
+                val raw = context.contentResolver.openInputStream(uri)?.use { stream ->
+                    stream.bufferedReader(Charsets.UTF_8).readText()
+                } ?: return@launch
+                val repo = com.mochits.app.script.ScriptMappingRepository(context)
+                repo.reload()
+                val doc = com.mochits.app.script.ScriptParser.parse(
+                    raw, repo.getMappings(), repo.getSeparator()
+                )
+                if (doc.totalEntries == 0) {
+                    userMessage.value = UiMessage("File script kosong / tak ada baris bersimbol.", UiMessage.Kind.WARNING)
+                    return@launch
+                }
+                val savedUri = scriptPrefs().getString("uri_$projId", null)
+                var page = 0
+                var line = 0
+                if (savedUri == uri.toString()) {
+                    page = scriptPrefs().getInt("page_$projId", 0)
+                    line = scriptPrefs().getInt("line_$projId", 0)
+                }
+                val safePage = page.coerceIn(0, doc.pages.size - 1)
+                val safeLine = line.coerceIn(0, (doc.pages.getOrNull(safePage)?.entries?.size ?: 1) - 1)
+                scriptQueue.value = ScriptQueue(
+                    pages = doc.pages,
+                    pageIdx = safePage,
+                    lineIdx = safeLine,
+                    uriString = uri.toString(),
+                    fileName = displayName ?: uri.lastPathSegment ?: "script.txt"
+                )
+            } catch (t: Throwable) {
+                Logger.e("Gagal memuat script: ${t.message}", t)
+                userMessage.value = UiMessage("Gagal membaca file script.", UiMessage.Kind.ERROR)
+            }
+        }
+    }
+
+    /** Masukkan baris kini ke teks terpilih + preset pasangannya (satu undo). */
+    fun applyScriptCurrent() {
+        val q = scriptQueue.value ?: return
+        val entry = q.currentEntry ?: return
+        val layer = selectedLayerId.value?.let { sid ->
+            layers.value.find { it.id == sid } as? Layer.TextLayer
+        }
+        if (layer == null) {
+            userMessage.value = UiMessage("Pilih layer teks dulu.", UiMessage.Kind.WARNING)
+            return
+        }
+        val repo = com.mochits.app.script.ScriptMappingRepository(context)
+        val presetId = repo.getMappings().firstOrNull { it.symbol == entry.symbol }?.presetId
+        val preset = presetId?.takeIf { it.isNotBlank() }?.let { stylePresetRepository.getPreset(it) }
+        if (preset != null) {
+            // Preset dulu (snapshot pra-keadaan), lalu teks tanpa snapshot.
+            applyStylePreset(preset)
+        } else {
+            saveUndoSnapshot("Script: ${entry.text.take(24)}")
+        }
+        updateSelectedTextContent(entry.text, saveUndo = false)
+        autoSave()
+        advanceScript(1)
+    }
+
+    /** Lewati baris kini tanpa mengisi. */
+    fun skipScriptLine() {
+        if (scriptQueue.value?.currentEntry == null) return
+        advanceScript(1)
+    }
+
+    /** Pindah halaman antrean (baris kembali ke 0). */
+    fun setScriptPage(page: Int) {
+        val q = scriptQueue.value ?: return
+        val projId = project.value?.id ?: return
+        val p = page.coerceIn(0, q.pageCount - 1)
+        scriptQueue.value = q.copy(pageIdx = p, lineIdx = 0)
+        saveScriptPosition(projId, q.uriString, p, 0)
+    }
+
+    private fun advanceScript(by: Int) {
+        val q = scriptQueue.value ?: return
+        val projId = project.value?.id ?: return
+        var page = q.pageIdx
+        var line = q.lineIdx + by
+        while (page < q.pageCount) {
+            val count = q.pages[page].entries.size
+            if (line < count) break
+            // Habis di halaman ini: lanjut halaman berikut (atau mentok).
+            if (page + 1 < q.pageCount) {
+                page += 1
+                line = 0
+            } else {
+                line = count // mentok di akhir
+                break
+            }
+        }
+        scriptQueue.value = q.copy(pageIdx = page, lineIdx = line)
+        saveScriptPosition(projId, q.uriString, page, line)
+    }
+
     /** Warp resolusi ekspor untuk layer gambar (posisi absolut). */
     fun resolveExportWarpedImage(layer: Layer.ImageLayer): ProjectExporter.WarpedDraw? {
         val quad = layer.perspQuad ?: return null

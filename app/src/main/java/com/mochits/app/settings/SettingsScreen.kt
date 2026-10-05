@@ -54,7 +54,7 @@ fun SettingsScreen(
     val formattedDetail by remember { mutableStateOf<String?>(null) }
     val currentTheme by viewModel.themeMode.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Tema", "Model", "Style", "Font", "Output")
+    val tabs = listOf("Tema", "Model", "Style", "Font", "Output", "Script")
 
     Scaffold(
         topBar = {
@@ -733,6 +733,95 @@ fun SettingsScreen(
                             }
                         }
                     }
+                    5 -> {
+                        val scriptEntryPoint = remember {
+                            dagger.hilt.android.EntryPointAccessors.fromApplication(
+                                context.applicationContext,
+                                ScriptMappingEntryPoint::class.java
+                            )
+                        }
+                        val scriptRepo = remember { scriptEntryPoint.scriptMappingRepository() }
+                        val mappings by scriptRepo.mappings.collectAsState()
+                        val separator by scriptRepo.separator.collectAsState()
+                        val styleEntryPoint5 = remember {
+                            dagger.hilt.android.EntryPointAccessors.fromApplication(
+                                context.applicationContext,
+                                StylePresetEntryPoint::class.java
+                            )
+                        }
+                        val scriptStyleRepo = remember { styleEntryPoint5.stylePresetRepository() }
+                        val stylePresets by scriptStyleRepo.presets.collectAsState()
+                        var newSymbol by remember { mutableStateOf("") }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(
+                                text = "Script TL (.txt)",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Simbol = awalan baris (cocok terpanjang). Sambung = menempel ke entri sebelumnya (mis. //-). Preset = style yang dipakai saat baris dimasukkan.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            OutlinedTextField(
+                                value = separator,
+                                onValueChange = { scriptRepo.setSeparator(it) },
+                                label = { Text("Pemisah halaman (regex)") },
+                                placeholder = { Text("P\\d+") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            mappings.forEach { entry ->
+                                ScriptMappingRow(
+                                    entry = entry,
+                                    presets = stylePresets,
+                                    onUpdate = { updated ->
+                                        scriptRepo.setMappings(
+                                            mappings.map { if (it.symbol == entry.symbol) updated else it }
+                                        )
+                                    },
+                                    onDelete = {
+                                        scriptRepo.setMappings(
+                                            mappings.filter { it.symbol != entry.symbol }
+                                        )
+                                    }
+                                )
+                            }
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = newSymbol,
+                                    onValueChange = { newSymbol = it },
+                                    label = { Text("Simbol baru") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Button(onClick = {
+                                    if (newSymbol.isNotBlank()) {
+                                        scriptRepo.setMappings(
+                                            mappings + com.mochits.app.script.ScriptSymbolEntry(newSymbol.trim())
+                                        )
+                                        newSymbol = ""
+                                    }
+                                }) {
+                                    Text("Tambah")
+                                }
+                            }
+                            OutlinedButton(onClick = {
+                                scriptRepo.setMappings(
+                                    com.mochits.app.script.ScriptMappingRepository.defaultMappings()
+                                )
+                                scriptRepo.setSeparator(
+                                    com.mochits.app.script.ScriptMappingRepository.DEFAULT_SEPARATOR
+                                )
+                            }) {
+                                Text("Kembalikan default")
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -809,6 +898,104 @@ fun DownloadErrorDialog(
 @dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
 interface StylePresetEntryPoint {
     fun stylePresetRepository(): com.mochits.app.style.StylePresetRepository
+}
+
+@dagger.hilt.EntryPoint
+@dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
+interface ScriptMappingEntryPoint {
+    fun scriptMappingRepository(): com.mochits.app.script.ScriptMappingRepository
+}
+
+/** Satu baris pemetaan simbol -> preset + flag sambung + hapus. */
+@Composable
+private fun ScriptMappingRow(
+    entry: com.mochits.app.script.ScriptSymbolEntry,
+    presets: List<com.mochits.app.model.TextStylePreset>,
+    onUpdate: (com.mochits.app.script.ScriptSymbolEntry) -> Unit,
+    onDelete: () -> Unit
+) {
+    var symText by remember(entry.symbol) { mutableStateOf(entry.symbol) }
+    var menuOpen by remember { mutableStateOf(false) }
+    val currentPreset = presets.find { it.id == entry.presetId }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = symText,
+                    onValueChange = {
+                        symText = it
+                        if (it.isNotBlank()) onUpdate(entry.copy(symbol = it.trim()))
+                    },
+                    label = { Text("Simbol") },
+                    singleLine = true,
+                    modifier = Modifier.weight(0.9f)
+                )
+                Box(modifier = Modifier.weight(1.6f)) {
+                    OutlinedButton(
+                        onClick = { menuOpen = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            currentPreset?.name ?: "Tanpa preset",
+                            maxLines = 1,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Tanpa preset") },
+                            onClick = {
+                                menuOpen = false
+                                onUpdate(entry.copy(presetId = ""))
+                            }
+                        )
+                        presets.forEach { preset ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        (if (preset.id == entry.presetId) "✓ " else "") + preset.name,
+                                        maxLines = 1
+                                    )
+                                },
+                                onClick = {
+                                    menuOpen = false
+                                    onUpdate(entry.copy(presetId = preset.id))
+                                }
+                            )
+                        }
+                    }
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "Hapus pemetaan",
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = entry.append,
+                    onCheckedChange = { onUpdate(entry.copy(append = it)) }
+                )
+                Text(
+                    "Sambung ke entri sebelumnya",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
 }
 
 private fun queryDisplayName(context: Context, uri: Uri): String? {
