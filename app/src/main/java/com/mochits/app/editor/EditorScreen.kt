@@ -3022,9 +3022,9 @@ fun TextToolPanel(
                 ) {
                     Button(
                         onClick = onApplyScriptLine,
-                        enabled = entry != null && selectedLayer != null
+                        enabled = entry != null
                     ) {
-                        Text("Masukkan")
+                        Text(if (selectedLayer != null) "Masukkan" else "Buat baru")
                     }
                     OutlinedButton(
                         onClick = onSkipScriptLine,

@@ -2608,24 +2608,39 @@ data class HistoryManifest(
     fun applyScriptCurrent() {
         val q = scriptQueue.value ?: return
         val entry = q.currentEntry ?: return
-        val layer = selectedLayerId.value?.let { sid ->
-            layers.value.find { it.id == sid } as? Layer.TextLayer
-        }
-        if (layer == null) {
-            userMessage.value = UiMessage("Pilih layer teks dulu.", UiMessage.Kind.WARNING)
-            return
-        }
         val repo = com.mochits.app.script.ScriptMappingRepository(context)
         val presetId = repo.getMappings().firstOrNull { it.symbol == entry.symbol }?.presetId
         val preset = presetId?.takeIf { it.isNotBlank() }?.let { stylePresetRepository.getPreset(it) }
-        if (preset != null) {
-            // Preset dulu (snapshot pra-keadaan), lalu teks tanpa snapshot.
-            applyStylePreset(preset)
-        } else {
-            saveUndoSnapshot("Script: ${entry.text.take(24)}")
+        val selected = selectedLayerId.value?.let { sid ->
+            layers.value.find { it.id == sid } as? Layer.TextLayer
         }
-        updateSelectedTextContent(entry.text, saveUndo = false)
-        autoSave()
+        if (selected == null) {
+            // Belum ada teks terpilih: buatkan layer baru (tengah, style preset).
+            val base = defaultTextStyle.value
+            val style = if (preset != null) {
+                base.copy(
+                    fontName = preset.fontName,
+                    fontStyle = preset.fontStyle,
+                    alignment = preset.alignment
+                )
+            } else base
+            addTextLayer(
+                entry.text,
+                style = style,
+                shape = preset?.shape,
+                viewportWidth = 0f,
+                viewportHeight = 0f
+            )
+        } else {
+            if (preset != null) {
+                // Preset dulu (snapshot pra-keadaan), lalu teks tanpa snapshot.
+                applyStylePreset(preset)
+            } else {
+                saveUndoSnapshot("Script: ${entry.text.take(24)}")
+            }
+            updateSelectedTextContent(entry.text, saveUndo = false)
+            autoSave()
+        }
         advanceScript(1)
     }
 
