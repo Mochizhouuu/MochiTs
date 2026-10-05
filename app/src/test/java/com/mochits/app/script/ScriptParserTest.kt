@@ -27,7 +27,7 @@ class ScriptParserTest {
     @Test
     fun `awalan terpanjang menang dan separator regex memotong halaman`() {
         val doc = ScriptParser.parse(
-            "-- seru\n- biasa\nP2\n- halaman dua",
+            "P1\n-- seru\n- biasa\nP2\n- halaman dua",
             m("-", "--"), "P\\d+"
         )
         assertEquals(2, doc.pages.size)
