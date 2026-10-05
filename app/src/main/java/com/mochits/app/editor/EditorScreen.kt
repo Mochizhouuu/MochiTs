@@ -2474,49 +2474,49 @@ fun EditorBottomBar(
                 .horizontalScroll(rememberScrollState())
                 .windowInsetsPadding(WindowInsets.navigationBars)
                 .padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.Center
+            horizontalArrangement = Arrangement.Start
         ) {
             NavigationBarItem(
             selected = activePanel == EditorPanel.ERASE || activePanel == EditorPanel.MASK || activePanel == EditorPanel.INPAINT,
             onClick = { onPanelSelect(EditorPanel.ERASE) },
             icon = { Icon(Icons.Default.CleaningServices, contentDescription = "Erase") },
-            label = { Text("Erase") },
-            modifier = Modifier.widthIn(min = 72.dp)
+            label = { Text("Erase", maxLines = 1) },
+            modifier = Modifier.widthIn(min = 60.dp)
         )
         NavigationBarItem(
             selected = activePanel == EditorPanel.TEXT,
             onClick = { onPanelSelect(EditorPanel.TEXT) },
             icon = { Icon(Icons.Default.TextFields, contentDescription = "Text") },
-            label = { Text("Text") },
-            modifier = Modifier.widthIn(min = 72.dp)
+            label = { Text("Text", maxLines = 1) },
+            modifier = Modifier.widthIn(min = 60.dp)
         )
         NavigationBarItem(
             selected = activePanel == EditorPanel.EFFECT,
             onClick = { onPanelSelect(EditorPanel.EFFECT) },
             icon = { Icon(Icons.Default.AutoAwesome, contentDescription = "Effect") },
-            label = { Text("Effect") },
-            modifier = Modifier.widthIn(min = 72.dp)
+            label = { Text("Effect", maxLines = 1) },
+            modifier = Modifier.widthIn(min = 60.dp)
         )
         NavigationBarItem(
             selected = activePanel == EditorPanel.FONT,
             onClick = { onPanelSelect(EditorPanel.FONT) },
             icon = { Icon(Icons.Default.FontDownload, contentDescription = "Font") },
-            label = { Text("Font") },
-            modifier = Modifier.widthIn(min = 72.dp)
+            label = { Text("Font", maxLines = 1) },
+            modifier = Modifier.widthIn(min = 60.dp)
         )
         NavigationBarItem(
             selected = activePanel == EditorPanel.STYLE,
             onClick = { onPanelSelect(EditorPanel.STYLE) },
             icon = { Icon(Icons.Default.Style, contentDescription = "Style") },
-            label = { Text("Style") },
-            modifier = Modifier.widthIn(min = 72.dp)
+            label = { Text("Style", maxLines = 1) },
+            modifier = Modifier.widthIn(min = 60.dp)
         )
         NavigationBarItem(
             selected = activePanel == EditorPanel.HISTORY,
             onClick = { onPanelSelect(EditorPanel.HISTORY) },
             icon = { Icon(Icons.Default.History, contentDescription = "Riwayat") },
-            label = { Text("Riwayat") },
-            modifier = Modifier.widthIn(min = 72.dp)
+            label = { Text("Riwayat", maxLines = 1) },
+            modifier = Modifier.widthIn(min = 60.dp)
         )
         }
     }
