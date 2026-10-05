@@ -717,6 +717,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onApplyPreset = { preset -> viewModel.applyStylePreset(preset) },
                         onSavePreset = { name -> viewModel.saveStylePreset(name) },
                         onDeletePreset = { id -> viewModel.deleteStylePreset(id) },
+                        onDeleteAllBuiltIns = { viewModel.deleteAllBuiltInPresets() },
                         pinnedIds = pinnedPresetIds.toSet(),
                         onTogglePin = { id -> viewModel.togglePinnedPreset(id) }
                     )
@@ -4422,6 +4423,7 @@ fun StylePresetPanel(
     onApplyPreset: (com.mochits.app.model.TextStylePreset) -> Unit,
     onSavePreset: ((String) -> com.mochits.app.model.TextStylePreset?)? = null,
     onDeletePreset: ((String) -> Boolean)? = null,
+    onDeleteAllBuiltIns: (() -> Int)? = null,
     pinnedIds: Set<String> = emptySet(),
     onTogglePin: ((String) -> Boolean)? = null
 ) {
@@ -4442,6 +4444,26 @@ fun StylePresetPanel(
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text("Preset Style", style = MaterialTheme.typography.titleSmall)
+
+            if (onDeleteAllBuiltIns != null && presets.any { it.isBuiltIn }) {
+                TextButton(
+                    onClick = { onDeleteAllBuiltIns() },
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        "Hapus semua bawaan",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

@@ -376,6 +376,11 @@ val defaultTextStyle = MutableStateFlow(TextStyleConfig())
         return stylePresetRepository.deletePreset(id)
     }
 
+    /** Hapus semua preset bawaan sekaligus. @return jumlah yang dihapus. */
+    fun deleteAllBuiltInPresets(): Int {
+        return stylePresetRepository.deleteAllBuiltIns()
+    }
+
     /** Sematkan/lepas preset dari urutan paling atas. */
     fun togglePinnedPreset(id: String): Boolean {
         val pinned = stylePresetRepository.pinnedPresetIds.value.contains(id)

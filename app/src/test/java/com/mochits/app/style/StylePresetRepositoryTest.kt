@@ -85,8 +85,7 @@ class StylePresetRepositoryTest {
     }
 
     @Test
-    fun deletePreset_hidesBuiltInAndRestoreBringsItBack() {
-        assertNotNull(repository.getPreset("builtin-judul"))
+    fun deletePreset_hidesBuiltInAndRestoreBringsItBack() {        assertNotNull(repository.getPreset("builtin-judul"))
 
         assertTrue(repository.deletePreset("builtin-judul"))
         assertEquals(null, repository.getPreset("builtin-judul"))
@@ -102,14 +101,24 @@ class StylePresetRepositoryTest {
     }
 
     @Test
-    fun customs_surviveAcrossInstances() {
-        repository.savePreset(
+    fun customs_surviveAcrossInstances() {        repository.savePreset(
             TextStylePreset(id = "test-preset-lintas", name = "Lintas Instance")
         )
         val fresh = StylePresetRepository(RuntimeEnvironment.getApplication())
         assertNotNull(fresh.getPreset("test-preset-lintas"))
 
         repository.deletePreset("test-preset-lintas")
+    }
+
+    @Test
+    fun deleteAllBuiltIns_removesEveryBuiltInAtOnce() {
+        assertTrue(repository.presets.value.any { it.isBuiltIn })
+        val removed = repository.deleteAllBuiltIns()
+        assertTrue(removed >= 4)
+        assertTrue(repository.presets.value.none { it.isBuiltIn })
+        // Bersihkan agar tidak mengotori test lain (prefs bersama).
+        repository.restoreAllBuiltIns()
+        assertTrue(repository.presets.value.any { it.isBuiltIn })
     }
 
     @Test

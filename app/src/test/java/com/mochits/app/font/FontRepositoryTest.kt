@@ -49,12 +49,12 @@ class FontRepositoryTest {
     }
 
     @Test
-    fun testGetBuiltInFonts_containsDefaultFonts() = runBlocking {
+    fun testGetBuiltInFonts_excludesSystemFonts() = runBlocking {
         val builtIn = fontRepository.getBuiltInFonts()
-        assertTrue(builtIn.any { it.name == "Default" })
-        assertTrue(builtIn.any { it.name == "Sans-Serif" })
-        assertTrue(builtIn.any { it.name == "Serif" })
-        assertTrue(builtIn.any { it.name == "Monospace" })
+        assertTrue(builtIn.none { it.name == "Default" })
+        assertTrue(builtIn.none { it.name == "Sans-Serif" })
+        assertTrue(builtIn.none { it.name == "Serif" })
+        assertTrue(builtIn.none { it.name == "Monospace" })
     }
 
     @Test

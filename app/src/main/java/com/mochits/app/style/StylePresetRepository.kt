@@ -102,6 +102,21 @@ class StylePresetRepository @Inject constructor(
     }
 
     /**
+     * Hapus SEMUA preset bawaan sekaligus (tidak satu-satu).
+     * @return jumlah yang dihapus.
+     */
+    fun deleteAllBuiltIns(): Int {
+        val ids = builtInPresets().map { it.id }.toSet()
+        if (ids.isEmpty()) return 0
+        val hidden = loadHiddenBuiltIns().toMutableSet()
+        hidden.addAll(ids)
+        persistHiddenBuiltIns(hidden)
+        _hiddenBuiltInIds.value = hidden
+        _presets.value = loadAll()
+        return ids.size
+    }
+
+    /**
      * Menyematkan preset agar selalu tampil paling atas (false = lepas).
      * Yang baru disematkan menempati urutan teratas.
      * @return false bila id tidak dikenal.

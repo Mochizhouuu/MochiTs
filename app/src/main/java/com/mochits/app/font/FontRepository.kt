@@ -111,13 +111,9 @@ class FontRepository(
 
         extractBuiltInFontsIfNeeded()
 
-        val defaultFonts = listOf(
-            FontItem(name = "Default", fontNameKey = "Default"),
-            FontItem(name = "Sans-Serif", fontNameKey = "Sans"),
-            FontItem(name = "Serif", fontNameKey = "Serif"),
-            FontItem(name = "Monospace", fontNameKey = "Monospace")
-        )
-
+        // Hanya font dari zip (+ impor user): font sistem (Default/Sans-Serif/
+        // Serif/Monospace) dihapus dari daftar atas permintaan user. Render
+        // fallback-nya tetap jalan via getTypeface bila style lama memakainya.
         val fontFiles = builtInFontsDir.listFiles()?.filter {
             it.isFile && (it.name.lowercase().endsWith(".ttf") || it.name.lowercase().endsWith(".otf"))
         } ?: emptyList()
@@ -132,7 +128,7 @@ class FontRepository(
             )
         }
 
-        val allBuiltIn = defaultFonts + extractedFonts.sortedBy { it.name }
+        val allBuiltIn = extractedFonts.sortedBy { it.name }
         builtInFontsCache.clear()
         builtInFontsCache.addAll(allBuiltIn)
         allBuiltIn
