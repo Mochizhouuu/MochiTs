@@ -75,7 +75,7 @@ class ProjectBundleTest {
     }
 
     @Test
-    fun `zip slip entry rejected`() {
+    fun `zip slip entry rejected`() = kotlinx.coroutines.runBlocking {
         val ctx = RuntimeEnvironment.getApplication()
         val filesDir = File(ctx.cacheDir, "bundle_s_${UUID.randomUUID()}").apply { mkdirs() }
         try {
