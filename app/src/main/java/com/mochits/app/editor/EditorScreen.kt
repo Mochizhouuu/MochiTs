@@ -234,6 +234,22 @@ private fun isPointInsideTextLayer(
     }
 }
 
+/**
+ * Hit-test layer gambar: titik di dalam kotak konten + toleransi jari 16px.
+ * Box warp/perspektif diabaikan (v1): yang dites kotak aslinya.
+ */
+private fun isPointInsideImageLayer(
+    layer: Layer.ImageLayer,
+    touchCanvasPt: Offset,
+    bitmapW: Float,
+    bitmapH: Float
+): Boolean {
+    return touchCanvasPt.x >= layer.x - 16f &&
+        touchCanvasPt.x <= layer.x + bitmapW + 16f &&
+        touchCanvasPt.y >= layer.y - 16f &&
+        touchCanvasPt.y <= layer.y + bitmapH + 16f
+}
+
 
 private fun performExportToTreeUri(
     context: android.content.Context,
@@ -803,7 +819,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
             var lastTapTimestamp by remember { mutableLongStateOf(0L) }
             var lastTapLayerId by remember { mutableStateOf<String?>(null) }
 
-            var pendingBodyMoveLayer by remember { mutableStateOf<Layer.TextLayer?>(null) }
+            var pendingBodyMoveLayer by remember { mutableStateOf<Layer?>(null) }
             var initialTouchScreenPt by remember { mutableStateOf(Offset.Zero) }
             var isBodyMoveDragging by remember { mutableStateOf(false) }
 
@@ -1301,7 +1317,34 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                 firstChange.consume()
                                                 Logger.d("Touch intercepted by text layer: ${hitTextLayer.id}")
                                             } else {
-                                                activeHandleType = null
+                                                // Layer gambar juga bisa dipegang/digeser (mis. salinan background).
+                                                val hitImageLayer = viewModel.layers.value.reversed().filterIsInstance<Layer.ImageLayer>().firstOrNull { layer ->
+                                                    if (!layer.isVisible) {
+                                                        false
+                                                    } else {
+                                                        val bmp = viewModel.resolveImageBitmap(layer) ?: layer.bitmap
+                                                        bmp != null && !bmp.isRecycled &&
+                                                            isPointInsideImageLayer(
+                                                                layer,
+                                                                touchCanvasPt,
+                                                                bmp.width.toFloat(),
+                                                                bmp.height.toFloat()
+                                                            )
+                                                    }
+                                                }
+                                                if (hitImageLayer != null) {
+                                                    pendingBodyMoveLayer = hitImageLayer
+                                                    initialTouchScreenPt = firstChange.position
+                                                    initialTouchCanvasPt = touchCanvasPt
+                                                    initialTextX = hitImageLayer.x
+                                                    initialTextY = hitImageLayer.y
+                                                    isBodyMoveDragging = false
+                                                    hitHandle = true
+                                                    firstChange.consume()
+                                                    Logger.d("Touch intercepted by image layer: ${hitImageLayer.id}")
+                                                } else {
+                                                    activeHandleType = null
+                                                }
                                             }
                                         }
                                     }
@@ -1428,6 +1471,30 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                     saveUndo = false
                                                 )
                                                 triggerRedraw++
+                                            } else {
+                                                // Layer gambar yang dipegang: geser x/y (tanpa jepit).
+                                                val dragImageLayer = viewModel.selectedLayerId.value?.let { sid ->
+                                                    viewModel.layers.value.find { it.id == sid } as? Layer.ImageLayer
+                                                }
+                                                if (dragImageLayer != null) {
+                                                    val deltaX = touchCanvasPt.x - initialTouchCanvasPt.x
+                                                    val deltaY = touchCanvasPt.y - initialTouchCanvasPt.y
+                                                    val bmp = viewModel.resolveImageBitmap(dragImageLayer)
+                                                        ?: dragImageLayer.bitmap
+                                                    val bw = (bmp?.width?.toFloat() ?: 100f).coerceAtLeast(20f)
+                                                    val bh = (bmp?.height?.toFloat() ?: 100f).coerceAtLeast(20f)
+                                                    val canvasW = viewModel.baseBitmap.value?.width?.toFloat()
+                                                        ?: viewModel.project.value?.width?.toFloat() ?: 1080f
+                                                    val canvasH = viewModel.baseBitmap.value?.height?.toFloat()
+                                                        ?: viewModel.project.value?.height?.toFloat() ?: 1920f
+                                                    val newX = (initialTextX + deltaX).coerceIn(-bw + 20f, canvasW - 20f)
+                                                    val newY = (initialTextY + deltaY).coerceIn(-bh + 20f, canvasH - 20f)
+                                                    viewModel.updateImageLayer(
+                                                        dragImageLayer.copy(x = newX, y = newY),
+                                                        false
+                                                    )
+                                                    triggerRedraw++
+                                                }
                                             }
                                         }
                                         else -> {}
@@ -1459,7 +1526,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                         val now = System.currentTimeMillis()
                                         val isDoubleTap = (lastTapLayerId == targetLayer.id) && (now - lastTapTimestamp < 400L)
                                         viewModel.selectLayer(targetLayer.id)
-                                        if (isDoubleTap) {
+                                        // Double-tap buka editor teks hanya untuk layer teks.
+                                        if (isDoubleTap && targetLayer is Layer.TextLayer) {
                                             shouldFocusTextField = true
                                             viewModel.setActivePanel(EditorPanel.TEXT)
                                             lastTapTimestamp = 0L
