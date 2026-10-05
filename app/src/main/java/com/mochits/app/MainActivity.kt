@@ -21,7 +21,8 @@ import com.mochits.app.settings.SettingsScreen
 import com.mochits.app.ui.theme.MochiTsTheme
 import dagger.hilt.android.AndroidEntryPoint
 
-@AndroidEntryPointclass MainActivity : ComponentActivity() {
+@AndroidEntryPoint
+class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         stashIncomingBundle(intent)
