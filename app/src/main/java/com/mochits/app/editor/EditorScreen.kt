@@ -4043,7 +4043,7 @@ fun LayersToolPanel(
                 }
             }
 
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 // Display front-first (canvas draw order is index 0 = back, last =
                 // front), so "Naik" (toward front) moves the row upward.
                 items(layers.reversed(), key = { it.id }) { layer ->
