@@ -1602,8 +1602,19 @@ data class HistoryManifest(
         }
 
         val bounds = textRenderer.getTextBounds(text, effectiveStyle, 0f, 0f)
-        val textWidth = bounds.width()
-        val textHeight = bounds.height()
+        // Teks baru jangan lebih lebar dari kanvas: bungkus jadi multi-baris
+        // (font TIDAK dikecilkan). Berlaku untuk teks manual maupun script.
+        val useShape = shape ?: defaultTextShape.value
+        var fitBoxWidth: Float? = null
+        val maxW = canvasW - 64f
+        if (bounds.width() > maxW && maxW > 100f) {
+            fitBoxWidth = maxW
+        }
+        val measured = if (fitBoxWidth != null) {
+            textRenderer.getTextBounds(text, effectiveStyle, 0f, 0f, useShape, fitBoxWidth, null)
+        } else bounds
+        val textWidth = measured.width()
+        val textHeight = measured.height()
 
         val finalX = posX - (textWidth / 2f)
         val finalY = posY - (textHeight / 2f)
@@ -1615,7 +1626,8 @@ data class HistoryManifest(
     y = finalY,
     text = text,
     style = effectiveStyle,
-    textContainerShape = shape ?: defaultTextShape.value
+    textContainerShape = useShape,
+    boxWidth = fitBoxWidth
     )
         layers.value = layers.value + newLayer
         selectedLayerId.value = newLayer.id
