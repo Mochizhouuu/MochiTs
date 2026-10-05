@@ -87,9 +87,4 @@ object ScriptParser {
             ScriptPage(entries, if (seenSep) label else "")
         })
     }
-
-    /** Kompatibilitas: daftar simbol polos (tanpa sambung, tanpa label). */
-    fun parse(rawText: String, symbols: List<String>, separator: String): ScriptDoc {
-        return parse(rawText, symbols.map { ScriptSymbolEntry(it) }, separator)
-    }
 }
