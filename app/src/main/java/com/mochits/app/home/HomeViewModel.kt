@@ -148,4 +148,19 @@ class HomeViewModel @Inject constructor(
                 null
             }
         }
+
+    /** Impor bundel .mts dari file cache (hasil buka file luar); hapus sesudahnya. */
+    suspend fun importBundleFile(file: java.io.File): String? =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                if (!file.exists()) return@withContext null
+                val id = file.inputStream().use { inp ->
+                    repository.importBundle(inp)?.id
+                }
+                try { file.delete() } catch (_: Exception) {}
+                id
+            } catch (_: Exception) {
+                null
+            }
+        }
 }

@@ -21,10 +21,10 @@ import com.mochits.app.settings.SettingsScreen
 import com.mochits.app.ui.theme.MochiTsTheme
 import dagger.hilt.android.AndroidEntryPoint
 
-@AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+@AndroidEntryPointclass MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        stashIncomingBundle(intent)
         setContent {
             val homeViewModel: HomeViewModel = hiltViewModel()
             val themeMode by homeViewModel.themeMode.collectAsState()
@@ -66,6 +66,34 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        stashIncomingBundle(intent)
+    }
+
+    /**
+     * File .mts dibuka dari app lain (VIEW): salin ke cache + tandai agar
+     * Home mengimpornya saat tampil.
+     */
+    private fun stashIncomingBundle(intent: android.content.Intent?) {
+        try {
+            if (intent?.action != android.content.Intent.ACTION_VIEW) return
+            val uri = intent.data ?: return
+            val dst = java.io.File(cacheDir, "incoming/incoming.mts")
+            dst.parentFile?.mkdirs()
+            contentResolver.openInputStream(uri)?.use { inp ->
+                dst.outputStream().use { out -> inp.copyTo(out) }
+            } ?: return
+            if (!dst.exists() || dst.length() <= 0L) return
+            getSharedPreferences("mochits_bundle_in", MODE_PRIVATE)
+                .edit()
+                .putString("pending_bundle_path", dst.absolutePath)
+                .apply()
+        } catch (_: Exception) {
         }
     }
 }

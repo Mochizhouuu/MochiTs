@@ -365,6 +365,17 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
     val historyEntries by viewModel.historyEntries.collectAsState()
     val scriptQueue by viewModel.scriptQueue.collectAsState()
 
+    // Picker simpan bundel .mts proyek ini.
+    val bundleExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch {
+                viewModel.exportBundleToUri(uri)
+            }
+        }
+    }
+
     // Picker file script TL (.txt).
     val scriptFilePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -2532,6 +2543,17 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                     }
                 },
                 dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showExportDialog = false
+                            val base = outputFileName.ifBlank { project?.title ?: "proyek" }
+                            bundleExportLauncher.launch(
+                                com.mochits.app.project.ProjectBundle.fileNameFor(base)
+                            )
+                        }
+                    ) {
+                        Text("Bundel .mts")
+                    }
                     TextButton(onClick = { showExportDialog = false }) {
                         Text("Batal")
                     }

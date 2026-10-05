@@ -2728,6 +2728,26 @@ data class HistoryManifest(
 
     fun saveExportFolderUri(uri: Uri): Boolean = exportSettingsRepository.saveExportFolderUri(uri)
 
+    /** Ekspor bundel .mts proyek ini ke URI SAF. */
+    suspend fun exportBundleToUri(uri: android.net.Uri): Boolean =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val ok = context.contentResolver.openOutputStream(uri)?.use { out ->
+                    repository.exportBundle(projectId, out)
+                } ?: false
+                userMessage.value = if (ok) {
+                    UiMessage("Bundel tersimpan.", UiMessage.Kind.SUCCESS)
+                } else {
+                    UiMessage("Gagal menyimpan bundel.", UiMessage.Kind.ERROR)
+                }
+                ok
+            } catch (t: Throwable) {
+                Logger.e("Gagal ekspor bundel: ${t.message}", t)
+                userMessage.value = UiMessage("Gagal menyimpan bundel.", UiMessage.Kind.ERROR)
+                false
+            }
+        }
+
     fun exportProject(
         outputFile: File,
         format: android.graphics.Bitmap.CompressFormat = android.graphics.Bitmap.CompressFormat.PNG,

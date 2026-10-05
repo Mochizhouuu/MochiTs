@@ -71,6 +71,25 @@ fun HomeScreen(
     var selectedDeleteProjectId by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    // Bundel .mts dibuka dari luar (ketuk/share): impor sekali saat tampil.
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        try {
+            val prefs = context.getSharedPreferences("mochits_bundle_in", android.content.Context.MODE_PRIVATE)
+            val path = prefs.getString("pending_bundle_path", null)
+            if (path != null) {
+                prefs.edit().remove("pending_bundle_path").apply()
+                val id = viewModel.importBundleFile(java.io.File(path))
+                if (id != null) {
+                    android.widget.Toast.makeText(context, "Bundel diimpor.", android.widget.Toast.LENGTH_SHORT).show()
+                    onOpenEditor(id)
+                } else {
+                    android.widget.Toast.makeText(context, "Gagal mengimpor bundel.", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
     var pendingBundleExportId by remember { mutableStateOf<String?>(null) }
 
     fun toast(msg: String) {
@@ -180,7 +199,7 @@ fun HomeScreen(
                     // Impor bundel .mts (F8).
                     IconButton(onClick = { bundleImportLauncher.launch(arrayOf("*/*")) }) {
                         Icon(
-                            imageVector = Icons.Default.Download,
+                            imageVector = Icons.Default.FolderOpen,
                             contentDescription = "Impor bundel (.mts)",
                             tint = MaterialTheme.colorScheme.onSurface
                         )
