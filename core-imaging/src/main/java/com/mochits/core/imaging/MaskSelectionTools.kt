@@ -49,12 +49,8 @@ class MaskSelectionTools(
     private val lassoPathY = mutableListOf<Float>()
     private var lastPoint: Offset? = null
 
-    /** Request yang pernah gagal alokasi (ter-clamp): jangan ulangi OOM. */
-    private var lastClampedRequest: Pair<Int, Int>? = null
-
     fun resetSize(newWidth: Int, newHeight: Int) {
         if (width == newWidth && height == newHeight) return
-        if (lastClampedRequest == Pair(newWidth, newHeight)) return
         // Jangan draw dari bitmap yang sudah di-recycle: di Robolectric NATIVE
         // itu native abort (exit 134), bukan sekadar exception.
         val oldMask = if (maskBitmap.isRecycled) null else maskBitmap
@@ -77,15 +73,8 @@ class MaskSelectionTools(
 
         maskBitmap = newMask
         rawMaskBitmap = newRawMask
-        // Catat DIMENSI AKTUAL (bisa ter-clamp saat OOM), bukan yang diminta,
-        // agar pengecekan luar tidak mengulang alokasi gagal selamanya (B16).
-        width = maskBitmap.width
-        height = maskBitmap.height
-        lastClampedRequest = if (width != newWidth || height != newHeight) {
-            Pair(newWidth, newHeight)
-        } else {
-            null
-        }
+        width = newWidth
+        height = newHeight
         invalidateCache()
     }
 
@@ -161,17 +150,9 @@ class MaskSelectionTools(
         // Reject taps outside the source image using float comparison first.
         // (Using toInt() directly would truncate -0.5 -> 0 and falsely hit the edge.)
         if (point.x < 0f || point.y < 0f || point.x >= srcBitmap.width.toFloat() || point.y >= srcBitmap.height.toFloat()) return
-        if (maskBitmap.width != srcBitmap.width || maskBitmap.height != srcBitmap.height ||
-            rawMaskBitmap.width != srcBitmap.width || rawMaskBitmap.height != srcBitmap.height
-        ) {
+        if (maskBitmap.width != srcBitmap.width || maskBitmap.height != srcBitmap.height) {
             // Keep mask aligned with source; silently resync instead of writing out of bounds.
             resetSize(srcBitmap.width, srcBitmap.height)
-            // Masih tidak sejajar (mis. OOM ter-clamp): batal, jangan tulis OOB.
-            if (maskBitmap.width != srcBitmap.width || maskBitmap.height != srcBitmap.height ||
-                rawMaskBitmap.width != srcBitmap.width || rawMaskBitmap.height != srcBitmap.height
-            ) {
-                return
-            }
         }
         val startX = kotlin.math.floor(point.x).toInt()
         val startY = kotlin.math.floor(point.y).toInt()
