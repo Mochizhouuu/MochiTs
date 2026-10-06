@@ -668,11 +668,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             )
                         }
                     }
-                    // Eraser / Mask Selection Shortcut Button
-                    IconButton(onClick = { viewModel.setActivePanel(EditorPanel.ERASE) }) {
-                        Icon(Icons.Default.CleaningServices, contentDescription = "Hapus / Seleksi Objek")
-                    }
-                    // Layers Shortcut Button
+                    // Layers Shortcut Button (satu-satunya jalan ke panel Layers)
                     IconButton(onClick = { viewModel.setActivePanel(EditorPanel.LAYERS) }) {
                         Icon(Icons.Default.Layers, contentDescription = "Layers")
                     }
