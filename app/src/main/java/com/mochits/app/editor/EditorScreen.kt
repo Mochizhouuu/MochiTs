@@ -2731,7 +2731,7 @@ fun EraseToolPanel(
     onRunErase: () -> Unit
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = Modifier
@@ -2935,7 +2935,7 @@ fun TextToolPanel(
     }
 
     Surface(
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = Modifier
@@ -2948,10 +2948,6 @@ fun TextToolPanel(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text(
-                text = if (selectedLayer != null) "Tool Teks (Edit Layer)" else "Tool Teks (Tambah Baru)",
-                style = MaterialTheme.typography.titleSmall
-            )
             OutlinedTextField(
                 value = textInput,
                 onValueChange = { newText ->
@@ -3337,7 +3333,7 @@ fun EffectToolPanel(
     }
 
     Surface(
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = Modifier
@@ -3351,8 +3347,6 @@ fun EffectToolPanel(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text("Efek Layer", style = MaterialTheme.typography.titleSmall)
-
             if (selectedLayer == null) {
                 Text(
                     text = "Pilih layer terlebih dahulu untuk mengatur transparansi dan efek.",
@@ -4093,7 +4087,7 @@ private fun ScriptPanel(
     onScriptPage: (Int) -> Unit
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = Modifier
@@ -4104,15 +4098,11 @@ private fun ScriptPanel(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            OutlinedButton(
+                onClick = onLoadScriptFile,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Script TL", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                OutlinedButton(onClick = onLoadScriptFile) {
-                    Text(if (scriptQueue != null) "Ganti file" else "Muat .txt")
-                }
+                Text(if (scriptQueue != null) "Ganti file script" else "Muat file .txt")
             }
             if (scriptQueue != null) {
                 val q = scriptQueue
@@ -4179,7 +4169,7 @@ private fun HistoryPanel(
 ) {
     val timeFmt = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
     Surface(
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = Modifier
@@ -4190,7 +4180,11 @@ private fun HistoryPanel(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text("Riwayat", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text(
+                "Ketuk entri untuk lompat ke keadaan itu.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             if (entries.isEmpty()) {
                 Text(
                     "Belum ada riwayat.",
@@ -4270,7 +4264,7 @@ fun LayersToolPanel(
 ) {
     val selectedLayer = layers.find { it.id == selectedId }
     Surface(
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = Modifier.fillMaxWidth().height(220.dp)
@@ -4279,7 +4273,6 @@ fun LayersToolPanel(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text("Layers", style = MaterialTheme.typography.titleSmall)
             if (selectedLayer != null) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
@@ -4466,7 +4459,7 @@ fun FontToolPanel(
     }
 
     Surface(
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = Modifier
@@ -4479,35 +4472,20 @@ fun FontToolPanel(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Font",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                OutlinedButton(
-                    onClick = onImportCustomFont,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Import", style = MaterialTheme.typography.labelLarge)
-                }
-            }
-
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text("Cari font komik...") },
+                placeholder = { Text("Cari font...") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = {
+                    IconButton(onClick = onImportCustomFont, modifier = Modifier.size(40.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Import font",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -4620,7 +4598,7 @@ fun StylePresetPanel(
     var presetName by remember { mutableStateOf("") }
 
     Surface(
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = Modifier
@@ -4633,8 +4611,6 @@ fun StylePresetPanel(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text("Preset Style", style = MaterialTheme.typography.titleSmall)
-
             if (onDeleteAllBuiltIns != null && presets.any { it.isBuiltIn }) {
                 TextButton(
                     onClick = { onDeleteAllBuiltIns() },
