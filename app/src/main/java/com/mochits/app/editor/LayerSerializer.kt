@@ -103,9 +103,16 @@ class LayerSerializer {
     fun deserialize(json: String): List<Layer> {
         if (json.isBlank() || json == "[]") return emptyList()
         val type = object : TypeToken<List<LayerJsonDto>>() {}.type
-        val dtos: List<LayerJsonDto> = gson.fromJson(json, type) ?: return emptyList()
+        // JSON korup tidak boleh meledakkan load proyek: kembali kosong.
+        val dtos: List<LayerJsonDto> = try {
+            gson.fromJson(json, type)
+        } catch (t: Throwable) {
+            com.mochits.app.util.Logger.e("Layers JSON korup, mulai kosong: ${t.message}", t)
+            return emptyList()
+        } ?: return emptyList()
 
-        return dtos.map { dto ->
+        return dtos.mapNotNull { dto ->
+            try {
             if (dto.type == "TEXT") {
                 val rawStyle = dto.style ?: TextStyleConfig()
                 var migratedStyle = if (rawStyle.gradientStops.isEmpty()) {
@@ -133,7 +140,7 @@ class LayerSerializer {
                     perspQuad = dto.perspQuad?.takeIf { it.size == 8 && it.all { v -> v.isFinite() } },
                     meshGrid = dto.meshGrid?.takeIf { it.size == 32 && it.all { v -> v.isFinite() } }
                 )
-            } else {
+            } else if (dto.type == "IMAGE") {
                 val imageBitmap = dto.imagePath?.let { path ->
                     val file = File(path)
                     if (file.exists()) {
@@ -181,6 +188,15 @@ class LayerSerializer {
                     perspQuad = dto.perspQuad?.takeIf { it.size == 8 && it.all { v -> v.isFinite() } },
                     meshGrid = dto.meshGrid?.takeIf { it.size == 32 && it.all { v -> v.isFinite() } }
                 )
+            } else {
+                // Tipe tak dikenal (masa depan/korup): lewati, jangan jadi gambar blank.
+                com.mochits.app.util.Logger.e("Layer type tak dikenal: ${dto.type}")
+                null
+            }
+            } catch (t: Throwable) {
+                // Field wajib hilang (id null dsb): lewati layer korup ini saja.
+                com.mochits.app.util.Logger.e("Layer korup dilewati: ${t.message}")
+                null
             }
         }
     }

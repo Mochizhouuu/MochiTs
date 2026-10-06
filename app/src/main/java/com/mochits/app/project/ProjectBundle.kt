@@ -102,6 +102,9 @@ object ProjectBundle {
             ZipInputStream(input.buffered(BUFFER_SIZE)).use { zip ->
                 var entry = zip.nextEntry
                 var count = 0
+                // Batas bom-zip: 2000 file / total 1GB.
+                var totalBytes = 0L
+                val buf = ByteArray(BUFFER_SIZE)
                 while (entry != null) {
                     if (++count > 2000) return null
                     val dest = File(staging, entry.name).canonicalFile
@@ -109,7 +112,15 @@ object ProjectBundle {
                     if (!dest.canonicalPath.startsWith(stagingBase)) return null
                     if (!entry.isDirectory) {
                         dest.parentFile?.mkdirs()
-                        dest.outputStream().use { zip.copyTo(it) }
+                        dest.outputStream().use { out ->
+                            while (true) {
+                                val n = zip.read(buf)
+                                if (n < 0) break
+                                totalBytes += n
+                                if (totalBytes > 1_000_000_000L) return null
+                                out.write(buf, 0, n)
+                            }
+                        }
                     }
                     zip.closeEntry()
                     entry = zip.nextEntry

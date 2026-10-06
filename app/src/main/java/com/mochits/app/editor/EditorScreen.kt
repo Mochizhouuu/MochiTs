@@ -1893,7 +1893,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
 
                                     // Render bounding box & controls (Resize, Rotate, Delete, Stretch V/H) if selected
                                     if (layer.id == selectedLayerId) {
-                                        val currentScale = viewModel.canvasState.scale
+                                        val currentScale = viewModel.canvasState.scale.coerceAtLeast(0.1f)
                                         val strokeW = 3f / currentScale
                                         val handleRadius = 24f / currentScale
 

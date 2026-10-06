@@ -705,29 +705,29 @@ class TextRenderer(private val context: Context) {
      * @return bitmap + origin kiri-atasnya dalam koordinat kanvas,
      * atau null bila teks kosong.
      */
-    fun renderToBitmap(layer: Layer.TextLayer): Pair<Bitmap, Offset>? {
-        if (layer.text.isEmpty()) return null
+    fun renderToBitmap(layer: Layer.TextLayer): Pair<Bitmap, Offset>? = synchronized(this) {
+        if (layer.text.isEmpty()) return@synchronized null
         val bounds = getWarpBounds(layer)
         val w = ceil(bounds.width()).toInt().coerceAtLeast(1)
         val h = ceil(bounds.height()).toInt().coerceAtLeast(1)
-        if (w > 4096 || h > 4096) return null
+        if (w > 4096 || h > 4096) return@synchronized null
         var bmp = flatBitmap
         if (bmp == null || bmp.isRecycled || bmp.width != w || bmp.height != h) {
             try { bmp?.recycle() } catch (_: Exception) {}
             bmp = try {
                 Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             } catch (_: Throwable) {
-                return null
+                return@synchronized null
             }
             flatBitmap = bmp
         }
-        val work = bmp ?: return null
+        val work = bmp ?: return@synchronized null
         work.eraseColor(Color.TRANSPARENT)
         val off = Canvas(work)
         off.translate(-bounds.left, -bounds.top)
         drawStyledText(off, layer)
         flatVersion += 1
-        return work to Offset(bounds.left, bounds.top)
+        return@synchronized work to Offset(bounds.left, bounds.top)
     }
 
     /**

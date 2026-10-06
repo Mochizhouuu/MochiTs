@@ -108,7 +108,8 @@ data class TextStyleConfig(
     }
     fun getEffectiveGradientStops(): List<ColorStop> {
         val stops = gradientStops
-        if (!stops.isNullOrEmpty()) {
+        // Kurang dari 2 stop membuat LinearGradient native crash.
+        if (stops != null && stops.size >= 2) {
             return stops.sortedBy { it.position }
         }
         return listOf(

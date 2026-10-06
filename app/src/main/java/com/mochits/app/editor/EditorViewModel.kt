@@ -1157,7 +1157,16 @@ data class HistoryManifest(
             val manifest = HistoryManifest(undoEntries, redoEntries)
             val manifestFile = File(historyDir, "manifest.json")
             val manifestJson = com.google.gson.Gson().toJson(manifest)
-            manifestFile.writeText(manifestJson)
+            // Atomic seperti bitmap: manifest robek = seluruh undo hilang.
+            val manifestTmp = File(historyDir, "manifest.json.tmp")
+            try {
+                manifestTmp.writeText(manifestJson)
+                if (!com.mochits.app.util.atomicReplace(manifestTmp, manifestFile)) {
+                    manifestFile.writeText(manifestJson)
+                }
+            } catch (t: Throwable) {
+                Logger.e("Error writing history manifest: ${t.message}", t)
+            }
 
             historyDir.listFiles()?.forEach { file ->
                 if (file.name != "manifest.json" && !referencedFiles.contains(file.name)) {
@@ -1402,12 +1411,16 @@ data class HistoryManifest(
     }
 
     fun updateProjectTitle(newTitle: String) {
-        val currentProj = project.value ?: return
-        val updated = currentProj.copy(title = newTitle)
-        project.value = updated
+        // Lewat lock agar tidak balapan dengan saveNow (judul baru vs
+        // snapshot lama: last-writer-wins yang benar = selalu judul baru).
         viewModelScope.launch {
-            if (!repository.saveProject(updated)) {
-                userMessage.value = UiMessage("Gagal menyimpan judul proyek.", UiMessage.Kind.ERROR)
+            saveMutex.withLock {
+                val currentProj = project.value ?: return@withLock
+                val updated = currentProj.copy(title = newTitle)
+                project.value = updated
+                if (!repository.saveProject(updated)) {
+                    userMessage.value = UiMessage("Gagal menyimpan judul proyek.", UiMessage.Kind.ERROR)
+                }
             }
         }
     }
@@ -2087,7 +2100,7 @@ data class HistoryManifest(
         boxHeight: Float?,
         newX: Float,
         newY: Float,
-        saveUndo: Boolean = false
+        saveUndo: Boolean = true
     ) {
         if (saveUndo) {
             saveUndoSnapshot()
@@ -2184,18 +2197,27 @@ data class HistoryManifest(
 
     /**
      * Salin background jadi image layer baru (tetap di posisi, langsung aktif).
-     * Bitmap dipakai bersama (aman: semua mutasi mengganti objek); file-nya
-     * ditulis terpisah saat save berikutnya.
+     * Bitmap disalin (bukan referensi bersama): kalau base diganti/dihapus,
+     * layer salinan tetap hidup. File-nya ditulis terpisah saat save.
      */
     fun duplicateBackground() {
         val src = baseBitmap.value
         if (src == null || src.isRecycled) return
+        val bmpCopy = try {
+            src.copy(Bitmap.Config.ARGB_8888, true)
+        } catch (t: Throwable) {
+            null
+        }
+        if (bmpCopy == null) {
+            userMessage.value = UiMessage("Memori penuh, background gagal disalin.", UiMessage.Kind.ERROR)
+            return
+        }
         saveUndoSnapshot("Duplikat background")
         val newId = UUID.randomUUID().toString()
         val copy = Layer.ImageLayer(
             id = newId,
             name = "Background copy",
-            bitmap = src,
+            bitmap = bmpCopy,
             imagePath = null
         )
         layers.value = layers.value + copy
