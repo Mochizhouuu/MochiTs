@@ -3008,22 +3008,7 @@ fun TextToolPanel(
             Button(
                 onClick = {
                     if (textInput.isNotBlank()) {
-            Box(
-                modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.Center
-            ) {
-                Surface(
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                    shape = CircleShape,
-                    modifier = Modifier.size(width = 36.dp, height = 4.dp)
-                ) {}
-            }
-            Text(
-                text = "Lapisan",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            if (selectedLayer != null) {
+                        if (selectedLayer != null) {
                             onUpdateTextContent?.invoke(textInput)
                         } else {
                             onAddText(textInput, pendingShape)
@@ -4365,6 +4350,21 @@ fun LayersToolPanel(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    shape = CircleShape,
+                    modifier = Modifier.size(width = 36.dp, height = 4.dp)
+                ) {}
+            }
+            Text(
+                text = "Lapisan",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
             if (selectedLayer != null) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
