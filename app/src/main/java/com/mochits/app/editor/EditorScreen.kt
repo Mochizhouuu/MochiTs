@@ -2744,7 +2744,7 @@ fun EraseToolPanel(
                 .verticalScroll(rememberScrollState())
         ) {
             if (!isCollapsed) {
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
 
                 OptionCycler(
                     label = "Alat",
@@ -2766,9 +2766,8 @@ fun EraseToolPanel(
                     }
                 )
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
 
-                Text("Model:", style = MaterialTheme.typography.labelLarge)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2789,7 +2788,7 @@ fun EraseToolPanel(
                 }
 
                 if (isDownloading) {
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Column {
                         Text(
                             text = "Mengunduh Model LaMa... ${(downloadProgress * 100).toInt()}%",
@@ -2803,7 +2802,7 @@ fun EraseToolPanel(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -2835,7 +2834,7 @@ fun EraseToolPanel(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 if (mode == MaskToolMode.MAGIC_WAND) {
                     if (!hasMask) {
                         Text(
@@ -2843,7 +2842,7 @@ fun EraseToolPanel(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(2.dp))
                     }
                     Text("Toleransi: ${magicWandTolerance.toInt()}%", style = MaterialTheme.typography.labelLarge)
                     Slider(
@@ -2852,7 +2851,7 @@ fun EraseToolPanel(
                         valueRange = 0f..100f
                     )
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
                     // Local drag state: the expensive re-dilate runs only on
                     // release, keeping the slider smooth on big masks.
                     var localExpandValue by remember(magicWandExpand) { mutableFloatStateOf(magicWandExpand) }
@@ -3676,7 +3675,7 @@ fun EffectToolPanel(
                                             }
                                         }
 
-                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Spacer(modifier = Modifier.height(2.dp))
                                         val angleDegree = currentStyle.gradientAngle.toInt()
                                         Text("Sudut Gradient (Angle): ${angleDegree}°", style = MaterialTheme.typography.bodySmall)
                                         Slider(
@@ -4490,7 +4489,6 @@ fun FontToolPanel(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Text("Pilih Font (${filteredFonts.size}):", style = MaterialTheme.typography.labelLarge)
             if (onToggleFavorite != null && favoriteKeys.isNotEmpty()) {
                 FilterChip(
                     selected = showFavoritesOnly,
