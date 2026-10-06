@@ -2652,6 +2652,51 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
 }
 
 @Composable
+private fun DockItem(
+    selected: Boolean,
+    onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String
+) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = if (selected) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            androidx.compose.ui.graphics.Color.Transparent
+        },
+        modifier = Modifier.widthIn(min = 60.dp)
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (selected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.size(22.dp)
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                color = if (selected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+        }
+    }
+}
+
+@Composable
 fun EditorBottomBar(
     activePanel: EditorPanel,
     onPanelSelect: (EditorPanel) -> Unit
@@ -2676,48 +2721,42 @@ fun EditorBottomBar(
             horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            NavigationBarItem(
-            selected = activePanel == EditorPanel.ERASE || activePanel == EditorPanel.MASK || activePanel == EditorPanel.INPAINT,
-            onClick = { onPanelSelect(EditorPanel.ERASE) },
-            icon = { Icon(Icons.Default.CleaningServices, contentDescription = "Erase") },
-            label = { Text("Erase", maxLines = 1) },
-            modifier = Modifier.widthIn(min = 60.dp)
-        )
-        NavigationBarItem(
-            selected = activePanel == EditorPanel.TEXT,
-            onClick = { onPanelSelect(EditorPanel.TEXT) },
-            icon = { Icon(Icons.Default.TextFields, contentDescription = "Text") },
-            label = { Text("Text", maxLines = 1) },
-            modifier = Modifier.widthIn(min = 60.dp)
-        )
-        NavigationBarItem(
-            selected = activePanel == EditorPanel.EFFECT,
-            onClick = { onPanelSelect(EditorPanel.EFFECT) },
-            icon = { Icon(Icons.Default.AutoAwesome, contentDescription = "Effect") },
-            label = { Text("Effect", maxLines = 1) },
-            modifier = Modifier.widthIn(min = 60.dp)
-        )
-        NavigationBarItem(
-            selected = activePanel == EditorPanel.FONT,
-            onClick = { onPanelSelect(EditorPanel.FONT) },
-            icon = { Icon(Icons.Default.FontDownload, contentDescription = "Font") },
-            label = { Text("Font", maxLines = 1) },
-            modifier = Modifier.widthIn(min = 60.dp)
-        )
-        NavigationBarItem(
-            selected = activePanel == EditorPanel.STYLE,
-            onClick = { onPanelSelect(EditorPanel.STYLE) },
-            icon = { Icon(Icons.Default.Style, contentDescription = "Style") },
-            label = { Text("Style", maxLines = 1) },
-            modifier = Modifier.widthIn(min = 60.dp)
-        )
-        NavigationBarItem(
-            selected = activePanel == EditorPanel.HISTORY,
-            onClick = { onPanelSelect(EditorPanel.HISTORY) },
-            icon = { Icon(Icons.Default.History, contentDescription = "History") },
-            label = { Text("History", maxLines = 1) },
-            modifier = Modifier.widthIn(min = 60.dp)
-        )
+            DockItem(
+                selected = activePanel == EditorPanel.ERASE || activePanel == EditorPanel.MASK || activePanel == EditorPanel.INPAINT,
+                onClick = { onPanelSelect(EditorPanel.ERASE) },
+                icon = Icons.Default.CleaningServices,
+                label = "Erase"
+            )
+            DockItem(
+                selected = activePanel == EditorPanel.TEXT,
+                onClick = { onPanelSelect(EditorPanel.TEXT) },
+                icon = Icons.Default.TextFields,
+                label = "Text"
+            )
+            DockItem(
+                selected = activePanel == EditorPanel.EFFECT,
+                onClick = { onPanelSelect(EditorPanel.EFFECT) },
+                icon = Icons.Default.AutoAwesome,
+                label = "Effect"
+            )
+            DockItem(
+                selected = activePanel == EditorPanel.FONT,
+                onClick = { onPanelSelect(EditorPanel.FONT) },
+                icon = Icons.Default.FontDownload,
+                label = "Font"
+            )
+            DockItem(
+                selected = activePanel == EditorPanel.STYLE,
+                onClick = { onPanelSelect(EditorPanel.STYLE) },
+                icon = Icons.Default.Style,
+                label = "Style"
+            )
+            DockItem(
+                selected = activePanel == EditorPanel.HISTORY,
+                onClick = { onPanelSelect(EditorPanel.HISTORY) },
+                icon = Icons.Default.History,
+                label = "History"
+            )
             }
         }
     }
