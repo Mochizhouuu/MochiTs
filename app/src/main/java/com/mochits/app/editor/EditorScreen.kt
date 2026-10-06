@@ -623,6 +623,24 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                     ) {
                         Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo")
                     }
+                    // Script TL Button (panel bawah)
+                    IconButton(
+                        onClick = {
+                            viewModel.setActivePanel(
+                                if (activePanel == EditorPanel.SCRIPT) EditorPanel.NONE else EditorPanel.SCRIPT
+                            )
+                        }
+                    ) {
+                        Icon(
+                            Icons.Default.List,
+                            contentDescription = "Script TL",
+                            tint = if (activePanel == EditorPanel.SCRIPT) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            }
+                        )
+                    }
                     // Add Menu (+)
                     Box {
                         IconButton(onClick = { showAddMenu = true }) {
@@ -2628,13 +2646,6 @@ fun EditorBottomBar(
             onClick = { onPanelSelect(EditorPanel.HISTORY) },
             icon = { Icon(Icons.Default.History, contentDescription = "Riwayat") },
             label = { Text("Riwayat", maxLines = 1) },
-            modifier = Modifier.widthIn(min = 60.dp)
-        )
-        NavigationBarItem(
-            selected = activePanel == EditorPanel.SCRIPT,
-            onClick = { onPanelSelect(EditorPanel.SCRIPT) },
-            icon = { Icon(Icons.Default.List, contentDescription = "Script") },
-            label = { Text("Script", maxLines = 1) },
             modifier = Modifier.widthIn(min = 60.dp)
         )
         }
