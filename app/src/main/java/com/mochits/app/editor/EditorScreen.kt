@@ -599,7 +599,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             }
                         }
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
                     }
                 },
                 actions = {
@@ -611,7 +611,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         },
                         enabled = canUndo
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
+                        Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Urungkan")
                     }
                     // Redo Button
                     IconButton(
@@ -621,7 +621,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         },
                         enabled = canRedo
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo")
+                        Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Ulangi")
                     }
                     // Script TL Button (panel bawah)
                     IconButton(
@@ -674,7 +674,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                     }
                     // Save As / Rename Menu
                     IconButton(onClick = { showExportDialog = true }) {
-                        Icon(Icons.Default.Save, contentDescription = "Simpan / Save As")
+                        Icon(Icons.Default.Save, contentDescription = "Simpan")
                     }
                 }
             )
@@ -2523,7 +2523,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
 
             AlertDialog(
                 onDismissRequest = { showExportDialog = false },
-                title = { Text("Save As", style = MaterialTheme.typography.titleLarge) },
+                title = { Text("Simpan Sebagai", style = MaterialTheme.typography.titleLarge) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         OutlinedTextField(
@@ -2701,8 +2701,8 @@ fun EditorBottomBar(
         NavigationBarItem(
             selected = activePanel == EditorPanel.HISTORY,
             onClick = { onPanelSelect(EditorPanel.HISTORY) },
-            icon = { Icon(Icons.Default.History, contentDescription = "Riwayat") },
-            label = { Text("Riwayat", maxLines = 1) },
+            icon = { Icon(Icons.Default.History, contentDescription = "History") },
+            label = { Text("History", maxLines = 1) },
             modifier = Modifier.widthIn(min = 60.dp)
         )
         }
@@ -2806,11 +2806,11 @@ fun EraseToolPanel(
                     OutlinedButton(
                         onClick = onClear,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
-                    ) { Text("Clear", style = MaterialTheme.typography.labelLarge) }
+                    ) { Text("Bersihkan", style = MaterialTheme.typography.labelLarge) }
                     OutlinedButton(
                         onClick = onInvert,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
-                    ) { Text("Invert", style = MaterialTheme.typography.labelLarge) }
+                    ) { Text("Balik", style = MaterialTheme.typography.labelLarge) }
                     Button(
                         onClick = onRunErase,
                         enabled = !isProcessing && !isDownloading && hasMask,
@@ -2851,7 +2851,7 @@ fun EraseToolPanel(
                     // release, keeping the slider smooth on big masks.
                     var localExpandValue by remember(magicWandExpand) { mutableFloatStateOf(magicWandExpand) }
 
-                    Text("Expand: ${localExpandValue.toInt()} px", style = MaterialTheme.typography.labelLarge)
+                    Text("Perluas: ${localExpandValue.toInt()} px", style = MaterialTheme.typography.labelLarge)
                     Slider(
                         value = localExpandValue,
                         onValueChange = { localExpandValue = it },
@@ -2985,7 +2985,7 @@ fun TextToolPanel(
             }
 
             OptionCycler(
-                label = "Alignment",
+                label = "Perataan",
                 options = listOf(
                     com.mochits.app.model.TextAlignment.LEFT,
                     com.mochits.app.model.TextAlignment.CENTER,
@@ -3127,7 +3127,7 @@ fun SimpleColorPickerRow(
             ) {
                 Icon(
                     Icons.Default.Palette,
-                    contentDescription = "Custom Hex",
+                    contentDescription = "Hex kustom",
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.size(20.dp)
                 )
@@ -3138,7 +3138,7 @@ fun SimpleColorPickerRow(
     if (showCustomHexDialog) {
         AlertDialog(
             onDismissRequest = { showCustomHexDialog = false },
-            title = { Text("Pilih Warna Custom (Hex)", style = MaterialTheme.typography.titleMedium) },
+            title = { Text("Pilih Warna Kustom (Hex)", style = MaterialTheme.typography.titleMedium) },
             text = {
                 OutlinedTextField(
                     value = hexInput,
@@ -3151,7 +3151,7 @@ fun SimpleColorPickerRow(
                             true
                         }
                     },
-                    label = { Text("Hex Color (contoh: #FF5722)") },
+                    label = { Text("Hex (contoh: #FF5722)") },
                     supportingText = {
                         if (isHexError) {
                             Text("Format salah, contoh valid: #FF5722", color = MaterialTheme.colorScheme.error)
@@ -3290,10 +3290,10 @@ private fun PerspectivePanel(    hasQuad: Boolean,
         FilterChip(
             selected = editing,
             onClick = onToggleEdit,
-            label = { Text(if (editing) "Edit Titik: ON" else "Edit Titik") }
+            label = { Text(if (editing) "Edit Titik: Aktif" else "Edit Titik") }
         )
         if (hasQuad) {
-            OutlinedButton(onClick = onReset) { Text("Reset") }
+            OutlinedButton(onClick = onReset) { Text("Atur ulang") }
         }
     }
 }
@@ -3421,12 +3421,12 @@ fun EffectToolPanel(
                             EffectType.DROP_SHADOW -> Icons.Default.WbSunny to "Drop Shadow"
                             EffectType.MOTION_BLUR -> Icons.Default.BlurLinear to "Motion Blur"
                             EffectType.GLOW -> Icons.Default.BlurCircular to "Glow"
-                            EffectType.PERSPECTIVE -> Icons.Default.Transform to "Perspektif"
+                            EffectType.PERSPECTIVE -> Icons.Default.Transform to "Perspective"
                             EffectType.WARP -> Icons.Default.GridOn to "Warp"
                             EffectType.IMAGE_TONE -> Icons.Default.Tune to "Tone"
                             EffectType.IMAGE_MOTION_BLUR -> Icons.Default.BlurLinear to "Motion Blur"
                             EffectType.IMAGE_GLOW -> Icons.Default.BlurCircular to "Glow"
-                            EffectType.IMAGE_PERSPECTIVE -> Icons.Default.Transform to "Perspektif"
+                            EffectType.IMAGE_PERSPECTIVE -> Icons.Default.Transform to "Perspective"
                             EffectType.IMAGE_WARP -> Icons.Default.GridOn to "Warp"
                         }
 
@@ -3493,7 +3493,7 @@ fun EffectToolPanel(
                     ) {
                         when (expandedEffect) {
                             EffectType.OPACITY -> {
-                                Text("Transparansi Layer (Opacity): ${(selectedLayer.opacity * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
+                                Text("Opasitas Layer: ${(selectedLayer.opacity * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
                                 Slider(
                                     value = selectedLayer.opacity,
                                     onValueChange = {
@@ -3517,12 +3517,12 @@ fun EffectToolPanel(
                                         FilterChip(
                                             selected = !currentStyle.isGradientEnabled,
                                             onClick = { onUpdateStyle(currentStyle.copy(isGradientEnabled = false), true) },
-                                            label = { Text("Solid Color") }
+                                            label = { Text("Warna Solid") }
                                         )
                                         FilterChip(
                                             selected = currentStyle.isGradientEnabled,
                                             onClick = { onUpdateStyle(currentStyle.copy(isGradientEnabled = true), true) },
-                                            label = { Text("Gradient") }
+                                            label = { Text("Gradien") }
                                         )
                                     }
 
@@ -3547,7 +3547,7 @@ fun EffectToolPanel(
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Text("Color Stops (${stops.size}):", style = MaterialTheme.typography.bodySmall)
+                                            Text("Warna Gradien (${stops.size}):", style = MaterialTheme.typography.bodySmall)
                                             IconButton(
                                                 onClick = {
                                                     val lastPos = stops.lastOrNull()?.position ?: 1.0f
@@ -3576,7 +3576,7 @@ fun EffectToolPanel(
                                                         horizontalArrangement = Arrangement.SpaceBetween,
                                                         verticalAlignment = Alignment.CenterVertically
                                                     ) {
-                                                        Text("Stop ${index + 1}", style = MaterialTheme.typography.labelSmall)
+                                                        Text("Warna ${index + 1}", style = MaterialTheme.typography.labelSmall)
                                                         IconButton(
                                                             onClick = {
                                                                 if (stops.size > 2) {
@@ -3641,7 +3641,7 @@ fun EffectToolPanel(
 
                                                     val currentAlphaFloat = AndroidColor.alpha(stop.color) / 255f
                                                     val alphaPercent = (currentAlphaFloat * 100).toInt()
-                                                    Text("Alpha (Transparansi): $alphaPercent%", style = MaterialTheme.typography.bodySmall)
+                                                    Text("Transparansi: $alphaPercent%", style = MaterialTheme.typography.bodySmall)
                                                     Slider(
                                                         value = currentAlphaFloat,
                                                         onValueChange = { newAlpha ->
@@ -3667,7 +3667,7 @@ fun EffectToolPanel(
 
                                         Spacer(modifier = Modifier.height(2.dp))
                                         val angleDegree = currentStyle.gradientAngle.toInt()
-                                        Text("Sudut Gradient (Angle): ${angleDegree}°", style = MaterialTheme.typography.bodySmall)
+                                        Text("Sudut Gradien: ${angleDegree}°", style = MaterialTheme.typography.bodySmall)
                                         Slider(
                                             value = currentStyle.gradientAngle,
                                             onValueChange = { newAngle ->
@@ -3681,7 +3681,7 @@ fun EffectToolPanel(
                                         )
                                     }
 
-                                    Text("Opacity Teks (Fill): ${(currentStyle.textOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                                    Text("Opasitas Teks: ${(currentStyle.textOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
                                     Slider(
                                         value = currentStyle.textOpacity,
                                         onValueChange = {
@@ -3726,7 +3726,7 @@ fun EffectToolPanel(
                                         valueRange = 0f..20f
                                     )
 
-                                    Text("Opacity Stroke: ${(currentStyle.strokeOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                                    Text("Opasitas Stroke: ${(currentStyle.strokeOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
                                     Slider(
                                         value = currentStyle.strokeOpacity,
                                         onValueChange = {
@@ -3761,7 +3761,7 @@ fun EffectToolPanel(
                                         }
                                     )
 
-                                    Text("Blur Radius: ${currentStyle.shadowRadius.toInt()} px", style = MaterialTheme.typography.bodySmall)
+                                    Text("Radius Blur: ${currentStyle.shadowRadius.toInt()} px", style = MaterialTheme.typography.bodySmall)
                                     Slider(
                                         value = currentStyle.shadowRadius,
                                         onValueChange = {
@@ -3775,7 +3775,7 @@ fun EffectToolPanel(
                                         valueRange = 0f..30f
                                     )
 
-                                    Text("Offset X: ${currentStyle.shadowDx.toInt()} px", style = MaterialTheme.typography.bodySmall)
+                                    Text("Geser X: ${currentStyle.shadowDx.toInt()} px", style = MaterialTheme.typography.bodySmall)
                                     Slider(
                                         value = currentStyle.shadowDx,
                                         onValueChange = {
@@ -3788,7 +3788,7 @@ fun EffectToolPanel(
                                         valueRange = -30f..30f
                                     )
 
-                                    Text("Offset Y: ${currentStyle.shadowDy.toInt()} px", style = MaterialTheme.typography.bodySmall)
+                                    Text("Geser Y: ${currentStyle.shadowDy.toInt()} px", style = MaterialTheme.typography.bodySmall)
                                     Slider(
                                         value = currentStyle.shadowDy,
                                         onValueChange = {
@@ -3871,7 +3871,7 @@ fun EffectToolPanel(
                             }
                             EffectType.IMAGE_TONE -> {
                                 if (selectedLayer is Layer.ImageLayer && onUpdateImageLayer != null) {
-                                    Text("Grayscale: ${(selectedLayer.grayscale * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                                    Text("Keabuan: ${(selectedLayer.grayscale * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
                                     Slider(
                                         value = selectedLayer.grayscale,
                                         onValueChange = {
@@ -3884,7 +3884,7 @@ fun EffectToolPanel(
                                         valueRange = 0f..1f
                                     )
 
-                                    Text("Brightness: ${(selectedLayer.brightness * 100).toInt()}", style = MaterialTheme.typography.bodySmall)
+                                    Text("Kecerahan: ${(selectedLayer.brightness * 100).toInt()}", style = MaterialTheme.typography.bodySmall)
                                     Slider(
                                         value = selectedLayer.brightness,
                                         onValueChange = {
@@ -3897,7 +3897,7 @@ fun EffectToolPanel(
                                         valueRange = -1f..1f
                                     )
 
-                                    Text("Contrast: ${(selectedLayer.contrast * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                                    Text("Kontras: ${(selectedLayer.contrast * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
                                     Slider(
                                         value = selectedLayer.contrast,
                                         onValueChange = {
@@ -3953,7 +3953,7 @@ fun EffectToolPanel(
                                         valueRange = 0f..360f
                                     )
                                     Text(
-                                        text = "Diproses di background; pratinjau muncul sesaat setelah slider dilepas.",
+                                        text = "Diproses di latar; pratinjau muncul sesaat setelah slider dilepas.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -4037,7 +4037,7 @@ fun EffectToolPanel(
                                         valueRange = 0f..30f
                                     )
                                     Text(
-                                        text = "Diproses di background; pratinjau muncul sesaat setelah slider dilepas.",
+                                        text = "Diproses di latar; pratinjau muncul sesaat setelah slider dilepas.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -4261,7 +4261,7 @@ fun LayersToolPanel(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Opacity Layer: ${(selectedLayer.opacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                    Text("Opasitas Layer: ${(selectedLayer.opacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
                     Slider(
                         value = selectedLayer.opacity.coerceIn(0f, 1f),
                         onValueChange = {
@@ -4303,7 +4303,7 @@ fun LayersToolPanel(
                                 IconButton(onClick = { onToggleVisibility(layer.id) }) {
                                     Icon(
                                         if (layer.isVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                        contentDescription = "Toggle Visibility"
+                                        contentDescription = "Tampil atau sembunyikan"
                                     )
                                 }
                                 Text(
@@ -4382,7 +4382,7 @@ fun LayersToolPanel(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
-                            Text(text = "Background", style = MaterialTheme.typography.bodyMedium)
+                            Text(text = "Latar", style = MaterialTheme.typography.bodyMedium)
                             if (backgroundLabel.isNotBlank()) {
                                 Text(
                                     text = backgroundLabel,
@@ -4471,7 +4471,7 @@ fun FontToolPanel(
                     IconButton(onClick = onImportCustomFont, modifier = Modifier.size(40.dp)) {
                         Icon(
                             imageVector = Icons.Default.Add,
-                            contentDescription = "Import font",
+                            contentDescription = "Impor font",
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -4534,7 +4534,7 @@ fun FontToolPanel(
                                     shape = CircleShape
                                 ) {
                                     Text(
-                                        "Custom",
+                                        "Kustom",
                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
                                         style = MaterialTheme.typography.labelSmall
                                     )

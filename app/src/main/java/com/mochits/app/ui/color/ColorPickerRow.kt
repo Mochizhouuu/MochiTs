@@ -319,7 +319,7 @@ fun ColorPickerRow(
                     // 3. Alpha / Transparansi Slider Bar
                     val colorOpaque = remember(hsv) { Color(ColorUtils.hsvToColor(hsv[0], hsv[1], hsv[2], 1f)) }
                     SliderBar(
-                        label = "Alpha / Transparansi: ${(alpha * 100).toInt()}%",
+                        label = "Transparansi: ${(alpha * 100).toInt()}%",
                         brush = Brush.horizontalGradient(
                             colors = listOf(Color.Transparent, colorOpaque)
                         ),
