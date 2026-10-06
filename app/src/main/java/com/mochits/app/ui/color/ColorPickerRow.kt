@@ -249,16 +249,11 @@ fun ColorPickerRow(
                                 center = Offset(selectorX, selectorY),
                                 style = Stroke(width = 2.dp.toPx())
                             )
-                            // Penanda "+" melayang di atas jari + garis penunjuk
-                            // ke titik asli, jadi selalu terlihat saat drag.
+                            // Penanda "+" melayang di atas jari (tanpa garis
+                            // penghubung: garis penuh + titik sudah menandai
+                            // titik aslinya, garis ekstra hanya bikin salib).
                             val markerLift = 80.dp.toPx()
                             val marker = Offset(selectorX, (selectorY - markerLift).coerceAtLeast(0f))
-                            drawLine(
-                                color = Color.White.copy(alpha = 0.9f),
-                                start = Offset(selectorX, selectorY),
-                                end = marker,
-                                strokeWidth = 2.dp.toPx()
-                            )
                             val arm = 12.dp.toPx()
                             drawLine(
                                 color = Color.White,

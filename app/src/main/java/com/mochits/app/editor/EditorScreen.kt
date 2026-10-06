@@ -443,7 +443,6 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
         }
     }
     var triggerRedraw by remember { mutableIntStateOf(0) }
-    var isMaskPanelCollapsed by remember { mutableStateOf(false) }
     // Whether the erase mask currently holds a selection. Updated only on
     // mask-mutating events (never per-recompose: hasMask() scans the bitmap).
     var hasMaskState by remember { mutableStateOf(false) }
@@ -691,9 +690,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         isProcessing = isProcessingInpaint,
                         isDownloading = isDownloadingLaMaModel,
                         downloadProgress = lamaDownloadProgress,
-                        isCollapsed = isMaskPanelCollapsed,
                         hasMask = hasMaskState,
-                        onToggleCollapse = { isMaskPanelCollapsed = !isMaskPanelCollapsed },
                         onModeSelected = {
                             // Mask dipertahankan: ganti alat tidak menghapus seleksi.
                             viewModel.setMaskToolMode(it)
@@ -2718,9 +2715,7 @@ fun EraseToolPanel(
     isProcessing: Boolean,
     isDownloading: Boolean,
     downloadProgress: Float,
-    isCollapsed: Boolean,
     hasMask: Boolean = false,
-    onToggleCollapse: () -> Unit,
     onModeSelected: (MaskToolMode) -> Unit,
     onModelSelected: (EditorViewModel.InpaintModel) -> Unit,
     onSizeChange: (Float) -> Unit,
@@ -2743,10 +2738,9 @@ fun EraseToolPanel(
                 .padding(horizontal = 10.dp, vertical = 8.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            if (!isCollapsed) {
-                Spacer(modifier = Modifier.height(2.dp))
+            Spacer(modifier = Modifier.height(2.dp))
 
-                OptionCycler(
+            OptionCycler(
                     label = "Alat",
                     options = listOf(
                         MaskToolMode.BRUSH,
@@ -2768,24 +2762,21 @@ fun EraseToolPanel(
 
                 Spacer(modifier = Modifier.height(2.dp))
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    FilterChip(
-                        selected = selectedModel == EditorViewModel.InpaintModel.TELEA,
-                        onClick = { onModelSelected(EditorViewModel.InpaintModel.TELEA) },
-                        label = { Text("Telea (Cepat)") }
-                    )
-                    FilterChip(
-                        selected = selectedModel == EditorViewModel.InpaintModel.LAMA,
-                        onClick = { onModelSelected(EditorViewModel.InpaintModel.LAMA) },
-                        label = { Text("LaMa (AI)") }
-                    )
-                }
+                OptionCycler(
+                    label = "Model",
+                    options = listOf(
+                        EditorViewModel.InpaintModel.TELEA,
+                        EditorViewModel.InpaintModel.LAMA
+                    ),
+                    selected = selectedModel,
+                    onSelect = onModelSelected,
+                    labelOf = {
+                        when (it) {
+                            EditorViewModel.InpaintModel.TELEA -> "Telea (Cepat)"
+                            EditorViewModel.InpaintModel.LAMA -> "LaMa (AI)"
+                        }
+                    }
+                )
 
                 if (isDownloading) {
                     Spacer(modifier = Modifier.height(4.dp))
@@ -2870,12 +2861,11 @@ fun EraseToolPanel(
                 } else {
                     Text("Kuas: ${brushSize.toInt()} px", style = MaterialTheme.typography.labelLarge)
                     Slider(
-                        value = brushSize,
+                        value = brushSize.coerceIn(5f, 200f),
                         onValueChange = onSizeChange,
                         valueRange = 5f..200f
                     )
                 }
-            }
         }
     }
 }
@@ -3055,11 +3045,12 @@ fun TextToolPanel(
             }
 
             if (selectedLayer != null && onCapitalizationTransform != null) {
-                Text("Kapitalisasi:", style = MaterialTheme.typography.labelLarge)
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.horizontalScroll(rememberScrollState())
                 ) {
+                    Text("Kapital:", style = MaterialTheme.typography.labelLarge)
                     FilterChip(
                         selected = false,
                         onClick = { onCapitalizationTransform("uppercase") },
@@ -3493,10 +3484,7 @@ fun EffectToolPanel(
                 if (expandedEffect != null) {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                     Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 200.dp)
-                            .verticalScroll(rememberScrollState()),
+                        modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         when (expandedEffect) {
@@ -3518,7 +3506,6 @@ fun EffectToolPanel(
                                 if (selectedLayer is Layer.TextLayer) {
                                     val currentStyle = selectedLayer.style
 
-                                    Text("Warna Fill Teks:", style = MaterialTheme.typography.titleSmall)
                                     Row(
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         verticalAlignment = Alignment.CenterVertically
@@ -3536,7 +3523,6 @@ fun EffectToolPanel(
                                     }
 
                                     if (!currentStyle.isGradientEnabled) {
-                                        Text("Warna Teks (Solid):", style = MaterialTheme.typography.bodySmall)
                                         ColorPickerRow(
                                             selectedColor = currentStyle.textColor,
                                             onColorSelected = { col -> onUpdateStyle(currentStyle.copy(textColor = col), true) },
@@ -3709,7 +3695,6 @@ fun EffectToolPanel(
                                 if (selectedLayer is Layer.TextLayer) {
                                     val currentStyle = selectedLayer.style
 
-                                    Text("Warna Stroke/Outline Teks:", style = MaterialTheme.typography.bodySmall)
                                     ColorPickerRow(
                                         selectedColor = currentStyle.strokeColor,
                                         onColorSelected = { col -> onUpdateStyle(currentStyle.copy(strokeColor = col), true) },
@@ -3755,7 +3740,6 @@ fun EffectToolPanel(
                                 if (selectedLayer is Layer.TextLayer) {
                                     val currentStyle = selectedLayer.style
 
-                                    Text("Warna Bayangan:", style = MaterialTheme.typography.bodySmall)
                                     ColorPickerRow(
                                         selectedColor = currentStyle.shadowColor,
                                         onColorSelected = { col ->
@@ -3843,18 +3827,12 @@ fun EffectToolPanel(
                                         },
                                         valueRange = 0f..360f
                                     )
-                                    Text(
-                                        text = "0° horizontal, 90° vertikal — sama seperti sudut gradient.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
                                 }
                             }
                             EffectType.GLOW -> {
                                 if (selectedLayer is Layer.TextLayer) {
                                     val currentStyle = selectedLayer.style
 
-                                    Text("Warna Glow:", style = MaterialTheme.typography.bodySmall)
                                     ColorPickerRow(
                                         selectedColor = currentStyle.glowColor,
                                         onColorSelected = { col ->
@@ -4280,7 +4258,7 @@ fun LayersToolPanel(
                 ) {
                     Text("Opacity Layer: ${(selectedLayer.opacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
                     Slider(
-                        value = selectedLayer.opacity,
+                        value = selectedLayer.opacity.coerceIn(0f, 1f),
                         onValueChange = {
                             onSliderDragStart()
                             onUpdateOpacity?.invoke(it, false)
