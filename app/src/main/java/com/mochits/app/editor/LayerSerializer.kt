@@ -102,102 +102,108 @@ class LayerSerializer {
 
     fun deserialize(json: String): List<Layer> {
         if (json.isBlank() || json == "[]") return emptyList()
-        val type = object : TypeToken<List<LayerJsonDto>>() {}.type
         // JSON korup tidak boleh meledakkan load proyek: kembali kosong.
+        val listType: java.lang.reflect.Type =
+            object : TypeToken<List<LayerJsonDto>>() {}.type
         val dtos: List<LayerJsonDto> = try {
-            gson.fromJson(json, type)
+            gson.fromJson<List<LayerJsonDto>>(json, listType) ?: return emptyList()
         } catch (t: Throwable) {
             com.mochits.app.util.Logger.e("Layers JSON korup, mulai kosong: ${t.message}", t)
             return emptyList()
-        } ?: return emptyList()
+        }
 
-        return dtos.mapNotNull { dto ->
+        val out = ArrayList<Layer>(dtos.size)
+        for (dto in dtos) {
             try {
-            if (dto.type == "TEXT") {
-                val rawStyle = dto.style ?: TextStyleConfig()
-                var migratedStyle = if (rawStyle.gradientStops.isEmpty()) {
-                    rawStyle.copy(gradientStops = rawStyle.getEffectiveGradientStops())
-                } else rawStyle
-                if (migratedStyle.gradientDirection.equals("VERTICAL", ignoreCase = true) && migratedStyle.gradientAngle == 0f) {
-                    migratedStyle = migratedStyle.copy(gradientAngle = 90f)
+                when (dto.type) {
+                    "TEXT" -> out.add(buildTextLayer(dto))
+                    "IMAGE" -> out.add(buildImageLayer(dto))
+                    else -> com.mochits.app.util.Logger.e("Layer type tak dikenal: ${dto.type}")
                 }
-                Layer.TextLayer(
-                    id = dto.id,
-                    name = dto.name,
-                    x = dto.x,
-                    y = dto.y,
-                    rotation = dto.rotation,
-                    scaleX = dto.scaleX,
-                    scaleY = dto.scaleY,
-                    opacity = dto.opacity,
-                    isVisible = dto.isVisible,
-                    isLocked = dto.isLocked,
-                    text = dto.text ?: "",
-                    style = migratedStyle,
-                    textContainerShape = dto.textContainerShape ?: TextContainerShape.BOX,
-                    boxWidth = dto.boxWidth?.takeIf { it.isFinite() && it > 0f },
-                    boxHeight = dto.boxHeight?.takeIf { it.isFinite() && it > 0f },
-                    perspQuad = dto.perspQuad?.takeIf { it.size == 8 && it.all { v -> v.isFinite() } },
-                    meshGrid = dto.meshGrid?.takeIf { it.size == 32 && it.all { v -> v.isFinite() } }
-                )
-            } else if (dto.type == "IMAGE") {
-                val imageBitmap = dto.imagePath?.let { path ->
-                    val file = File(path)
-                    if (file.exists()) {
-                        try {
-                            // Batasi decode (B2): layer raksasa di-sample seperti base.
-                            val bounds = android.graphics.BitmapFactory.Options().apply {
-                                inJustDecodeBounds = true
-                            }
-                            android.graphics.BitmapFactory.decodeFile(file.absolutePath, bounds)
-                            val sample = maxOf(
-                                bounds.outWidth / 8192,
-                                bounds.outHeight / 8192,
-                                1
-                            )
-                            val opts = android.graphics.BitmapFactory.Options().apply {
-                                inMutable = true
-                                inSampleSize = sample
-                            }
-                            android.graphics.BitmapFactory.decodeFile(file.absolutePath, opts)
-                        } catch (t: Throwable) {
-                            null
-                        }
-                    } else null
-                }
-                Layer.ImageLayer(
-                    id = dto.id,
-                    name = dto.name,
-                    x = dto.x,
-                    y = dto.y,
-                    rotation = dto.rotation,
-                    scaleX = dto.scaleX,
-                    scaleY = dto.scaleY,
-                    opacity = dto.opacity,
-                    isVisible = dto.isVisible,
-                    isLocked = dto.isLocked,
-                    bitmap = imageBitmap,
-                    imagePath = dto.imagePath,
-                    grayscale = dto.grayscale ?: 0f,
-                    brightness = dto.brightness ?: 0f,
-                    contrast = dto.contrast ?: 1f,
-                    motionBlurRadius = dto.motionBlurRadius ?: 0f,
-                    motionBlurAngle = dto.motionBlurAngle ?: 0f,
-                    glowColor = dto.glowColor ?: android.graphics.Color.TRANSPARENT,
-                    glowRadius = dto.glowRadius ?: 0f,
-                    perspQuad = dto.perspQuad?.takeIf { it.size == 8 && it.all { v -> v.isFinite() } },
-                    meshGrid = dto.meshGrid?.takeIf { it.size == 32 && it.all { v -> v.isFinite() } }
-                )
-            } else {
-                // Tipe tak dikenal (masa depan/korup): lewati, jangan jadi gambar blank.
-                com.mochits.app.util.Logger.e("Layer type tak dikenal: ${dto.type}")
-                null
-            }
             } catch (t: Throwable) {
                 // Field wajib hilang (id null dsb): lewati layer korup ini saja.
                 com.mochits.app.util.Logger.e("Layer korup dilewati: ${t.message}")
-                null
             }
         }
+        return out
+    }
+
+    private fun buildTextLayer(dto: LayerJsonDto): Layer.TextLayer {
+        val rawStyle = dto.style ?: TextStyleConfig()
+        var migratedStyle = if (rawStyle.gradientStops.isEmpty()) {
+            rawStyle.copy(gradientStops = rawStyle.getEffectiveGradientStops())
+        } else rawStyle
+        if (migratedStyle.gradientDirection.equals("VERTICAL", ignoreCase = true) && migratedStyle.gradientAngle == 0f) {
+            migratedStyle = migratedStyle.copy(gradientAngle = 90f)
+        }
+        return Layer.TextLayer(
+            id = dto.id,
+            name = dto.name,
+            x = dto.x,
+            y = dto.y,
+            rotation = dto.rotation,
+            scaleX = dto.scaleX,
+            scaleY = dto.scaleY,
+            opacity = dto.opacity,
+            isVisible = dto.isVisible,
+            isLocked = dto.isLocked,
+            text = dto.text ?: "",
+            style = migratedStyle,
+            textContainerShape = dto.textContainerShape ?: TextContainerShape.BOX,
+            boxWidth = dto.boxWidth?.takeIf { it.isFinite() && it > 0f },
+            boxHeight = dto.boxHeight?.takeIf { it.isFinite() && it > 0f },
+            perspQuad = dto.perspQuad?.takeIf { it.size == 8 && it.all { v -> v.isFinite() } },
+            meshGrid = dto.meshGrid?.takeIf { it.size == 32 && it.all { v -> v.isFinite() } }
+        )
+    }
+
+    private fun buildImageLayer(dto: LayerJsonDto): Layer.ImageLayer {
+        val imageBitmap = dto.imagePath?.let { path ->
+            val file = File(path)
+            if (file.exists()) {
+                try {
+                    // Batasi decode (B2): layer raksasa di-sample seperti base.
+                    val bounds = android.graphics.BitmapFactory.Options().apply {
+                        inJustDecodeBounds = true
+                    }
+                    android.graphics.BitmapFactory.decodeFile(file.absolutePath, bounds)
+                    val sample = maxOf(
+                        bounds.outWidth / 8192,
+                        bounds.outHeight / 8192,
+                        1
+                    )
+                    val opts = android.graphics.BitmapFactory.Options().apply {
+                        inMutable = true
+                        inSampleSize = sample
+                    }
+                    android.graphics.BitmapFactory.decodeFile(file.absolutePath, opts)
+                } catch (t: Throwable) {
+                    null
+                }
+            } else null
+        }
+        return Layer.ImageLayer(
+            id = dto.id,
+            name = dto.name,
+            x = dto.x,
+            y = dto.y,
+            rotation = dto.rotation,
+            scaleX = dto.scaleX,
+            scaleY = dto.scaleY,
+            opacity = dto.opacity,
+            isVisible = dto.isVisible,
+            isLocked = dto.isLocked,
+            bitmap = imageBitmap,
+            imagePath = dto.imagePath,
+            grayscale = dto.grayscale ?: 0f,
+            brightness = dto.brightness ?: 0f,
+            contrast = dto.contrast ?: 1f,
+            motionBlurRadius = dto.motionBlurRadius ?: 0f,
+            motionBlurAngle = dto.motionBlurAngle ?: 0f,
+            glowColor = dto.glowColor ?: android.graphics.Color.TRANSPARENT,
+            glowRadius = dto.glowRadius ?: 0f,
+            perspQuad = dto.perspQuad?.takeIf { it.size == 8 && it.all { v -> v.isFinite() } },
+            meshGrid = dto.meshGrid?.takeIf { it.size == 32 && it.all { v -> v.isFinite() } }
+        )
     }
 }
