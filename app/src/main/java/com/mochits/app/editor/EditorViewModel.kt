@@ -2745,6 +2745,7 @@ data class HistoryManifest(
     ) {
         viewModelScope.launch {
             isExporting.value = true
+            flushBlocking()
             val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     val docTree = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, treeUri)
@@ -2775,6 +2776,8 @@ data class HistoryManifest(
     suspend fun exportBundleToUri(uri: android.net.Uri): Boolean =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
+                // Bundel baca dari disk/DB: flush dulu agar isi terbaru (B-mts).
+                flushBlocking()
                 val ok = context.contentResolver.openOutputStream(uri)?.use { out ->
                     repository.exportBundle(projectId, out)
                 } ?: false
