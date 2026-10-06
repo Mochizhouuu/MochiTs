@@ -15,6 +15,7 @@ import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import com.mochits.app.font.FontItem
 import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
@@ -2535,7 +2536,10 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             modifier = Modifier.fillMaxWidth()
                         )
                         Text("Format:", style = MaterialTheme.typography.bodyMedium)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.horizontalScroll(rememberScrollState())
+                        ) {
                             listOf("PNG", "JPEG", "WEBP", "MTS").forEach { fmt ->
                                 FilterChip(
                                     selected = selectedFormat == fmt,
@@ -4097,7 +4101,8 @@ private fun ScriptPanel(
                 )
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
                 ) {
                     Button(
                         onClick = onApplyScriptLine,
@@ -4291,14 +4296,22 @@ fun LayersToolPanel(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
                                 IconButton(onClick = { onToggleVisibility(layer.id) }) {
                                     Icon(
                                         if (layer.isVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
                                         contentDescription = "Toggle Visibility"
                                     )
                                 }
-                                Text(text = layer.name)
+                                Text(
+                                    text = layer.name,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
                             }
                             // Aksi layer ringkas dalam menu ⋮ agar baris tetap
                             // lega (slot siap untuk Clipping Mask nanti).
