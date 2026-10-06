@@ -1907,10 +1907,66 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                             strokeWidth = strokeW
                                             pathEffect = DashPathEffect(floatArrayOf(10f / currentScale, 10f / currentScale), 0f)
                                         }
-                                        if (layer.textContainerShape == com.mochits.app.model.TextContainerShape.OVAL) {
-                                            drawContext.canvas.nativeCanvas.drawOval(bounds, boxPaint)
+                                        // Outline seleksi: ikuti warp bila aktif (agar tidak
+                                        // terlihat "nglebihin kotak"), kalau tidak kotaknya
+                                        // digelembungkan setebal efek (stroke/glow/shadow).
+                                        val warpQuad = layer.perspQuad
+                                        val warpMesh = layer.meshGrid
+                                        if (warpQuad != null && com.mochits.app.imaging.Perspective.isActive(warpQuad)) {
+                                            // Blok seleksi sudah di dalam frame rotasi isi teks:
+                                            // gambar sudut tanpa-rotasi, kanvas yang memutarnya.
+                                            // Quad dinormalisasi ke box warp (padded), samakan.
+                                            val outlineBox = textRenderer.getWarpBounds(layer)
+                                            val flatCorners = perspCanvasCorners(warpQuad, outlineBox, 0f)
+                                            val flatPath = android.graphics.Path()
+                                            flatPath.moveTo(flatCorners[0].x, flatCorners[0].y)
+                                            for (i in 1 until 4) flatPath.lineTo(flatCorners[i].x, flatCorners[i].y)
+                                            flatPath.close()
+                                            drawContext.canvas.nativeCanvas.drawPath(flatPath, boxPaint)
+                                        } else if (warpMesh != null && com.mochits.app.imaging.Perspective.isMeshActive(warpMesh)) {
+                                            val outlineBox = textRenderer.getWarpBounds(layer)
+                                            val pts = meshCanvasPoints(warpMesh, outlineBox, 0f)
+                                            val n = com.mochits.app.imaging.Perspective.MESH_N
+                                            val meshPath = android.graphics.Path()
+                                            // Sisi luar grid saja (atas, kanan, bawah, kiri).
+                                            for (i in 0 until n) {
+                                                val p = pts[i]
+                                                if (i == 0) meshPath.moveTo(p.x, p.y) else meshPath.lineTo(p.x, p.y)
+                                            }
+                                            for (j in 1 until n) {
+                                                val p = pts[j * n + (n - 1)]
+                                                meshPath.lineTo(p.x, p.y)
+                                            }
+                                            for (i in n - 2 downTo 0) {
+                                                val p = pts[(n - 1) * n + i]
+                                                meshPath.lineTo(p.x, p.y)
+                                            }
+                                            for (j in n - 2 downTo 0) {
+                                                val p = pts[j * n]
+                                                meshPath.lineTo(p.x, p.y)
+                                            }
+                                            meshPath.close()
+                                            drawContext.canvas.nativeCanvas.drawPath(meshPath, boxPaint)
                                         } else {
-                                            drawContext.canvas.nativeCanvas.drawRect(bounds, boxPaint)
+                                            val st = layer.style
+                                            val fxPad = maxOf(
+                                                st.strokeWidth,
+                                                st.glowRadius,
+                                                st.shadowRadius + kotlin.math.abs(st.shadowDx) + kotlin.math.abs(st.shadowDy),
+                                                st.motionBlurRadius,
+                                                0f
+                                            ) + 2f
+                                            val drawBox = android.graphics.RectF(
+                                                bounds.left - fxPad,
+                                                bounds.top - fxPad,
+                                                bounds.right + fxPad,
+                                                bounds.bottom + fxPad
+                                            )
+                                            if (layer.textContainerShape == com.mochits.app.model.TextContainerShape.OVAL) {
+                                                drawContext.canvas.nativeCanvas.drawOval(drawBox, boxPaint)
+                                            } else {
+                                                drawContext.canvas.nativeCanvas.drawRect(drawBox, boxPaint)
+                                            }
                                         }
 
                                         val handleFillPaint = handleFillPaintCache
@@ -2679,7 +2735,7 @@ fun EraseToolPanel(
     onRunErase: () -> Unit
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = Modifier
@@ -2716,7 +2772,7 @@ fun EraseToolPanel(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                Text("Model:", style = MaterialTheme.typography.labelMedium)
+                Text("Model:", style = MaterialTheme.typography.labelLarge)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2793,7 +2849,7 @@ fun EraseToolPanel(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                     }
-                    Text("Toleransi: ${magicWandTolerance.toInt()}%", style = MaterialTheme.typography.labelMedium)
+                    Text("Toleransi: ${magicWandTolerance.toInt()}%", style = MaterialTheme.typography.labelLarge)
                     Slider(
                         value = magicWandTolerance,
                         onValueChange = onToleranceChange,
@@ -2805,7 +2861,7 @@ fun EraseToolPanel(
                     // release, keeping the slider smooth on big masks.
                     var localExpandValue by remember(magicWandExpand) { mutableFloatStateOf(magicWandExpand) }
 
-                    Text("Expand: ${localExpandValue.toInt()} px", style = MaterialTheme.typography.labelMedium)
+                    Text("Expand: ${localExpandValue.toInt()} px", style = MaterialTheme.typography.labelLarge)
                     Slider(
                         value = localExpandValue,
                         onValueChange = { localExpandValue = it },
@@ -2817,7 +2873,7 @@ fun EraseToolPanel(
                         valueRange = 0f..30f
                     )
                 } else {
-                    Text("Kuas: ${brushSize.toInt()} px", style = MaterialTheme.typography.labelMedium)
+                    Text("Kuas: ${brushSize.toInt()} px", style = MaterialTheme.typography.labelLarge)
                     Slider(
                         value = brushSize,
                         onValueChange = onSizeChange,
@@ -2883,7 +2939,7 @@ fun TextToolPanel(
     }
 
     Surface(
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = Modifier
@@ -2898,7 +2954,7 @@ fun TextToolPanel(
         ) {
             Text(
                 text = if (selectedLayer != null) "Tool Teks (Edit Layer)" else "Tool Teks (Tambah Baru)",
-                style = MaterialTheme.typography.titleMedium
+                style = MaterialTheme.typography.titleSmall
             )
             OutlinedTextField(
                 value = textInput,
@@ -3008,7 +3064,7 @@ fun TextToolPanel(
             }
 
             if (selectedLayer != null && onCapitalizationTransform != null) {
-                Text("Kapitalisasi Teks:", style = MaterialTheme.typography.bodyMedium)
+                Text("Kapitalisasi:", style = MaterialTheme.typography.labelLarge)
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.horizontalScroll(rememberScrollState())
@@ -3285,7 +3341,7 @@ fun EffectToolPanel(
     }
 
     Surface(
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = Modifier
@@ -4218,12 +4274,16 @@ fun LayersToolPanel(
 ) {
     val selectedLayer = layers.find { it.id == selectedId }
     Surface(
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = Modifier.fillMaxWidth().height(220.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text("Layers", style = MaterialTheme.typography.titleSmall)
             if (selectedLayer != null) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
@@ -4564,7 +4624,7 @@ fun StylePresetPanel(
     var presetName by remember { mutableStateOf("") }
 
     Surface(
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = Modifier
