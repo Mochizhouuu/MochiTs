@@ -619,14 +619,19 @@ data class HistoryManifest(
     fun undo() {
         val previousState = synchronized(undoStack) {
             if (undoStack.isEmpty()) return
-            val currentSnapshot = HistorySnapshot(
-                layers = layers.value,
-                baseBitmap = baseBitmap.value,
-                maskBytes = getMaskByteArray(),
-                rawMaskBytes = getRawMaskByteArray()
-            )
-            redoStack.addLast(currentSnapshot)
             undoStack.removeLast()
+        }
+        // Entri redo mewarisi label aksi yang di-undo (F3): daftar redo bermakna.
+        val currentSnapshot = HistorySnapshot(
+            layers = layers.value,
+            baseBitmap = baseBitmap.value,
+            maskBytes = getMaskByteArray(),
+            rawMaskBytes = getRawMaskByteArray(),
+            label = previousState.label,
+            timestamp = System.currentTimeMillis()
+        )
+        synchronized(undoStack) {
+            redoStack.addLast(currentSnapshot)
         }
         restoreSnapshot(previousState)
         updateUndoRedoState()
@@ -636,14 +641,18 @@ data class HistoryManifest(
     fun redo() {
         val nextState = synchronized(undoStack) {
             if (redoStack.isEmpty()) return
-            val currentSnapshot = HistorySnapshot(
-                layers = layers.value,
-                baseBitmap = baseBitmap.value,
-                maskBytes = getMaskByteArray(),
-                rawMaskBytes = getRawMaskByteArray()
-            )
-            undoStack.addLast(currentSnapshot)
             redoStack.removeLast()
+        }
+        val currentSnapshot = HistorySnapshot(
+            layers = layers.value,
+            baseBitmap = baseBitmap.value,
+            maskBytes = getMaskByteArray(),
+            rawMaskBytes = getRawMaskByteArray(),
+            label = nextState.label,
+            timestamp = System.currentTimeMillis()
+        )
+        synchronized(undoStack) {
+            undoStack.addLast(currentSnapshot)
         }
         restoreSnapshot(nextState)
         updateUndoRedoState()

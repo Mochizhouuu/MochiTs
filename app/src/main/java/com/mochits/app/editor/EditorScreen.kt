@@ -2691,34 +2691,6 @@ fun EraseToolPanel(
                 .padding(horizontal = 10.dp, vertical = 8.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Status dot + judul sebaris: hemat satu baris penuh.
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .background(
-                            color = if (hasMask) Color(0xFF4CAF50) else MaterialTheme.colorScheme.outline,
-                            shape = androidx.compose.foundation.shape.CircleShape
-                        )
-                )
-                Text(
-                    text = "Erase",
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(onClick = onToggleCollapse, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                        if (isCollapsed) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = if (isCollapsed) "Expand Panel" else "Collapse Panel",
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-
             if (!isCollapsed) {
                 Spacer(modifier = Modifier.height(4.dp))
 
@@ -2914,13 +2886,15 @@ fun TextToolPanel(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 380.dp)
     ) {
         Column(
             modifier = Modifier
-                .padding(14.dp)
+                .padding(horizontal = 10.dp, vertical = 8.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
                 text = if (selectedLayer != null) "Tool Teks (Edit Layer)" else "Tool Teks (Tambah Baru)",
@@ -3316,13 +3290,16 @@ fun EffectToolPanel(
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(max = 400.dp)
             .animateContentSize()
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier
+                .padding(horizontal = 10.dp, vertical = 8.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text("Efek Layer", style = MaterialTheme.typography.titleMedium)
+            Text("Efek Layer", style = MaterialTheme.typography.titleSmall)
 
             if (selectedLayer == null) {
                 Text(
