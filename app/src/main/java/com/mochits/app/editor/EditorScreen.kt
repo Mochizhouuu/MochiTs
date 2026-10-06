@@ -583,7 +583,14 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { },
+                title = {
+                    Text(
+                        text = projectTitleName.ifBlank { "Tanpa Judul" },
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
                 navigationIcon = {
                     IconButton(
                         onClick = {
@@ -2649,19 +2656,25 @@ fun EditorBottomBar(
     activePanel: EditorPanel,
     onPanelSelect: (EditorPanel) -> Unit
 ) {
-    // Bar geser horizontal (seperti menu Effect): menu baru bisa ditambah
-    // tanpa mengecilkan ikon yang sudah ada.
-    Surface(
-        tonalElevation = 3.dp,
-        color = MaterialTheme.colorScheme.surfaceContainer
+    // Dock alat mengambang: pil terpusat dengan margin, bukan bar penuh.
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center
     ) {
+        Surface(
+            tonalElevation = 6.dp,
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            shape = CircleShape
+        ) {
         Row(
             modifier = Modifier
-                .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.Start
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.Start,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             NavigationBarItem(
             selected = activePanel == EditorPanel.ERASE || activePanel == EditorPanel.MASK || activePanel == EditorPanel.INPAINT,
@@ -2705,6 +2718,7 @@ fun EditorBottomBar(
             label = { Text("History", maxLines = 1) },
             modifier = Modifier.widthIn(min = 60.dp)
         )
+            }
         }
     }
 }
@@ -2732,7 +2746,7 @@ fun EraseToolPanel(
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(max = 320.dp)
@@ -2742,6 +2756,21 @@ fun EraseToolPanel(
                 .padding(horizontal = 10.dp, vertical = 8.dp)
                 .verticalScroll(rememberScrollState())
         ) {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    shape = CircleShape,
+                    modifier = Modifier.size(width = 36.dp, height = 4.dp)
+                ) {}
+            }
+            Text(
+                text = "Hapus",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
             Spacer(modifier = Modifier.height(2.dp))
 
             OptionCycler(
@@ -2930,7 +2959,7 @@ fun TextToolPanel(
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(max = 380.dp)
@@ -2941,6 +2970,21 @@ fun TextToolPanel(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    shape = CircleShape,
+                    modifier = Modifier.size(width = 36.dp, height = 4.dp)
+                ) {}
+            }
+            Text(
+                text = "Teks",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
             OutlinedTextField(
                 value = textInput,
                 onValueChange = { newText ->
@@ -2964,7 +3008,22 @@ fun TextToolPanel(
             Button(
                 onClick = {
                     if (textInput.isNotBlank()) {
-                        if (selectedLayer != null) {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    shape = CircleShape,
+                    modifier = Modifier.size(width = 36.dp, height = 4.dp)
+                ) {}
+            }
+            Text(
+                text = "Lapisan",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            if (selectedLayer != null) {
                             onUpdateTextContent?.invoke(textInput)
                         } else {
                             onAddText(textInput, pendingShape)
@@ -3329,7 +3388,7 @@ fun EffectToolPanel(
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(max = 400.dp)
@@ -3341,6 +3400,21 @@ fun EffectToolPanel(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    shape = CircleShape,
+                    modifier = Modifier.size(width = 36.dp, height = 4.dp)
+                ) {}
+            }
+            Text(
+                text = "Efek",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
             if (selectedLayer == null) {
                 Text(
                     text = "Pilih layer terlebih dahulu untuk mengatur transparansi dan efek.",
@@ -3358,11 +3432,14 @@ fun EffectToolPanel(
                     }
                 }
 
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp)
-                ) {
-                    items(availableEffects) { effect ->
+                // Grid kartu efek 2 kolom: ketuk kartu untuk buka/tutup kontrolnya.
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    availableEffects.chunked(2).forEach { rowEffects ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            rowEffects.forEach { effect ->
                         val isSelected = expandedEffect == effect
                         val isActive = when (effect) {
                             EffectType.OPACITY -> selectedLayer.opacity < 1.0f
@@ -3434,7 +3511,8 @@ fun EffectToolPanel(
                             onClick = {
                                 expandedEffect = if (isSelected) null else effect
                             },
-                            shape = CircleShape,
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                            modifier = Modifier.weight(1f),
                             color = if (isSelected) {
                                 MaterialTheme.colorScheme.primaryContainer
                             } else if (isActive) {
@@ -3449,7 +3527,9 @@ fun EffectToolPanel(
                             } else null,
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -3472,8 +3552,14 @@ fun EffectToolPanel(
                                 Text(
                                     text = title,
                                     style = MaterialTheme.typography.labelLarge,
-                                    maxLines = 1
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
+                            }
+                        }
+                            }
+                            if (rowEffects.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
                             }
                         }
                     }
@@ -4064,7 +4150,7 @@ private fun ScriptPanel(
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(max = 340.dp)
@@ -4073,6 +4159,21 @@ private fun ScriptPanel(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    shape = CircleShape,
+                    modifier = Modifier.size(width = 36.dp, height = 4.dp)
+                ) {}
+            }
+            Text(
+                text = "Script TL",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
             OutlinedButton(
                 onClick = onLoadScriptFile,
                 modifier = Modifier.fillMaxWidth()
@@ -4147,7 +4248,7 @@ private fun HistoryPanel(
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(max = 340.dp)
@@ -4156,6 +4257,21 @@ private fun HistoryPanel(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    shape = CircleShape,
+                    modifier = Modifier.size(width = 36.dp, height = 4.dp)
+                ) {}
+            }
+            Text(
+                text = "Riwayat",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
             Text(
                 "Ketuk entri untuk lompat ke keadaan itu.",
                 style = MaterialTheme.typography.labelSmall,
@@ -4242,7 +4358,7 @@ fun LayersToolPanel(
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier.fillMaxWidth().height(220.dp)
     ) {
         Column(
@@ -4300,8 +4416,18 @@ fun LayersToolPanel(
                                         contentDescription = "Tampil atau sembunyikan"
                                     )
                                 }
+                                Icon(
+                                    when (layer) {
+                                        is Layer.TextLayer -> Icons.Default.TextFields
+                                        is Layer.ImageLayer -> Icons.Default.Image
+                                        else -> Icons.Default.Layers
+                                    },
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                                 Text(
-                                    text = layer.name,
+                                    text = layer.name + " • ${(layer.opacity * 100).toInt()}%",
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f)
@@ -4445,7 +4571,7 @@ fun FontToolPanel(
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(max = 360.dp)
@@ -4456,6 +4582,21 @@ fun FontToolPanel(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    shape = CircleShape,
+                    modifier = Modifier.size(width = 36.dp, height = 4.dp)
+                ) {}
+            }
+            Text(
+                text = "Font",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
@@ -4583,7 +4724,7 @@ fun StylePresetPanel(
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(max = 360.dp)
@@ -4594,6 +4735,21 @@ fun StylePresetPanel(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    shape = CircleShape,
+                    modifier = Modifier.size(width = 36.dp, height = 4.dp)
+                ) {}
+            }
+            Text(
+                text = "Gaya",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
             if (onDeleteAllBuiltIns != null && presets.any { it.isBuiltIn }) {
                 TextButton(
                     onClick = { onDeleteAllBuiltIns() },
