@@ -2485,9 +2485,9 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             label = { Text("Nama Output / Nama Proyek") },
                             modifier = Modifier.fillMaxWidth()
                         )
-                        Text("Format Gambar:", style = MaterialTheme.typography.bodyMedium)
+                        Text("Format:", style = MaterialTheme.typography.bodyMedium)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("PNG", "JPEG", "WEBP").forEach { fmt ->
+                            listOf("PNG", "JPEG", "WEBP", "MTS").forEach { fmt ->
                                 FilterChip(
                                     selected = selectedFormat == fmt,
                                     onClick = { selectedFormat = fmt },
@@ -2495,7 +2495,14 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                 )
                             }
                         }
-                        if (selectedFormat != "PNG") {
+                        if (selectedFormat == "MTS") {
+                            Text(
+                                "Bundel proyek (.mts): bisa dibuka & diedit lagi.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (selectedFormat != "PNG" && selectedFormat != "MTS") {
                             Text("Kualitas: ${exportQuality.toInt()}%")
                             Slider(
                                 value = exportQuality,
@@ -2540,7 +2547,15 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             showExportDialog = false
                             val saveName = if (outputFileName.isNotBlank()) outputFileName else "export"
                             val defaultFolder = viewModel.getDefaultExportFolderUri()
-                            if (defaultFolder != null && viewModel.isExportFolderValid(defaultFolder)) {
+                            if (selectedFormat == "MTS") {
+                                if (defaultFolder != null && viewModel.isExportFolderValid(defaultFolder)) {
+                                    viewModel.exportBundleToTreeUri(defaultFolder, saveName) {}
+                                } else {
+                                    bundleExportLauncher.launch(
+                                        com.mochits.app.project.ProjectBundle.fileNameFor(saveName)
+                                    )
+                                }
+                            } else if (defaultFolder != null && viewModel.isExportFolderValid(defaultFolder)) {
                                 performExportToTreeUri(
                                     context = context,
                                     viewModel = viewModel,
@@ -2561,17 +2576,6 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                     }
                 },
                 dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showExportDialog = false
-                            val base = outputFileName.ifBlank { project?.title ?: "proyek" }
-                            bundleExportLauncher.launch(
-                                com.mochits.app.project.ProjectBundle.fileNameFor(base)
-                            )
-                        }
-                    ) {
-                        Text("Bundel .mts")
-                    }
                     TextButton(onClick = { showExportDialog = false }) {
                         Text("Batal")
                     }

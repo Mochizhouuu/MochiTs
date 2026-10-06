@@ -2728,6 +2728,40 @@ data class HistoryManifest(
 
     fun saveExportFolderUri(uri: Uri): Boolean = exportSettingsRepository.saveExportFolderUri(uri)
 
+    /** Simpan bundel .mts ke folder tree SAF (jalur folder default). */
+    fun exportBundleToTreeUri(
+        treeUri: android.net.Uri,
+        saveName: String,
+        onComplete: (Boolean) -> Unit
+    ) {
+        viewModelScope.launch {
+            isExporting.value = true
+            val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val docTree = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, treeUri)
+                        ?: return@withContext false
+                    if (!docTree.canWrite()) return@withContext false
+                    docTree.findFile("$saveName.mts")?.delete()
+                    val created = docTree.createFile("application/zip", "$saveName.mts")
+                        ?: return@withContext false
+                    context.contentResolver.openOutputStream(created.uri)?.use { out ->
+                        repository.exportBundle(projectId, out)
+                    } ?: false
+                } catch (t: Throwable) {
+                    Logger.e("Gagal ekspor bundel: ${t.message}", t)
+                    false
+                }
+            }
+            isExporting.value = false
+            userMessage.value = if (ok) {
+                UiMessage("Bundel tersimpan.", UiMessage.Kind.SUCCESS)
+            } else {
+                UiMessage("Gagal menyimpan bundel.", UiMessage.Kind.ERROR)
+            }
+            onComplete(ok)
+        }
+    }
+
     /** Ekspor bundel .mts proyek ini ke URI SAF. */
     suspend fun exportBundleToUri(uri: android.net.Uri): Boolean =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
