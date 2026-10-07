@@ -120,8 +120,6 @@ class EditorViewModel @Inject constructor(
     val brushSize = MutableStateFlow(40f)
     val magicWandTolerance = MutableStateFlow(15f)
     val magicWandExpand = MutableStateFlow(0f)
-    /** Mode Tambah wand: ketuk menumpuk ke seleksi (default: mengganti). */
-    val wandAddMode = MutableStateFlow(false)
 
     val isEyedropperActive = MutableStateFlow(false)
     val eyedropperCanvasPt = MutableStateFlow<Offset?>(null)
@@ -1410,10 +1408,6 @@ data class HistoryManifest(
         val clamped = expand.coerceIn(0f, 30f)
         magicWandExpand.value = clamped
         maskSelectionTools?.applyExpand(clamped.toInt())
-    }
-
-    fun setWandAddMode(enabled: Boolean) {
-        wandAddMode.value = enabled
     }
 
     fun updateProjectTitle(newTitle: String) {

@@ -146,11 +146,10 @@ class MaskSelectionTools(
 
     /**
      * Hotfix review: seed = piksel yang diketuk, tanpa heuristik.
-     * @param additive true = menumpuk ke seleksi (mode Tambah eksplisit);
-     * false (default) = tiap ketuk mengganti seleksi.
+     * Tiap ketuk mengganti seleksi (lasso/brush untuk menambah).
      * @return true bila flood berjalan (false → UI wajib memberi tahu).
      */
-    fun magicWandSelect(srcBitmap: Bitmap?, point: Offset, tolerance: Float, expandPixels: Int = currentExpandPixels, additive: Boolean = false): Boolean {
+    fun magicWandSelect(srcBitmap: Bitmap?, point: Offset, tolerance: Float, expandPixels: Int = currentExpandPixels): Boolean {
         invalidateCache()
         if (srcBitmap == null || srcBitmap.isRecycled) return false
         // Reject taps outside the source image using float comparison first.
@@ -167,11 +166,8 @@ class MaskSelectionTools(
         // leaking into neighbouring colors diagonally (e.g. corner (81,81,81)).
         val mappedTolerance = (tolerance.coerceIn(0f, 100f) / 100f) * 441.673f
         currentExpandPixels = expandPixels.coerceIn(0, 30)
-        // Default tiap ketuk = seleksi BARU (ganti). Mode Tambah eksplisit
-        // (additive) menumpuk untuk membangun area bertahap (mis. gradient).
-        if (!additive) {
-            NativeBridge.clearMaskSafe(rawMaskBitmap)
-        }
+        // Tiap ketuk mengganti seleksi; lasso/brush untuk menambah area.
+        NativeBridge.clearMaskSafe(rawMaskBitmap)
         val ok = NativeBridge.magicWandSelectSafe(srcBitmap, rawMaskBitmap, startX, startY, mappedTolerance)
         applyExpandInternal()
         return ok

@@ -349,7 +349,6 @@ fun EditorScreen(
     val brushSize by viewModel.brushSize.collectAsState()
     val magicWandTolerance by viewModel.magicWandTolerance.collectAsState()
     val magicWandExpand by viewModel.magicWandExpand.collectAsState()
-    val wandAddMode by viewModel.wandAddMode.collectAsState()
     val isProcessingInpaint by viewModel.isProcessingInpaint.collectAsState()
     val selectedInpaintModel by viewModel.selectedInpaintModel.collectAsState()
     val isDownloadingLaMaModel by viewModel.isDownloadingLaMaModel.collectAsState()
@@ -724,8 +723,6 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             viewModel.runEraseInpaint()
                             triggerRedraw++
                         },
-                        wandAddMode = wandAddMode,
-                        onToggleAddMode = { viewModel.setWandAddMode(!wandAddMode) },
                         isCollapsed = EditorPanel.ERASE in collapsedPanels,
                         onToggleCollapse = { togglePanelCollapse(EditorPanel.ERASE) }
                     )
@@ -1214,8 +1211,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                                     srcBitmap = src,
                                                                     point = canvasPt,
                                                                     tolerance = startTol,
-                                                                    expandPixels = startExp,
-                                                                    additive = viewModel.wandAddMode.value
+                                                                    expandPixels = startExp
                                                                 ) ?: false
                                                                 if (!wandOk) {
                                                                     viewModel.userMessage.value = com.mochits.app.model.UiMessage(
@@ -2781,8 +2777,6 @@ fun EraseToolPanel(
     onClear: () -> Unit,
     onInvert: () -> Unit,
     onRunErase: () -> Unit,
-    wandAddMode: Boolean = false,
-    onToggleAddMode: (() -> Unit)? = null,
     isCollapsed: Boolean = false,
     onToggleCollapse: () -> Unit = {}
 ) {
@@ -2896,16 +2890,6 @@ fun EraseToolPanel(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (mode == MaskToolMode.MAGIC_WAND && onToggleAddMode != null) {
-                        FilterChip(
-                            selected = wandAddMode,
-                            onClick = onToggleAddMode,
-                            label = { Text("Tambah") },
-                            leadingIcon = if (wandAddMode) {
-                                { Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                            } else null
-                        )
-                    }
                     OutlinedButton(
                         onClick = onClear,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
