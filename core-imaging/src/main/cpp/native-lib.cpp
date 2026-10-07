@@ -295,7 +295,7 @@ Java_com_mochits_core_imaging_NativeBridge_nativeDilateMask(
     AndroidBitmap_unlockPixels(env, srcMaskBitmap);
 }
 
-JNIEXPORT jint JNICALL
+JNIEXPORT jlong JNICALL
 Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         JNIEnv* env,
         jobject /* this */,
@@ -303,9 +303,11 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         jobject maskBitmap,
         jint startX,
         jint startY,
-        jfloat tolerance) {
-    // Status: 0 ok, 1 format citra, 2 ukuran mask, 3 seed di luar,
-    // 4 kunci piksel gagal, 5 alokasi/proses gagal.
+        jfloat tolerance,
+        jint gapRadius) {
+    // Status (32 bit bawah): 0 ok, 1 format citra, 2 ukuran mask,
+    // 3 seed di luar, 4 kunci piksel gagal, 5 alokasi/proses gagal.
+    // 32 bit atas: jumlah piksel terseleksi (untuk peringatan bocor).
     AndroidBitmapInfo srcInfo, maskInfo;
     void* srcPixels = nullptr;
     void* maskPixels = nullptr;
@@ -328,6 +330,7 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
     // FIXED-range, konektivitas 4 — sama di semua backend/build).
     // Stride-aware: RGBA stride piksel = stride byte / 4; mask 1 byte/px.
     int status = 0;
+    size_t floodCount = 0;
     try {
         const int srcStridePx = srcInfo.stride / 4;
         const int maskStride = maskInfo.stride;
@@ -335,13 +338,44 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         uint8_t* maskBase = static_cast<uint8_t*>(maskPixels);
 
         uint32_t targetColor = srcBase[startY * srcStridePx + startX];
+        // lockPixels memberi PREMULTIPLIED: transparan = (0,0,0,0) sama
+        // dengan hitam pekat bila alpha diabaikan. Bandingkan alpha juga
+        // (Euclidean 4D) agar garis hitam tak bocor ke area transparan.
+        // Fallback JVM menyamakan ruang ini (premultiply ulang).
         int targetR = (targetColor) & 0xFF;
         int targetG = (targetColor >> 8) & 0xFF;
         int targetB = (targetColor >> 16) & 0xFF;
+        int targetA = (targetColor >> 24) & 0xFF;
 
         // Euclidean RGB distance (tolerance already mapped to 0..441.673).
         // Tighter than per-channel Chebyshev; prevents diagonal color leaks outside target.
         float tolSq = tolerance * tolerance;
+
+        const size_t wh = (size_t)width * (size_t)height;
+        const int g = gapRadius < 0 ? 0 : (gapRadius > 8 ? 8 : gapRadius);
+        // Eligibility vs seed + penghalang terdilasi (jalur Tutup celah).
+        std::vector<uint8_t> elig;
+        std::vector<uint8_t> barDil;
+        if (g > 0) {
+            elig.assign(wh, 0);
+            for (int y = 0; y < height; ++y) {
+                size_t srcOff = (size_t)y * (size_t)srcStridePx;
+                for (int x = 0; x < width; ++x) {
+                    uint32_t c = srcBase[srcOff + x];
+                    float dr = static_cast<float>(((int)(c & 0xFF)) - targetR);
+                    float dg = static_cast<float>(((int)((c >> 8) & 0xFF)) - targetG);
+                    float db = static_cast<float>(((int)((c >> 16) & 0xFF)) - targetB);
+                    float da = static_cast<float>(((int)((c >> 24) & 0xFF)) - targetA;
+                    if (dr * dr + dg * dg + db * db + da * da <= tolSq) {
+                        elig[(size_t)y * (size_t)width + x] = 255;
+                    }
+                }
+            }
+            std::vector<uint8_t> bar(wh, 0);
+            barDil.assign(wh, 0);
+            for (size_t i = 0; i < wh; ++i) bar[i] = elig[i] ? 0 : 255;
+            dilateMaskHand(bar.data(), barDil.data(), width, height, width, width, g);
+        }
 
         std::vector<uint8_t> visited((size_t)width * (size_t)height, 0);
         std::queue<std::pair<int, int>> q;
@@ -356,6 +390,7 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
             q.pop();
 
             maskBase[(size_t)cy * (size_t)maskStride + cx] = 255; // Panggilable: pemanggil mengosongkan dulu (semantik ganti)
+            ++floodCount;
 
             for (int i = 0; i < 4; ++i) {
                 int nx = cx + dx[i];
@@ -365,20 +400,46 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
                     size_t nIdx = (size_t)ny * (size_t)width + nx;
                     if (!visited[nIdx]) {
                         visited[nIdx] = 1;
+                        if (g > 0 && !barDil.empty() && barDil[nIdx]) continue; // penghalang: jangan seberangi
                         uint32_t c = srcBase[(size_t)ny * (size_t)srcStridePx + nx];
                         int r = (c) & 0xFF;
                         int g = (c >> 8) & 0xFF;
                         int b = (c >> 16) & 0xFF;
+                        int a = (c >> 24) & 0xFF;
 
                         float dr = static_cast<float>(r - targetR);
                         float dg = static_cast<float>(g - targetG);
                         float db = static_cast<float>(b - targetB);
-                        float distSq = dr * dr + dg * dg + db * db;
+                        float da = static_cast<float>(a - targetA);
+                        float distSq = dr * dr + dg * dg + db * db + da * da;
 
                         if (distSq <= tolSq) {
                             q.push({nx, ny});
                         }
                     }
+                }
+            }
+        }
+        // Tutup celah: dilasi hasil flood sebesar g lalu AND dengan
+        // eligible (mengembalikan area dekat garis + hitung ulang).
+        if (g > 0 && !elig.empty()) {
+            std::vector<uint8_t> floodTmp(wh, 0);
+            for (int y = 0; y < height; ++y) {
+                uint8_t* mrow = maskBase + (size_t)y * (size_t)maskStride;
+                for (int x = 0; x < width; ++x) {
+                    floodTmp[(size_t)y * (size_t)width + x] = mrow[x];
+                }
+            }
+            std::vector<uint8_t> dilTmp(wh, 0);
+            dilateMaskHand(floodTmp.data(), dilTmp.data(), width, height, width, width, g);
+            floodCount = 0;
+            for (int y = 0; y < height; ++y) {
+                uint8_t* mrow = maskBase + (size_t)y * (size_t)maskStride;
+                size_t pOff = (size_t)y * (size_t)width;
+                for (int x = 0; x < width; ++x) {
+                    uint8_t v = (dilTmp[pOff + x] && elig[pOff + x]) ? 255 : 0;
+                    mrow[x] = v;
+                    if (v) ++floodCount;
                 }
             }
         }
@@ -389,7 +450,7 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
 
     AndroidBitmap_unlockPixels(env, maskBitmap);
     AndroidBitmap_unlockPixels(env, srcBitmap);
-    return status;
+    return (static_cast<jlong>(floodCount) << 32) | static_cast<jlong>(static_cast<uint32_t>(status));
 }
 
 JNIEXPORT void JNICALL

@@ -118,15 +118,20 @@ class EditorViewModel @Inject constructor(
 
     val maskToolMode = MutableStateFlow(MaskToolMode.BRUSH)
     val brushSize = MutableStateFlow(40f)
-    val magicWandTolerance = MutableStateFlow(15f)
+    val magicWandTolerance = MutableStateFlow(10f)
     val magicWandExpand = MutableStateFlow(0f)
+    /** Tutup celah garis (0 = mati, 1..5 px). Berlaku saat ketuk berikutnya. */
+    val magicWandGap = MutableStateFlow(0f)
 
     val isEyedropperActive = MutableStateFlow(false)
     val eyedropperCanvasPt = MutableStateFlow<Offset?>(null)
     val sampledColorPreview = MutableStateFlow<Int?>(null)
     private var compositeBitmap: Bitmap? = null
     private var cachedFlattenedBitmap: Bitmap? = null
-    private var isFlattenedDirty = true
+    // Generasi cache (bukan boolean): invalidate saat flatten berjalan
+    // tak boleh tertimpa dirty=false di akhir (balapan Main vs IO).
+    private val flattenGen = java.util.concurrent.atomic.AtomicLong(0)
+    private var cachedFlattenGen = -1L
     private var eyedropperTargetConsumer: ((Int) -> Unit)? = null
     /** Job render komposit eyedropper; dibatalkan saat cancel/ganti mode. */
     private var eyedropperJob: Job? = null
@@ -134,18 +139,19 @@ class EditorViewModel @Inject constructor(
     private val flattenMutex = Mutex()
 
     fun invalidateFlattenedCache() {
-        isFlattenedDirty = true
+        flattenGen.incrementAndGet()
     }
 
     suspend fun flattenForSelection(): Bitmap? = flattenMutex.withLock {
+        val gen = flattenGen.get()
         val base = baseBitmap.value ?: return@withLock null
         val cached = cachedFlattenedBitmap
-        if (!isFlattenedDirty && cached != null && !cached.isRecycled &&
+        if (cached != null && !cached.isRecycled && cachedFlattenGen == gen &&
             cached.width == base.width && cached.height == base.height
         ) {
             return@withLock cached
         }
-        cachedFlattenedBitmap?.let { if (!it.isRecycled) it.recycle() }
+        val old = cachedFlattenedBitmap
         prepareImageEffects(layers.value)
         val flattened = exporter.exportToBitmap(
             base,
@@ -159,8 +165,9 @@ class EditorViewModel @Inject constructor(
             imageMeshGlowFor = { meshGlowData(it) },
             fontLookup = exportFontLookup
         )
+        if (old != null && old !== base && old !== flattened && !old.isRecycled) old.recycle()
         cachedFlattenedBitmap = flattened
-        isFlattenedDirty = false
+        cachedFlattenGen = gen
         return@withLock flattened
     }
 
@@ -1408,6 +1415,10 @@ data class HistoryManifest(
         val clamped = expand.coerceIn(0f, 30f)
         magicWandExpand.value = clamped
         maskSelectionTools?.applyExpand(clamped.toInt())
+    }
+
+    fun setMagicWandGap(gap: Float) {
+        magicWandGap.value = gap.coerceIn(0f, 5f)
     }
 
     fun updateProjectTitle(newTitle: String) {

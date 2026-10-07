@@ -25,6 +25,9 @@ class MaskSelectionTools(
     private var cachedRawMaskBytes: ByteArray? = null
     private var isMaskDirty: Boolean = true
 
+    /** Kunci semua baca/tulis mask (flood latar vs gambar overlay vs undo). */
+    val maskLock = Any()
+
     fun invalidateCache() {
         isMaskDirty = true
         cachedMaskBytes = null
@@ -50,6 +53,7 @@ class MaskSelectionTools(
     private var lastPoint: Offset? = null
 
     fun resetSize(newWidth: Int, newHeight: Int) {
+        synchronized(maskLock) {
         if (width == newWidth && height == newHeight) return
         // Jangan draw dari bitmap yang sudah di-recycle: di Robolectric NATIVE
         // itu native abort (exit 134), bukan sekadar exception.
@@ -73,12 +77,16 @@ class MaskSelectionTools(
 
         maskBitmap = newMask
         rawMaskBitmap = newRawMask
-        width = newWidth
-        height = newHeight
+        // Catat ukuran ASLI (bukan yang diminta): alokasi bisa dipotong
+        // saat memori sempit; kalau tidak, resync tak pernah terjadi lagi.
+        width = newMask.width
+        height = newMask.height
         invalidateCache()
+        }
     }
 
     fun startStroke(point: Offset, mode: MaskToolMode, brushSize: Float) {
+        synchronized(maskLock) {
         invalidateCache()
         val radius = brushSize / 2f
         val draw = mode != MaskToolMode.ERASER
@@ -100,9 +108,11 @@ class MaskSelectionTools(
             }
             else -> {}
         }
+        }
     }
 
     fun updateStroke(point: Offset, mode: MaskToolMode, brushSize: Float) {
+        synchronized(maskLock) {
         invalidateCache()
         val radius = brushSize / 2f
         val draw = mode != MaskToolMode.ERASER
@@ -122,9 +132,11 @@ class MaskSelectionTools(
             }
             else -> {}
         }
+        }
     }
 
     fun endStroke(point: Offset, mode: MaskToolMode, brushSize: Float = 0f) {
+        synchronized(maskLock) {
         invalidateCache()
         when (mode) {
             MaskToolMode.LASSO -> {
@@ -142,22 +154,26 @@ class MaskSelectionTools(
             else -> {}
         }
         lastPoint = null
+        }
     }
 
     /**
      * Hotfix review: seed = piksel yang diketuk, tanpa heuristik.
-     * Tiap ketuk mengganti seleksi (lasso/brush untuk menambah).
-     * @return true bila flood berjalan (false → UI wajib memberi tahu).
+     * Tiap ketuk mengganti seleksi (lasso/brush untuk menambah area).
+     * @return hasil flood (ok + jumlah piksel; gagal → UI wajib melapor).
      */
-    fun magicWandSelect(srcBitmap: Bitmap?, point: Offset, tolerance: Float, expandPixels: Int = currentExpandPixels): Boolean {
+    fun magicWandSelect(srcBitmap: Bitmap?, point: Offset, tolerance: Float, expandPixels: Int = currentExpandPixels, gapRadius: Int = 0    ): NativeBridge.WandOutcome {
+        synchronized(maskLock) {
         invalidateCache()
-        if (srcBitmap == null || srcBitmap.isRecycled) return false
+        if (srcBitmap == null || srcBitmap.isRecycled) return NativeBridge.WandOutcome(false, 0L)
         // Reject taps outside the source image using float comparison first.
         // (Using toInt() directly would truncate -0.5 -> 0 and falsely hit the edge.)
-        if (point.x < 0f || point.y < 0f || point.x >= srcBitmap.width.toFloat() || point.y >= srcBitmap.height.toFloat()) return false
-        if (maskBitmap.width != srcBitmap.width || maskBitmap.height != srcBitmap.height) {
+        if (point.x < 0f || point.y < 0f || point.x >= srcBitmap.width.toFloat() || point.y >= srcBitmap.height.toFloat()) return NativeBridge.WandOutcome(false, 0L)
+        if (maskBitmap.width != srcBitmap.width || maskBitmap.height != srcBitmap.height ||
+            rawMaskBitmap.width != srcBitmap.width || rawMaskBitmap.height != srcBitmap.height) {
             // Keep mask aligned with source; silently resync instead of writing out of bounds.
             resetSize(srcBitmap.width, srcBitmap.height)
+            if (rawMaskBitmap.width != srcBitmap.width || rawMaskBitmap.height != srcBitmap.height) return NativeBridge.WandOutcome(false, 0L)
         }
         val startX = kotlin.math.floor(point.x).toInt()
         val startY = kotlin.math.floor(point.y).toInt()
@@ -168,12 +184,13 @@ class MaskSelectionTools(
         currentExpandPixels = expandPixels.coerceIn(0, 30)
         // Tiap ketuk mengganti seleksi; lasso/brush untuk menambah area.
         NativeBridge.clearMaskSafe(rawMaskBitmap)
-        val ok = NativeBridge.magicWandSelectSafe(srcBitmap, rawMaskBitmap, startX, startY, mappedTolerance)
+        val ok = NativeBridge.magicWandSelectSafe(srcBitmap, rawMaskBitmap, startX, startY, mappedTolerance, gapRadius)
         applyExpandInternal()
         return ok
+        }
     }
 
-    fun applyExpand(expandPixels: Int) {
+    fun applyExpand(expandPixels: Int) = synchronized(maskLock) {
         invalidateCache()
         currentExpandPixels = expandPixels.coerceIn(0, 30)
         applyExpandInternal()
@@ -189,6 +206,7 @@ class MaskSelectionTools(
     }
 
     fun getRawMaskByteArray(): ByteArray? {
+        synchronized(maskLock) {
         val bmp = rawMaskBitmap
         if (bmp.isRecycled) return null
         if (!isMaskDirty && cachedRawMaskBytes != null) {
@@ -204,9 +222,11 @@ class MaskSelectionTools(
             t.printStackTrace()
             null
         }
+        }
     }
 
     fun getMaskByteArray(): ByteArray? {
+        synchronized(maskLock) {
         val bmp = maskBitmap
         if (bmp.isRecycled) return null
         if (!isMaskDirty && cachedMaskBytes != null) {
@@ -222,47 +242,60 @@ class MaskSelectionTools(
             t.printStackTrace()
             null
         }
+        }
     }
 
     fun restoreRawMaskByteArray(bytes: ByteArray) {
+        synchronized(maskLock) {
         val bmp = rawMaskBitmap
         if (bmp.isRecycled) return
         invalidateCache()
         try {
+            if (bytes.size != bmp.byteCount) {
+                NativeBridge.clearMaskSafe(bmp)
+                return
+            }
             val buffer = java.nio.ByteBuffer.wrap(bytes)
             bmp.copyPixelsFromBuffer(buffer)
             cachedRawMaskBytes = bytes.clone()
         } catch (t: Throwable) {
             t.printStackTrace()
         }
+        }
     }
 
     fun restoreMaskByteArray(bytes: ByteArray) {
+        synchronized(maskLock) {
         val bmp = maskBitmap
         if (bmp.isRecycled) return
         invalidateCache()
         try {
+            if (bytes.size != bmp.byteCount) {
+                NativeBridge.clearMaskSafe(bmp)
+                return
+            }
             val buffer = java.nio.ByteBuffer.wrap(bytes)
             bmp.copyPixelsFromBuffer(buffer)
             cachedMaskBytes = bytes.clone()
         } catch (t: Throwable) {
             t.printStackTrace()
         }
+        }
     }
 
-    fun clearMask() {
+    fun clearMask() = synchronized(maskLock) {
         invalidateCache()
         NativeBridge.clearMaskSafe(rawMaskBitmap)
         NativeBridge.clearMaskSafe(maskBitmap)
     }
 
-    fun invertMask() {
+    fun invertMask() = synchronized(maskLock) {
         invalidateCache()
         NativeBridge.invertMaskSafe(rawMaskBitmap)
         applyExpandInternal()
     }
 
-    fun hasMask(): Boolean {
-        return NativeBridge.hasMaskSafe(maskBitmap)
+    fun hasMask(): Boolean = synchronized(maskLock) {
+        NativeBridge.hasMaskSafe(maskBitmap)
     }
 }

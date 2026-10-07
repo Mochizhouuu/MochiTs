@@ -349,6 +349,7 @@ fun EditorScreen(
     val brushSize by viewModel.brushSize.collectAsState()
     val magicWandTolerance by viewModel.magicWandTolerance.collectAsState()
     val magicWandExpand by viewModel.magicWandExpand.collectAsState()
+    val magicWandGap by viewModel.magicWandGap.collectAsState()
     val isProcessingInpaint by viewModel.isProcessingInpaint.collectAsState()
     val selectedInpaintModel by viewModel.selectedInpaintModel.collectAsState()
     val isDownloadingLaMaModel by viewModel.isDownloadingLaMaModel.collectAsState()
@@ -707,6 +708,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             viewModel.setMagicWandExpand(it)
                             triggerRedraw++
                         },
+                        magicWandGap = magicWandGap,
+                        onGapChange = { viewModel.setMagicWandGap(it) },
                         onClear = {
                             viewModel.saveUndoSnapshot()
                             viewModel.maskSelectionTools?.clearMask()
@@ -1207,17 +1210,32 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                                 viewModel.saveUndoSnapshot()
                                                                 val flattened = viewModel.flattenForSelection()
                                                                 val src = flattened ?: viewModel.baseBitmap.value
-                                                                val wandOk = viewModel.maskSelectionTools?.magicWandSelect(
+                                                                val wandRes = viewModel.maskSelectionTools?.magicWandSelect(
                                                                     srcBitmap = src,
                                                                     point = canvasPt,
                                                                     tolerance = startTol,
-                                                                    expandPixels = startExp
-                                                                ) ?: false
-                                                                if (!wandOk) {
+                                                                    expandPixels = startExp,
+                                                                    gapRadius = magicWandGap.toInt()
+                                                                )
+                                                                if (wandRes == null || !wandRes.ok) {
+                                                                    viewModel.rollbackUndoSnapshot()
                                                                     viewModel.userMessage.value = com.mochits.app.model.UiMessage(
                                                                         "Wand gagal (seleksi tidak jalan).",
                                                                         com.mochits.app.model.UiMessage.Kind.ERROR
                                                                     )
+                                                                } else {
+                                                                    val totalPx = (src?.width ?: 0) * (src?.height ?: 0)
+                                                                    if (wandRes.selectedCount < 20L) {
+                                                                        viewModel.userMessage.value = com.mochits.app.model.UiMessage(
+                                                                            "Area terlalu kecil, naikkan toleransi.",
+                                                                            com.mochits.app.model.UiMessage.Kind.INFO
+                                                                        )
+                                                                    } else if (totalPx > 0 && wandRes.selectedCount > totalPx / 2L) {
+                                                                        viewModel.userMessage.value = com.mochits.app.model.UiMessage(
+                                                                            "Seleksi bocor? Turunkan toleransi.",
+                                                                            com.mochits.app.model.UiMessage.Kind.WARNING
+                                                                        )
+                                                                    }
                                                                 }
                                                                 withContext(Dispatchers.Main) {
                                                                     refreshMaskState()
@@ -1786,10 +1804,15 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                     }
 
                     // 2. Red Translucent Mask Selection Overlay (alpha = 0.25f)
-                    viewModel.maskSelectionTools?.maskBitmap?.let { maskBmp ->
-                        if (!maskBmp.isRecycled) {
-                            val maskPaint = maskPaintCache
-                            drawContext.canvas.nativeCanvas.drawBitmap(maskBmp, 0f, 0f, maskPaint)
+                    // Baca dalam maskLock: flood latar menulis bitmap yang sama.
+                    val maskTools = viewModel.maskSelectionTools
+                    if (maskTools != null) {
+                        synchronized(maskTools.maskLock) {
+                            val maskBmp = maskTools.maskBitmap
+                            if (!maskBmp.isRecycled) {
+                                val maskPaint = maskPaintCache
+                                drawContext.canvas.nativeCanvas.drawBitmap(maskBmp, 0f, 0f, maskPaint)
+                            }
                         }
                     }
 
@@ -2764,6 +2787,8 @@ fun EraseToolPanel(
     brushSize: Float,
     magicWandTolerance: Float,
     magicWandExpand: Float = 0f,
+    magicWandGap: Float = 0f,
+    onGapChange: ((Float) -> Unit)? = null,
     selectedModel: EditorViewModel.InpaintModel,
     isProcessing: Boolean,
     isDownloading: Boolean,
@@ -2949,6 +2974,15 @@ fun EraseToolPanel(
                             }
                         },
                         valueRange = 0f..30f
+                    )
+
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text("Tutup celah: ${magicWandGap.toInt()}", style = MaterialTheme.typography.labelLarge)
+                    Slider(
+                        value = magicWandGap,
+                        onValueChange = { onGapChange?.invoke(it) },
+                        valueRange = 0f..5f,
+                        steps = 4
                     )
                 } else {
                     Text("Kuas: ${brushSize.toInt()} px", style = MaterialTheme.typography.labelLarge)

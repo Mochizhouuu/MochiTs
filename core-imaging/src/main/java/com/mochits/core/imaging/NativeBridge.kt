@@ -24,26 +24,36 @@ object NativeBridge {
     external fun nativeDrawCircle(bitmap: Bitmap, cx: Float, cy: Float, radius: Float, draw: Boolean)
     external fun nativeDrawLine(bitmap: Bitmap, x0: Float, y0: Float, x1: Float, y1: Float, radius: Float, draw: Boolean)
     external fun nativeDrawPolygon(bitmap: Bitmap, pointsX: FloatArray, pointsY: FloatArray, draw: Boolean)
-    external fun nativeMagicWandSelect(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float): Int
+    external fun nativeMagicWandSelect(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float, gapRadius: Int): Long
     external fun nativeDilateMask(srcMaskBitmap: Bitmap, dstMaskBitmap: Bitmap, radius: Int)
     external fun nativeClearMask(bitmap: Bitmap)
     external fun nativeInvertMask(bitmap: Bitmap)
     external fun nativeHasMask(bitmap: Bitmap): Boolean
 
     // Fallback implementations for host-side unit tests when native library is not present
-    private fun fallbackMagicWandSelect(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float) {
+    // @return pixel ter-seleksi, atau -1 bila gagal (ukuran/seed) agar
+    // pemanggil bisa melapor, bukan mengklaim sukses.
+    private fun fallbackMagicWandSelect(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float): Long {
         val w = srcBitmap.width
         val h = srcBitmap.height
-        if (maskBitmap.width != w || maskBitmap.height != h) return
-        if (startX < 0 || startX >= w || startY < 0 || startY >= h) return
+        if (maskBitmap.width != w || maskBitmap.height != h) return -1L
+        if (startX < 0 || startX >= w || startY < 0 || startY >= h) return -1L
 
         val pixels = IntArray(w * h)
         srcBitmap.getPixels(pixels, 0, w, 0, 0, w, h)
 
         val targetColor = pixels[startY * w + startX]
-        val targetR = (targetColor ushr 16) and 0xFF
-        val targetG = (targetColor ushr 8) and 0xFF
-        val targetB = targetColor and 0xFF
+        // Samakan native (premultiplied): getPixels memberi unpremultiplied.
+        fun premult(c: Int): IntArray {
+            val a = (c ushr 24) and 0xFF
+            if (a >= 255) return intArrayOf((c ushr 16) and 0xFF, (c ushr 8) and 0xFF, c and 0xFF, a)
+            return intArrayOf(((c ushr 16) and 0xFF) * a / 255, ((c ushr 8) and 0xFF) * a / 255, (c and 0xFF) * a / 255, a)
+        }
+        val t = premult(targetColor)
+        val targetR = t[0]
+        val targetG = t[1]
+        val targetB = t[2]
+        val targetA = t[3]
 
         // Euclidean RGB distance (tolerance is already mapped to 0..441.673).
         // Tighter than per-channel Chebyshev; prevents diagonal color leaks.
@@ -52,6 +62,7 @@ object NativeBridge {
         val queueInt = IntArray(w * h)
         var head = 0
         var tail = 0
+        var selectedCount = 0L
 
         queueInt[tail++] = startY * w + startX
         visited[startY * w + startX] = true
@@ -64,10 +75,12 @@ object NativeBridge {
         val rowBytes = maskBitmap.rowBytes
 
         fun colorMatches(c: Int): Boolean {
-            val dr = ((c ushr 16) and 0xFF) - targetR
-            val dg = ((c ushr 8) and 0xFF) - targetG
-            val db = (c and 0xFF) - targetB
-            return (dr * dr + dg * dg + db * db).toFloat() <= tolSq
+            val p = premult(c)
+            val dr = p[0] - targetR
+            val dg = p[1] - targetG
+            val db = p[2] - targetB
+            val da = p[3] - targetA
+            return (dr * dr + dg * dg + db * db + da * da).toFloat() <= tolSq
         }
 
         while (head < tail) {
@@ -76,6 +89,7 @@ object NativeBridge {
             val cy = idx / w
 
             maskPixels[cy * rowBytes + cx] = 0xFF.toByte()
+            selectedCount++
 
             if (cy > 0) {
                 val nIdx = idx - w
@@ -117,6 +131,7 @@ object NativeBridge {
 
         val outBuffer = java.nio.ByteBuffer.wrap(maskPixels)
         maskBitmap.copyPixelsFromBuffer(outBuffer)
+        return selectedCount
     }
 
     private fun fallbackClearMask(bitmap: Bitmap) {
@@ -183,21 +198,29 @@ object NativeBridge {
     }
 
     /**
-     * Kontrak: true bila seleksi berjalan (native status 0 atau fallback
-     * selesai). False → pemanggil WAJIB memberi tahu UI (jangan sunyi).
+     * Kontrak: ok + jumlah piksel terseleksi. Gagal (native status != 0
+     * atau fallback -1/exception) → ok=false agar UI melapor, bukan sunyi.
      */
-    fun magicWandSelectSafe(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float): Boolean {
+    data class WandOutcome(val ok: Boolean, val selectedCount: Long)
+
+    fun magicWandSelectSafe(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float, gapRadius: Int = 0): WandOutcome {
         if (isNativeAvailable) {
             try {
-                if (nativeMagicWandSelect(srcBitmap, maskBitmap, startX, startY, tolerance) == 0) return true
+                val res = nativeMagicWandSelect(srcBitmap, maskBitmap, startX, startY, tolerance, gapRadius)
+                val status = (res and 0xFFFFFFFFL).toInt()
+                if (status == 0) return WandOutcome(true, res ushr 32)
+                android.util.Log.w("NativeBridge", "wand native status=$status, coba fallback")
+                // Ukuran/seed salah di native pasti gagal juga di fallback.
+                if (status == 2 || status == 3) return WandOutcome(false, 0L)
             } catch (_: Throwable) {
             }
         }
         return try {
-            fallbackMagicWandSelect(srcBitmap, maskBitmap, startX, startY, tolerance)
-            true
+            // Fallback belum mendukung Tutup celah (terdokumentasi).
+            val count = fallbackMagicWandSelect(srcBitmap, maskBitmap, startX, startY, tolerance)
+            if (count >= 0L) WandOutcome(true, count) else WandOutcome(false, 0L)
         } catch (_: Throwable) {
-            false
+            WandOutcome(false, 0L)
         }
     }
 
