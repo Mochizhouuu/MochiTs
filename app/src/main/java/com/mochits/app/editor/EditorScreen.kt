@@ -447,6 +447,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
     // Whether the erase mask currently holds a selection. Updated only on
     // mask-mutating events (never per-recompose: hasMask() scans the bitmap).
     var hasMaskState by remember { mutableStateOf(false) }
+    var isProcessingMagicWand by remember { mutableStateOf(false) }
     fun refreshMaskState() {
         hasMaskState = viewModel.maskSelectionTools?.hasMask() == true
     }
@@ -850,7 +851,6 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
             var magicWandTouchStartPt by remember { mutableStateOf<Offset?>(null) }
             var magicWandMovedDistance by remember { mutableFloatStateOf(0f) }
             var isMagicWandPending by remember { mutableStateOf(false) }
-            var isProcessingMagicWand by remember { mutableStateOf(false) }
 
             // NOTE: gesture handling below intentionally does NOT use a captured
             // selected-layer compose val (it would go stale inside pointerInput(Unit)).

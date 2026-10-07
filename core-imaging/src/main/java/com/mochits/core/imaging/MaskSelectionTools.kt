@@ -195,7 +195,6 @@ class MaskSelectionTools(
             return downscaledWand(srcBitmap, point, mappedTolerance, expandPixels, gapRadius)
         }
         // Tiap ketuk menumpuk ke seleksi (union); Bersihkan untuk mulai baru.
-        NativeBridge.clearMaskSafe(rawMaskBitmap)
         val ok = NativeBridge.magicWandSelectSafe(srcBitmap, rawMaskBitmap, startX, startY, mappedTolerance, gapRadius)
         applyExpandInternal()
         return ok
