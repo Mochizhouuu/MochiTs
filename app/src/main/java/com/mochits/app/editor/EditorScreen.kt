@@ -693,7 +693,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         magicWandTolerance = magicWandTolerance,
                         magicWandExpand = magicWandExpand,
                         selectedModel = selectedInpaintModel,
-                        isProcessing = isProcessingInpaint,
+                        isProcessing = isProcessingInpaint || isProcessingMagicWand,
                         isDownloading = isDownloadingLaMaModel,
                         downloadProgress = lamaDownloadProgress,
                         hasMask = hasMaskState,
@@ -1208,16 +1208,15 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                         coroutineScope.launch(Dispatchers.Default) {
                                                             try {
                                                                 viewModel.saveUndoSnapshot()
-                                                                val flattened = viewModel.flattenForSelection()
-                                                                val src = flattened ?: viewModel.baseBitmap.value
-                                                                val wandRes = viewModel.maskSelectionTools?.magicWandSelect(
-                                                                    srcBitmap = src,
+                                                                // Flatten + flood dalam satu lock VM (anti recycle tengah jalan).
+                                                                val wandRes = viewModel.runMagicWand(
                                                                     point = canvasPt,
                                                                     tolerance = startTol,
                                                                     expandPixels = startExp,
                                                                     gapRadius = magicWandGap.toInt()
                                                                 )
-                                                                if (wandRes == null || !wandRes.ok) {
+                                                                val src = viewModel.baseBitmap.value
+                                                                if (!wandRes.ok) {
                                                                     viewModel.rollbackUndoSnapshot()
                                                                     viewModel.userMessage.value = com.mochits.app.model.UiMessage(
                                                                         "Wand gagal (seleksi tidak jalan).",

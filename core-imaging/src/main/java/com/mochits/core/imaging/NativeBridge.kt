@@ -42,18 +42,22 @@ object NativeBridge {
         val pixels = IntArray(w * h)
         srcBitmap.getPixels(pixels, 0, w, 0, 0, w, h)
 
-        val targetColor = pixels[startY * w + startX]
-        // Samakan native (premultiplied): getPixels memberi unpremultiplied.
-        fun premult(c: Int): IntArray {
+        // Premultiply SEKALI di awal (ruang native): tanpa ini tiap
+        // perbandingan alokasi IntArray per piksel (hang di gambar besar).
+        for (i in pixels.indices) {
+            val c = pixels[i]
             val a = (c ushr 24) and 0xFF
-            if (a >= 255) return intArrayOf((c ushr 16) and 0xFF, (c ushr 8) and 0xFF, c and 0xFF, a)
-            return intArrayOf(((c ushr 16) and 0xFF) * a / 255, ((c ushr 8) and 0xFF) * a / 255, (c and 0xFF) * a / 255, a)
+            if (a < 255) {
+                pixels[i] = (a shl 24) or ((((c ushr 16) and 0xFF) * a / 255) shl 16) or
+                    ((((c ushr 8) and 0xFF) * a / 255) shl 8) or ((c and 0xFF) * a / 255)
+            }
         }
-        val t = premult(targetColor)
-        val targetR = t[0]
-        val targetG = t[1]
-        val targetB = t[2]
-        val targetA = t[3]
+
+        val targetColor = pixels[startY * w + startX]
+        val targetR = (targetColor ushr 16) and 0xFF
+        val targetG = (targetColor ushr 8) and 0xFF
+        val targetB = targetColor and 0xFF
+        val targetA = (targetColor ushr 24) and 0xFF
 
         // Euclidean RGB distance (tolerance is already mapped to 0..441.673).
         // Tighter than per-channel Chebyshev; prevents diagonal color leaks.
@@ -75,11 +79,10 @@ object NativeBridge {
         val rowBytes = maskBitmap.rowBytes
 
         fun colorMatches(c: Int): Boolean {
-            val p = premult(c)
-            val dr = p[0] - targetR
-            val dg = p[1] - targetG
-            val db = p[2] - targetB
-            val da = p[3] - targetA
+            val dr = ((c ushr 16) and 0xFF) - targetR
+            val dg = ((c ushr 8) and 0xFF) - targetG
+            val db = (c and 0xFF) - targetB
+            val da = ((c ushr 24) and 0xFF) - targetA
             return (dr * dr + dg * dg + db * db + da * da).toFloat() <= tolSq
         }
 
@@ -209,9 +212,10 @@ object NativeBridge {
                 val res = nativeMagicWandSelect(srcBitmap, maskBitmap, startX, startY, tolerance, gapRadius)
                 val status = (res and 0xFFFFFFFFL).toInt()
                 if (status == 0) return WandOutcome(true, res ushr 32)
-                android.util.Log.w("NativeBridge", "wand native status=$status, coba fallback")
-                // Ukuran/seed salah di native pasti gagal juga di fallback.
-                if (status == 2 || status == 3) return WandOutcome(false, 0L)
+                android.util.Log.w("NativeBridge", "wand native status=$status, tanpa fallback sunyi")
+                // Status fatal (format/lock/OOM) atau ukuran/seed salah:
+                // JANGAN fallback diam-diam (hang/OOM ganda), laporkan gagal.
+                return WandOutcome(false, 0L)
             } catch (_: Throwable) {
             }
         }

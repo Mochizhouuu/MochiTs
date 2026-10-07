@@ -137,6 +137,9 @@ class EditorViewModel @Inject constructor(
     private var eyedropperJob: Job? = null
     /** Serialkan flatten agar tap wand cepat tidak recycle-balapan. */
     private val flattenMutex = Mutex()
+    /** Serialkan tap wand: flood jalan DI DALAM lock agar cache tak di-recycle tengah jalan. */
+    private val wandMutex = Mutex()
+    @Volatile private var wandBusy = false
 
     fun invalidateFlattenedCache() {
         flattenGen.incrementAndGet()
@@ -194,7 +197,7 @@ class EditorViewModel @Inject constructor(
             imageMeshGlowFor = { meshGlowData(it) },
             fontLookup = exportFontLookup
         )
-        if (old != null && old !== base && old !== flattened && !old.isRecycled) old.recycle()
+        if (!wandBusy && old != null && old !== base && old !== flattened && !old.isRecycled) old.recycle()
         cachedFlattenedBitmap = flattened
         cachedFlattenGen = gen
         return@withLock flattened
@@ -1449,6 +1452,27 @@ data class HistoryManifest(
 
     fun setMagicWandGap(gap: Float) {
         magicWandGap.value = gap.coerceIn(0f, 5f)
+    }
+
+    /**
+     * Satu ketuk wand utuh: flatten + flood DI DALAM satu lock sehingga
+     * cache tak mungkin di-recycle warm-job di tengah flood (native crash/
+     * seleksi ngawur). Panggil dari coroutine latar.
+     */
+    suspend fun runMagicWand(
+        point: androidx.compose.ui.geometry.Offset,
+        tolerance: Float,
+        expandPixels: Int,
+        gapRadius: Int
+    ): com.mochits.core.imaging.NativeBridge.WandOutcome = wandMutex.withLock {
+        wandBusy = true
+        try {
+            val flat = flattenForSelection() ?: return@withLock com.mochits.core.imaging.NativeBridge.WandOutcome(false, 0L)
+            maskSelectionTools?.magicWandSelect(flat, point, tolerance, expandPixels, gapRadius)
+                ?: com.mochits.core.imaging.NativeBridge.WandOutcome(false, 0L)
+        } finally {
+            wandBusy = false
+        }
     }
 
     fun updateProjectTitle(newTitle: String) {

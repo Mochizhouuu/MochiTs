@@ -177,17 +177,75 @@ class MaskSelectionTools(
         }
         val startX = kotlin.math.floor(point.x).toInt()
         val startY = kotlin.math.floor(point.y).toInt()
-        // Map UI tolerance scale (0..100) to full RGB Euclidean distance (0..441.673f).
-        // Euclidean (sphere) is tighter than per-channel Chebyshev (cube) and avoids
-        // leaking into neighbouring colors diagonally (e.g. corner (81,81,81)).
-        val mappedTolerance = (tolerance.coerceIn(0f, 100f) / 100f) * 441.673f
+        // Linearitas slider: seed opaque → rentang RGB (maks 441.673);
+        // seed transparan → sertakan alpha (maks 510.3).
+        val seedAlpha = try {
+            (srcBitmap.getPixel(startX, startY) ushr 24) and 0xFF
+        } catch (_: Exception) {
+            255
+        }
+        val maxDist = if (seedAlpha >= 255) 441.673f else 510.3f
+        // Map UI tolerance scale (0..100) ke jarak Euclidean (sphere).
+        val mappedTolerance = (tolerance.coerceIn(0f, 100f) / 100f) * maxDist
         currentExpandPixels = expandPixels.coerceIn(0, 30)
-        // Ketuk menumpuk ke seleksi (union): SFX gradient/lebar baru penuh
-        // setelah beberapa ketuk. Bersihkan eksplisit untuk mulai baru.
+        // Gambar raksasa: flood di komposit 0.5x (maks sisi 2000px) lalu
+        // upscale mask (4x hemat waktu+memori; tepi dikompensasi Expand).
+        val longest = maxOf(srcBitmap.width, srcBitmap.height)
+        if (longest > 2000) {
+            return downscaledWand(srcBitmap, point, mappedTolerance, expandPixels, gapRadius)
+        }
+        // Tiap ketuk menumpuk ke seleksi (union); Bersihkan untuk mulai baru.
+        NativeBridge.clearMaskSafe(rawMaskBitmap)
         val ok = NativeBridge.magicWandSelectSafe(srcBitmap, rawMaskBitmap, startX, startY, mappedTolerance, gapRadius)
         applyExpandInternal()
         return ok
+    }
+
+    /**
+     * Flood di bitmap 0.5x lalu upscale hasilnya ke mask penuh.
+     * Toleransi (ruang warna) tak terpengaruh skala; koordinat diskalakan.
+     */
+    private fun downscaledWand(
+        src: Bitmap,
+        point: Offset,
+        mappedTolerance: Float,
+        expandPixels: Int,
+        gapRadius: Int
+    ): NativeBridge.WandOutcome {
+        val scale = 2000f / maxOf(src.width, src.height).toFloat()
+        val sw = (src.width * scale).toInt().coerceAtLeast(1)
+        val sh = (src.height * scale).toInt().coerceAtLeast(1)
+        val smallSrc = try {
+            Bitmap.createScaledBitmap(src, sw, sh, true)
+        } catch (t: Throwable) {
+            return NativeBridge.WandOutcome(false, 0L)
         }
+        val smallMask = try {
+            Bitmap.createBitmap(sw, sh, Bitmap.Config.ALPHA_8)
+        } catch (t: Throwable) {
+            try { smallSrc.recycle() } catch (_: Exception) {}
+            return NativeBridge.WandOutcome(false, 0L)
+        }
+        try {
+            val sx = kotlin.math.floor(point.x * scale).toInt().coerceIn(0, sw - 1)
+            val sy = kotlin.math.floor(point.y * scale).toInt().coerceIn(0, sh - 1)
+            val smallGap = if (gapRadius > 0) (gapRadius * scale).toInt().coerceAtLeast(1) else 0
+            val res = NativeBridge.magicWandSelectSafe(smallSrc, smallMask, sx, sy, mappedTolerance, smallGap)
+            if (!res.ok) return NativeBridge.WandOutcome(false, 0L)
+            // Tiap ketuk menumpuk (union) seperti jalur penuh.
+            // Upscale nearest (mask keras; tepi dikompensasi Expand).
+            invalidateCache()
+            val paint = android.graphics.Paint().apply { isFilterBitmap = false }
+            val canvas = android.graphics.Canvas(rawMaskBitmap)
+            canvas.drawBitmap(smallMask, null, android.graphics.Rect(0, 0, rawMaskBitmap.width, rawMaskBitmap.height), paint)
+            applyExpandInternal()
+            val approx = (res.selectedCount / (scale * scale)).toLong()
+            return NativeBridge.WandOutcome(true, approx)
+        } finally {
+            try { smallSrc.recycle() } catch (_: Exception) {}
+            try { smallMask.recycle() } catch (_: Exception) {}
+        }
+    }
     }
 
     fun applyExpand(expandPixels: Int) = synchronized(maskLock) {
