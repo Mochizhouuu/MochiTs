@@ -156,13 +156,72 @@ class MaskSelectionTools(
         }
         val startX = kotlin.math.floor(point.x).toInt()
         val startY = kotlin.math.floor(point.y).toInt()
+        // Jangan gunakan piksel tepi hasil anti-alias sebagai benih: ambil
+        // piksel dalam 3x3 yang paling dekat ke median (warna dominan
+        // area yang diketuk) agar seleksi tak bocor ke luar area.
+        val (seedX, seedY) = pickRegionSeed(srcBitmap, startX, startY)
         // Map UI tolerance scale (0..100) to full RGB Euclidean distance (0..441.673f).
         // Euclidean (sphere) is tighter than per-channel Chebyshev (cube) and avoids
         // leaking into neighbouring colors diagonally (e.g. corner (81,81,81)).
         val mappedTolerance = (tolerance.coerceIn(0f, 100f) / 100f) * 441.673f
         currentExpandPixels = expandPixels.coerceIn(0, 30)
-        NativeBridge.magicWandSelectSafe(srcBitmap, rawMaskBitmap, startX, startY, mappedTolerance)
+        NativeBridge.magicWandSelectSafe(srcBitmap, rawMaskBitmap, seedX, seedY, mappedTolerance)
         applyExpandInternal()
+    }
+
+    /**
+     * Benih flood-fill anti-tepi: ketukan TEPAT di piksel campuran
+     * (anti-alias tepi garis) dipakai apa adanya akan menyeleksi kedua
+     * sisi garis sekaligus. Bila piksel tengah jauh dari SEMUA tetangga
+     * (>48 Euclidean = bukan bagian klaster warna), geser benih 1px ke
+     * tetangga terdekat. Piksel murni (punya tetangga sewarna, walau
+     * objeknya kecil seperti titik 2x2) tidak pernah digeser.
+     */
+    private fun pickRegionSeed(src: Bitmap, cx: Int, cy: Int): Pair<Int, Int> {
+        val w = src.width
+        val h = src.height
+        if (w < 3 || h < 3) return cx to cy
+        val xs = ((cx - 1)..(cx + 1)).filter { it in 0 until w }
+        val ys = ((cy - 1)..(cy + 1)).filter { it in 0 until h }
+        if (xs.size < 2 || ys.size < 2) return cx to cy
+        val cols = ArrayList<Int>(9)
+        var centerIdx = -1
+        try {
+            for (yy in ys) {
+                for (xx in xs) {
+                    if (xx == cx && yy == cy) centerIdx = cols.size
+                    cols.add(src.getPixel(xx, yy))
+                }
+            }
+        } catch (_: Exception) {
+            return cx to cy
+        }
+        if (cols.isEmpty() || centerIdx < 0) return cx to cy
+        val center = cols[centerIdx]
+        val cr = (center ushr 16) and 0xFF
+        val cg = (center ushr 8) and 0xFF
+        val cb = center and 0xFF
+        var nearestX = cx
+        var nearestY = cy
+        var nearestD = Long.MAX_VALUE
+        var i = 0
+        for (yy in ys) {
+            for (xx in xs) {
+                val c = cols[i++]
+                if (xx == cx && yy == cy) continue
+                val dr = (((c ushr 16) and 0xFF) - cr).toLong()
+                val dg = (((c ushr 8) and 0xFF) - cg).toLong()
+                val db = ((c and 0xFF) - cb).toLong()
+                val d = dr * dr + dg * dg + db * db
+                if (d < nearestD) {
+                    nearestD = d
+                    nearestX = xx
+                    nearestY = yy
+                }
+            }
+        }
+        // Ambang campuran: 48 Euclidean kuadrat = 2304.
+        return if (nearestD <= 2304L) cx to cy else nearestX to nearestY
     }
 
     fun applyExpand(expandPixels: Int) {

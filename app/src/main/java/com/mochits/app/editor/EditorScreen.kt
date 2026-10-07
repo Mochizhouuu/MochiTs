@@ -1227,11 +1227,6 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                                 isProcessingMagicWand = false
                                                             }
                                                         }
-                                                    } else {
-                                                        viewModel.userMessage.value = com.mochits.app.model.UiMessage(
-                                                            "Ketuk di dalam gambar.",
-                                                            com.mochits.app.model.UiMessage.Kind.INFO
-                                                        )
                                                     }
                                                 }
                                                 isMagicWandPending = false
