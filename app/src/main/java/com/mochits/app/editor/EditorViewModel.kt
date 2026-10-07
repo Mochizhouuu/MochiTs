@@ -118,7 +118,7 @@ class EditorViewModel @Inject constructor(
 
     val maskToolMode = MutableStateFlow(MaskToolMode.BRUSH)
     val brushSize = MutableStateFlow(40f)
-    val magicWandTolerance = MutableStateFlow(32f)
+    val magicWandTolerance = MutableStateFlow(15f)
     val magicWandExpand = MutableStateFlow(0f)
 
     val isEyedropperActive = MutableStateFlow(false)
