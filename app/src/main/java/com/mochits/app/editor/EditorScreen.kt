@@ -725,7 +725,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onRunErase = {
                             viewModel.runEraseInpaint()
                             triggerRedraw++
-                        }
+                        },
+                        onClose = { viewModel.setActivePanel(EditorPanel.NONE) }
                     )
                     EditorPanel.TEXT -> TextToolPanel(
                         selectedLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer,
@@ -739,7 +740,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onUpdateContainerShape = { shape -> viewModel.updateSelectedTextLayerContainerShape(shape) },
                         onCapitalizationTransform = { transformType -> viewModel.applyCapitalizationTransform(transformType) },
                         autoFocus = shouldFocusTextField,
-                        onFocused = { shouldFocusTextField = false }
+                        onFocused = { shouldFocusTextField = false },
+                        onClose = { viewModel.setActivePanel(EditorPanel.NONE) }
                     )
                     EditorPanel.FONT -> FontToolPanel(
                         allFonts = allFonts,
@@ -750,7 +752,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onSliderDragStart = { viewModel.onSliderDragStart() },
                         onSliderDragEnd = { viewModel.onSliderDragEnd() },
                         favoriteKeys = favoriteFontKeys,
-                        onToggleFavorite = { key -> viewModel.toggleFontFavorite(key) }
+                        onToggleFavorite = { key -> viewModel.toggleFontFavorite(key) },
+                        onClose = { viewModel.setActivePanel(EditorPanel.NONE) }
                     )
                     EditorPanel.STYLE -> StylePresetPanel(
                         presets = stylePresets,
@@ -760,7 +763,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onDeletePreset = { id -> viewModel.deleteStylePreset(id) },
                         onDeleteAllBuiltIns = { viewModel.deleteAllBuiltInPresets() },
                         pinnedIds = pinnedPresetIds.toSet(),
-                        onTogglePin = { id -> viewModel.togglePinnedPreset(id) }
+                        onTogglePin = { id -> viewModel.togglePinnedPreset(id) },
+                        onClose = { viewModel.setActivePanel(EditorPanel.NONE) }
                     )
                     EditorPanel.EFFECT -> EffectToolPanel(
                         selectedLayer = layers.find { it.id == selectedLayerId },
@@ -781,7 +785,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             viewModel.setMeshEdit(if (viewModel.meshEditId.value == id) null else id)
                         },
                         onResetMesh = { viewModel.resetMesh(it) },
-                        onClearMeshEdit = { viewModel.setMeshEdit(null) }
+                        onClearMeshEdit = { viewModel.setMeshEdit(null) },
+                        onClose = { viewModel.setActivePanel(EditorPanel.NONE) }
                     )
                     EditorPanel.LAYERS -> LayersToolPanel(                        layers = layers,
                         selectedId = selectedLayerId,
@@ -792,13 +797,15 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onDuplicateLayer = { viewModel.duplicateLayer(it) },
                         onLoadBaseImage = { baseImagePickerLauncher.launch("image/*") },
                         onDuplicateBackground = { viewModel.duplicateBackground() },
+                        onClose = { viewModel.setActivePanel(EditorPanel.NONE) },
                         backgroundLabel = baseBitmap?.let { "${it.width} x ${it.height}" } ?: "",
                         onUpdateOpacity = { opacity, saveUndo -> viewModel.updateSelectedLayerOpacity(opacity, saveUndo = saveUndo) },
                         onSliderDragStart = { viewModel.onSliderDragStart() },
                         onSliderDragEnd = { viewModel.onSliderDragEnd() }
                     )
-                    EditorPanel.HISTORY -> HistoryPanel(
+                    EditorPanel.HISTORY ->                     HistoryPanel(
                         entries = historyEntries,
+                        onClose = { viewModel.setActivePanel(EditorPanel.NONE) },
                         onJump = {
                             viewModel.jumpToHistory(it)
                             refreshMaskState()
@@ -812,7 +819,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         },
                         onApplyScriptLine = { viewModel.applyScriptCurrent() },
                         onSkipScriptLine = { viewModel.skipScriptLine() },
-                        onScriptPage = { viewModel.setScriptPage(it) }
+                        onScriptPage = { viewModel.setScriptPage(it) },
+                        onClose = { viewModel.setActivePanel(EditorPanel.NONE) }
                     )
                     else -> {}
                 }
@@ -2652,46 +2660,26 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
 }
 
 @Composable
-private fun DockItem(
-    selected: Boolean,
-    onClick: () -> Unit,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String
+private fun SectionCard(
+    title: String,
+    content: @Composable () -> Unit
 ) {
     Surface(
-        onClick = onClick,
-        shape = CircleShape,
-        color = if (selected) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            androidx.compose.ui.graphics.Color.Transparent
-        },
-        modifier = Modifier.widthIn(min = 60.dp)
+        tonalElevation = 2.dp,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = if (selected) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                modifier = Modifier.size(22.dp)
-            )
             Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                color = if (selected) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                }
+                text = title,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary
             )
+            content()
         }
     }
 }
@@ -2701,63 +2689,62 @@ fun EditorBottomBar(
     activePanel: EditorPanel,
     onPanelSelect: (EditorPanel) -> Unit
 ) {
-    // Dock alat mengambang: pil terpusat dengan margin, bukan bar penuh.
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .windowInsetsPadding(WindowInsets.navigationBars)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        contentAlignment = Alignment.Center
+    // Bar geser horizontal (seperti menu Effect): menu baru bisa ditambah
+    // tanpa mengecilkan ikon yang sudah ada.
+    Surface(
+        tonalElevation = 3.dp,
+        color = MaterialTheme.colorScheme.surfaceContainer
     ) {
-        Surface(
-            tonalElevation = 6.dp,
-            color = MaterialTheme.colorScheme.surfaceContainer,
-            shape = CircleShape
-        ) {
         Row(
             modifier = Modifier
+                .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.Start,
-            verticalAlignment = Alignment.CenterVertically
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.Start
         ) {
-            DockItem(
-                selected = activePanel == EditorPanel.ERASE || activePanel == EditorPanel.MASK || activePanel == EditorPanel.INPAINT,
-                onClick = { onPanelSelect(EditorPanel.ERASE) },
-                icon = Icons.Default.CleaningServices,
-                label = "Erase"
-            )
-            DockItem(
-                selected = activePanel == EditorPanel.TEXT,
-                onClick = { onPanelSelect(EditorPanel.TEXT) },
-                icon = Icons.Default.TextFields,
-                label = "Text"
-            )
-            DockItem(
-                selected = activePanel == EditorPanel.EFFECT,
-                onClick = { onPanelSelect(EditorPanel.EFFECT) },
-                icon = Icons.Default.AutoAwesome,
-                label = "Effect"
-            )
-            DockItem(
-                selected = activePanel == EditorPanel.FONT,
-                onClick = { onPanelSelect(EditorPanel.FONT) },
-                icon = Icons.Default.FontDownload,
-                label = "Font"
-            )
-            DockItem(
-                selected = activePanel == EditorPanel.STYLE,
-                onClick = { onPanelSelect(EditorPanel.STYLE) },
-                icon = Icons.Default.Style,
-                label = "Style"
-            )
-            DockItem(
-                selected = activePanel == EditorPanel.HISTORY,
-                onClick = { onPanelSelect(EditorPanel.HISTORY) },
-                icon = Icons.Default.History,
-                label = "History"
-            )
-            }
+            NavigationBarItem(
+            selected = activePanel == EditorPanel.ERASE || activePanel == EditorPanel.MASK || activePanel == EditorPanel.INPAINT,
+            onClick = { onPanelSelect(EditorPanel.ERASE) },
+            icon = { Icon(Icons.Default.CleaningServices, contentDescription = "Erase") },
+            label = { Text("Erase", maxLines = 1) },
+            modifier = Modifier.widthIn(min = 60.dp)
+        )
+        NavigationBarItem(
+            selected = activePanel == EditorPanel.TEXT,
+            onClick = { onPanelSelect(EditorPanel.TEXT) },
+            icon = { Icon(Icons.Default.TextFields, contentDescription = "Text") },
+            label = { Text("Text", maxLines = 1) },
+            modifier = Modifier.widthIn(min = 60.dp)
+        )
+        NavigationBarItem(
+            selected = activePanel == EditorPanel.EFFECT,
+            onClick = { onPanelSelect(EditorPanel.EFFECT) },
+            icon = { Icon(Icons.Default.AutoAwesome, contentDescription = "Effect") },
+            label = { Text("Effect", maxLines = 1) },
+            modifier = Modifier.widthIn(min = 60.dp)
+        )
+        NavigationBarItem(
+            selected = activePanel == EditorPanel.FONT,
+            onClick = { onPanelSelect(EditorPanel.FONT) },
+            icon = { Icon(Icons.Default.FontDownload, contentDescription = "Font") },
+            label = { Text("Font", maxLines = 1) },
+            modifier = Modifier.widthIn(min = 60.dp)
+        )
+        NavigationBarItem(
+            selected = activePanel == EditorPanel.STYLE,
+            onClick = { onPanelSelect(EditorPanel.STYLE) },
+            icon = { Icon(Icons.Default.Style, contentDescription = "Style") },
+            label = { Text("Style", maxLines = 1) },
+            modifier = Modifier.widthIn(min = 60.dp)
+        )
+        NavigationBarItem(
+            selected = activePanel == EditorPanel.HISTORY,
+            onClick = { onPanelSelect(EditorPanel.HISTORY) },
+            icon = { Icon(Icons.Default.History, contentDescription = "History") },
+            label = { Text("History", maxLines = 1) },
+            modifier = Modifier.widthIn(min = 60.dp)
+        )
         }
     }
 }
@@ -2780,7 +2767,8 @@ fun EraseToolPanel(
     onExpandChange: ((Float) -> Unit)? = null,
     onClear: () -> Unit,
     onInvert: () -> Unit,
-    onRunErase: () -> Unit
+    onRunErase: () -> Unit,
+    onClose: () -> Unit = {}
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -2805,35 +2793,54 @@ fun EraseToolPanel(
                     modifier = Modifier.size(width = 36.dp, height = 4.dp)
                 ) {}
             }
-            Text(
-                text = "Hapus",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Hapus",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Tutup panel",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
             Spacer(modifier = Modifier.height(2.dp))
 
-            OptionCycler(
-                    label = "Alat",
-                    options = listOf(
-                        MaskToolMode.BRUSH,
-                        MaskToolMode.ERASER,
-                        MaskToolMode.LASSO,
-                        MaskToolMode.MAGIC_WAND
-                    ),
-                    selected = mode,
-                    onSelect = onModeSelected,
-                    labelOf = {
-                        when (it) {
-                            MaskToolMode.BRUSH -> "Brush"
-                            MaskToolMode.ERASER -> "Eraser"
-                            MaskToolMode.LASSO -> "Lasso"
-                            MaskToolMode.MAGIC_WAND -> "Magic Wand"
+            SectionCard(title = "Alat") {
+                OptionCycler(
+                        label = "Alat",
+                        options = listOf(
+                            MaskToolMode.BRUSH,
+                            MaskToolMode.ERASER,
+                            MaskToolMode.LASSO,
+                            MaskToolMode.MAGIC_WAND
+                        ),
+                        selected = mode,
+                        onSelect = onModeSelected,
+                        labelOf = {
+                            when (it) {
+                                MaskToolMode.BRUSH -> "Brush"
+                                MaskToolMode.ERASER -> "Eraser"
+                                MaskToolMode.LASSO -> "Lasso"
+                                MaskToolMode.MAGIC_WAND -> "Magic Wand"
+                            }
                         }
-                    }
-                )
+                    )
+            }
 
                 Spacer(modifier = Modifier.height(2.dp))
 
+            SectionCard(title = "Model") {
                 OptionCycler(
                     label = "Model",
                     options = listOf(
@@ -2864,6 +2871,7 @@ fun EraseToolPanel(
                         )
                     }
                 }
+            }
 
                 Spacer(modifier = Modifier.height(2.dp))
                 Row(
@@ -2898,6 +2906,7 @@ fun EraseToolPanel(
                 }
 
                 Spacer(modifier = Modifier.height(2.dp))
+            SectionCard(title = "Kekuatan") {
                 if (mode == MaskToolMode.MAGIC_WAND) {
                     if (!hasMask) {
                         Text(
@@ -2938,6 +2947,7 @@ fun EraseToolPanel(
                         valueRange = 5f..200f
                     )
                 }
+            }
         }
     }
 }
@@ -2961,7 +2971,8 @@ fun TextToolPanel(
     onEditStart: (() -> Unit)? = null,
     // Called on every keystroke; wire to a throttled autoSave() so typed text
     // is durable without creating undo steps.
-    onRequestAutosave: (() -> Unit)? = null
+    onRequestAutosave: (() -> Unit)? = null,
+    onClose: () -> Unit = {}
 ) {
     var textInput by remember { mutableStateOf(selectedLayer?.text ?: "") }
     val focusRequester = remember { FocusRequester() }
@@ -3019,11 +3030,28 @@ fun TextToolPanel(
                     modifier = Modifier.size(width = 36.dp, height = 4.dp)
                 ) {}
             }
-            Text(
-                text = "Teks",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Teks",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Tutup panel",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+            SectionCard(title = "Isi") {
             OutlinedTextField(
                 value = textInput,
                 onValueChange = { newText ->
@@ -3066,7 +3094,9 @@ fun TextToolPanel(
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(if (selectedLayer != null) "Simpan Perubahan" else "Tambah Teks ke Kanvas")
             }
+            }
 
+            SectionCard(title = "Tata Letak") {
             OptionCycler(
                 label = "Perataan",
                 options = listOf(
@@ -3130,7 +3160,9 @@ fun TextToolPanel(
                     }
                 )
             }
+            }
 
+            SectionCard(title = "Kapital") {
             if (selectedLayer != null && onCapitalizationTransform != null) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -3154,6 +3186,7 @@ fun TextToolPanel(
                         label = { Text("Title Case") }
                     )
                 }
+            }
             }
         }
     }
@@ -3397,7 +3430,8 @@ fun EffectToolPanel(
     meshEditId: String? = null,
     onToggleMeshEdit: ((String) -> Unit)? = null,
     onResetMesh: ((String) -> Unit)? = null,
-    onClearMeshEdit: (() -> Unit)? = null
+    onClearMeshEdit: (() -> Unit)? = null,
+    onClose: () -> Unit = {}
 ) {
     var expandedEffect by remember(selectedLayer?.id) { mutableStateOf<EffectType?>(null) }
 
@@ -3434,11 +3468,27 @@ fun EffectToolPanel(
                     modifier = Modifier.size(width = 36.dp, height = 4.dp)
                 ) {}
             }
-            Text(
-                text = "Efek",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Efek",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Tutup panel",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
             if (selectedLayer == null) {
                 Text(
                     text = "Pilih layer terlebih dahulu untuk mengatur transparansi dan efek.",
@@ -3589,8 +3639,25 @@ fun EffectToolPanel(
                     }
                 }
 
+                val expandedEffectTitle = when (expandedEffect) {
+                    EffectType.OPACITY -> "Opacity"
+                    EffectType.TEXT_COLOR -> "Warna Teks"
+                    EffectType.STROKE -> "Stroke"
+                    EffectType.DROP_SHADOW -> "Drop Shadow"
+                    EffectType.MOTION_BLUR -> "Motion Blur"
+                    EffectType.GLOW -> "Glow"
+                    EffectType.PERSPECTIVE -> "Perspective"
+                    EffectType.WARP -> "Warp"
+                    EffectType.IMAGE_TONE -> "Tone"
+                    EffectType.IMAGE_MOTION_BLUR -> "Motion Blur"
+                    EffectType.IMAGE_GLOW -> "Glow"
+                    EffectType.IMAGE_PERSPECTIVE -> "Perspective"
+                    EffectType.IMAGE_WARP -> "Warp"
+                    null -> ""
+                }
                 if (expandedEffect != null) {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    SectionCard(title = expandedEffectTitle) {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -4150,6 +4217,7 @@ fun EffectToolPanel(
                             null -> {}
                         }
                     }
+                    }
                 }
             }
         }
@@ -4169,7 +4237,8 @@ private fun ScriptPanel(
     onLoadScriptFile: () -> Unit,
     onApplyScriptLine: () -> Unit,
     onSkipScriptLine: () -> Unit,
-    onScriptPage: (Int) -> Unit
+    onScriptPage: (Int) -> Unit,
+    onClose: () -> Unit = {}
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -4193,11 +4262,28 @@ private fun ScriptPanel(
                     modifier = Modifier.size(width = 36.dp, height = 4.dp)
                 ) {}
             }
-            Text(
-                text = "Script TL",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Script TL",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Tutup panel",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+            SectionCard(title = "Antrean") {
             OutlinedButton(
                 onClick = onLoadScriptFile,
                 modifier = Modifier.fillMaxWidth()
@@ -4259,6 +4345,7 @@ private fun ScriptPanel(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            }
         }
     }
 }
@@ -4266,7 +4353,8 @@ private fun ScriptPanel(
 @Composable
 private fun HistoryPanel(
     entries: List<EditorViewModel.HistoryEntry>,
-    onJump: (EditorViewModel.HistoryEntry) -> Unit
+    onJump: (EditorViewModel.HistoryEntry) -> Unit,
+    onClose: () -> Unit = {}
 ) {
     val timeFmt = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
     Surface(
@@ -4291,16 +4379,34 @@ private fun HistoryPanel(
                     modifier = Modifier.size(width = 36.dp, height = 4.dp)
                 ) {}
             }
-            Text(
-                text = "Riwayat",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Riwayat",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Tutup panel",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+            SectionCard(title = "Info") {
             Text(
                 "Ketuk entri untuk lompat ke keadaan itu.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            }
             if (entries.isEmpty()) {
                 Text(
                     "Belum ada riwayat.",
@@ -4376,7 +4482,8 @@ fun LayersToolPanel(
     backgroundLabel: String = "",
     onUpdateOpacity: ((Float, Boolean) -> Unit)? = null,
     onSliderDragStart: () -> Unit = {},
-    onSliderDragEnd: () -> Unit = {}
+    onSliderDragEnd: () -> Unit = {},
+    onClose: () -> Unit = {}
 ) {
     val selectedLayer = layers.find { it.id == selectedId }
     Surface(
@@ -4399,11 +4506,28 @@ fun LayersToolPanel(
                     modifier = Modifier.size(width = 36.dp, height = 4.dp)
                 ) {}
             }
-            Text(
-                text = "Lapisan",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Lapisan",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Tutup panel",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+            SectionCard(title = "Layer Aktif") {
             if (selectedLayer != null) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
@@ -4424,6 +4548,7 @@ fun LayersToolPanel(
                         modifier = Modifier.weight(1f)
                     )
                 }
+            }
             }
 
             LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
@@ -4589,7 +4714,8 @@ fun FontToolPanel(
     onSliderDragStart: () -> Unit = {},
     onSliderDragEnd: () -> Unit = {},
     favoriteKeys: Set<String> = emptySet(),
-    onToggleFavorite: ((String) -> Unit)? = null
+    onToggleFavorite: ((String) -> Boolean)? = null,
+    onClose: () -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var showFavoritesOnly by remember { mutableStateOf(false) }
@@ -4631,11 +4757,28 @@ fun FontToolPanel(
                     modifier = Modifier.size(width = 36.dp, height = 4.dp)
                 ) {}
             }
-            Text(
-                text = "Font",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Font",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Tutup panel",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+            SectionCard(title = "Cari") {
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
@@ -4668,6 +4811,8 @@ fun FontToolPanel(
                     }
                 )
             }
+            }
+            SectionCard(title = "Jenis") {
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -4718,7 +4863,9 @@ fun FontToolPanel(
                     )
                 }
             }
+            }
 
+            SectionCard(title = "Gaya & Ukuran") {
             OptionCycler(
                 label = "Gaya",
                 options = listOf("Regular", "Bold", "Italic", "BoldItalic"),
@@ -4742,6 +4889,7 @@ fun FontToolPanel(
                 valueRange = 10f..300f,
                 modifier = Modifier.fillMaxWidth()
             )
+            }
 
         }
     }
@@ -4756,7 +4904,8 @@ fun StylePresetPanel(
     onDeletePreset: ((String) -> Boolean)? = null,
     onDeleteAllBuiltIns: (() -> Int)? = null,
     pinnedIds: Set<String> = emptySet(),
-    onTogglePin: ((String) -> Boolean)? = null
+    onTogglePin: ((String) -> Boolean)? = null,
+    onClose: () -> Unit = {}
 ) {
     var presetName by remember { mutableStateOf("") }
 
@@ -4784,11 +4933,28 @@ fun StylePresetPanel(
                     modifier = Modifier.size(width = 36.dp, height = 4.dp)
                 ) {}
             }
-            Text(
-                text = "Gaya",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Gaya",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Tutup panel",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+            SectionCard(title = "Simpan") {
             if (onDeleteAllBuiltIns != null && presets.any { it.isBuiltIn }) {
                 TextButton(
                     onClick = { onDeleteAllBuiltIns() },
@@ -4832,6 +4998,7 @@ fun StylePresetPanel(
                 ) {
                     Icon(Icons.Default.Add, contentDescription = "Simpan preset")
                 }
+            }
             }
 
             presets.forEach { preset ->
