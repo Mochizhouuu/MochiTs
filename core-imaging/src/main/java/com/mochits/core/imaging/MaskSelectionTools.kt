@@ -247,7 +247,6 @@ class MaskSelectionTools(
             try { smallMask.recycle() } catch (_: Exception) {}
         }
     }
-    }
 
     fun applyExpand(expandPixels: Int) = synchronized(maskLock) {
         invalidateCache()
