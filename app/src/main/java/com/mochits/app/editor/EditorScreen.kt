@@ -467,6 +467,11 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
 
     // Dialog & Dropdown Menu States
     var showAddMenu by remember { mutableStateOf(false) }
+    // Panel yang diciutkan (minimize seperti dulu: tinggal baris judul).
+    var collapsedPanels by remember { mutableStateOf(setOf<EditorPanel>()) }
+    fun togglePanelCollapse(panel: EditorPanel) {
+        collapsedPanels = if (panel in collapsedPanels) collapsedPanels - panel else collapsedPanels + panel
+    }
     var showAddTextDialog by remember { mutableStateOf(false) }
     var newTextValue by remember { mutableStateOf("") }
     var newTextShape by remember { mutableStateOf(com.mochits.app.model.TextContainerShape.BOX) }
@@ -582,14 +587,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        text = projectTitleName.ifBlank { "Tanpa Judul" },
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
+                title = { },
                 navigationIcon = {
                     IconButton(
                         onClick = {
@@ -725,7 +723,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             viewModel.runEraseInpaint()
                             triggerRedraw++
                         },
-                        onClose = { viewModel.setActivePanel(EditorPanel.NONE) }
+                        isCollapsed = EditorPanel.ERASE in collapsedPanels,
+                        onToggleCollapse = { togglePanelCollapse(EditorPanel.ERASE) }
                     )
                     EditorPanel.TEXT -> TextToolPanel(
                         selectedLayer = layers.find { it.id == selectedLayerId } as? Layer.TextLayer,
@@ -740,7 +739,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onCapitalizationTransform = { transformType -> viewModel.applyCapitalizationTransform(transformType) },
                         autoFocus = shouldFocusTextField,
                         onFocused = { shouldFocusTextField = false },
-                        onClose = { viewModel.setActivePanel(EditorPanel.NONE) }
+                        isCollapsed = EditorPanel.TEXT in collapsedPanels,
+                        onToggleCollapse = { togglePanelCollapse(EditorPanel.TEXT) }
                     )
                     EditorPanel.FONT -> FontToolPanel(
                         allFonts = allFonts,
@@ -752,7 +752,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onSliderDragEnd = { viewModel.onSliderDragEnd() },
                         favoriteKeys = favoriteFontKeys,
                         onToggleFavorite = { key -> viewModel.toggleFontFavorite(key) },
-                        onClose = { viewModel.setActivePanel(EditorPanel.NONE) }
+                        isCollapsed = EditorPanel.FONT in collapsedPanels,
+                        onToggleCollapse = { togglePanelCollapse(EditorPanel.FONT) }
                     )
                     EditorPanel.STYLE -> StylePresetPanel(
                         presets = stylePresets,
@@ -763,7 +764,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onDeleteAllBuiltIns = { viewModel.deleteAllBuiltInPresets() },
                         pinnedIds = pinnedPresetIds.toSet(),
                         onTogglePin = { id -> viewModel.togglePinnedPreset(id) },
-                        onClose = { viewModel.setActivePanel(EditorPanel.NONE) }
+                        isCollapsed = EditorPanel.STYLE in collapsedPanels,
+                        onToggleCollapse = { togglePanelCollapse(EditorPanel.STYLE) }
                     )
                     EditorPanel.EFFECT -> EffectToolPanel(
                         selectedLayer = layers.find { it.id == selectedLayerId },
@@ -785,7 +787,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         },
                         onResetMesh = { viewModel.resetMesh(it) },
                         onClearMeshEdit = { viewModel.setMeshEdit(null) },
-                        onClose = { viewModel.setActivePanel(EditorPanel.NONE) }
+                        isCollapsed = EditorPanel.EFFECT in collapsedPanels,
+                        onToggleCollapse = { togglePanelCollapse(EditorPanel.EFFECT) }
                     )
                     EditorPanel.LAYERS -> LayersToolPanel(                        layers = layers,
                         selectedId = selectedLayerId,
@@ -796,7 +799,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onDuplicateLayer = { viewModel.duplicateLayer(it) },
                         onLoadBaseImage = { baseImagePickerLauncher.launch("image/*") },
                         onDuplicateBackground = { viewModel.duplicateBackground() },
-                        onClose = { viewModel.setActivePanel(EditorPanel.NONE) },
+                        isCollapsed = EditorPanel.LAYERS in collapsedPanels,
+                        onToggleCollapse = { togglePanelCollapse(EditorPanel.LAYERS) },
                         backgroundLabel = baseBitmap?.let { "${it.width} x ${it.height}" } ?: "",
                         onUpdateOpacity = { opacity, saveUndo -> viewModel.updateSelectedLayerOpacity(opacity, saveUndo = saveUndo) },
                         onSliderDragStart = { viewModel.onSliderDragStart() },
@@ -811,7 +815,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onApplyScriptLine = { viewModel.applyScriptCurrent() },
                         onSkipScriptLine = { viewModel.skipScriptLine() },
                         onScriptPage = { viewModel.setScriptPage(it) },
-                        onClose = { viewModel.setActivePanel(EditorPanel.NONE) }
+                        isCollapsed = EditorPanel.SCRIPT in collapsedPanels,
+                        onToggleCollapse = { togglePanelCollapse(EditorPanel.SCRIPT) } }
                     )
                     else -> {}
                 }
@@ -2200,12 +2205,12 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                             )
                                             if (!drewMesh) {
                                                 drawContext.canvas.nativeCanvas.drawBitmap(imgBmp, layer.x, layer.y, imgPaint)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                }
+            }
+            }
+        }
+    }
+
                     }
                 } catch (t: Throwable) {
                     Logger.e("Error: ${t.message}", t)
@@ -2433,7 +2438,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             modifier = Modifier.fillMaxWidth()
                         )
                         OptionCycler(
-                            label = "Bentuk",
+                            label = "Shape",
                             options = listOf(
                                 com.mochits.app.model.TextContainerShape.BOX,
                                 com.mochits.app.model.TextContainerShape.OVAL
@@ -2759,7 +2764,8 @@ fun EraseToolPanel(
     onClear: () -> Unit,
     onInvert: () -> Unit,
     onRunErase: () -> Unit,
-    onClose: () -> Unit = {}
+    isCollapsed: Boolean = false,
+    onToggleCollapse: () -> Unit = {}
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -2767,7 +2773,7 @@ fun EraseToolPanel(
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = 280.dp)
+            .height(250.dp)
     ) {
         Column(
             modifier = Modifier
@@ -2785,9 +2791,7 @@ fun EraseToolPanel(
                 ) {}
             }
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onClose() },
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -2797,21 +2801,22 @@ fun EraseToolPanel(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 IconButton(
-                    onClick = onClose,
+                    onClick = onToggleCollapse,
                     modifier = Modifier.size(28.dp)
                 ) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Tutup panel",
-                        modifier = Modifier.size(18.dp)
-                    )
+                        Icon(
+                            if (isCollapsed) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = if (isCollapsed) "Expand panel" else "Minimize panel",
+                            modifier = Modifier.size(22.dp)
+                        )
                 }
             }
+            if (!isCollapsed) {
             Spacer(modifier = Modifier.height(2.dp))
 
             SectionCard(title = "Tool") {
                 OptionCycler(
-                        label = "Alat",
+                        label = "Tool",
                         options = listOf(
                             MaskToolMode.BRUSH,
                             MaskToolMode.ERASER,
@@ -2941,6 +2946,7 @@ fun EraseToolPanel(
                     )
                 }
             }
+            }
         }
     }
 }
@@ -2965,7 +2971,8 @@ fun TextToolPanel(
     // Called on every keystroke; wire to a throttled autoSave() so typed text
     // is durable without creating undo steps.
     onRequestAutosave: (() -> Unit)? = null,
-    onClose: () -> Unit = {}
+    isCollapsed: Boolean = false,
+    onToggleCollapse: () -> Unit = {}
 ) {
     var textInput by remember { mutableStateOf(selectedLayer?.text ?: "") }
     val focusRequester = remember { FocusRequester() }
@@ -3024,9 +3031,7 @@ fun TextToolPanel(
                 ) {}
             }
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onClose() },
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -3036,16 +3041,17 @@ fun TextToolPanel(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 IconButton(
-                    onClick = onClose,
+                    onClick = onToggleCollapse,
                     modifier = Modifier.size(28.dp)
                 ) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Tutup panel",
-                        modifier = Modifier.size(18.dp)
-                    )
+                        Icon(
+                            if (isCollapsed) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = if (isCollapsed) "Expand panel" else "Minimize panel",
+                            modifier = Modifier.size(22.dp)
+                        )
                 }
             }
+            if (!isCollapsed) {
             SectionCard(title = "Content") {
             OutlinedTextField(
                 value = textInput,
@@ -3093,7 +3099,7 @@ fun TextToolPanel(
 
             SectionCard(title = "Layout") {
             OptionCycler(
-                label = "Perataan",
+                label = "Alignment",
                 options = listOf(
                     com.mochits.app.model.TextAlignment.LEFT,
                     com.mochits.app.model.TextAlignment.CENTER,
@@ -3123,7 +3129,7 @@ fun TextToolPanel(
 
             if (selectedLayer != null) {
                 OptionCycler(
-                    label = "Bentuk",
+                    label = "Shape",
                     options = listOf(
                         com.mochits.app.model.TextContainerShape.BOX,
                         com.mochits.app.model.TextContainerShape.OVAL
@@ -3140,7 +3146,7 @@ fun TextToolPanel(
             } else {
                 // Belum ada teks terpilih: pilih bentuk untuk teks baru.
                 OptionCycler(
-                    label = "Bentuk baru",
+                    label = "New Shape",
                     options = listOf(
                         com.mochits.app.model.TextContainerShape.BOX,
                         com.mochits.app.model.TextContainerShape.OVAL
@@ -3164,7 +3170,7 @@ fun TextToolPanel(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.horizontalScroll(rememberScrollState())
                 ) {
-                    Text("Kapital:", style = MaterialTheme.typography.labelLarge)
+                    Text("Case:", style = MaterialTheme.typography.labelLarge)
                     FilterChip(
                         selected = false,
                         onClick = { onCapitalizationTransform("uppercase") },
@@ -3181,6 +3187,7 @@ fun TextToolPanel(
                         label = { Text("Title Case") }
                     )
                 }
+            }
             }
             }
         }
@@ -3426,7 +3433,8 @@ fun EffectToolPanel(
     onToggleMeshEdit: ((String) -> Unit)? = null,
     onResetMesh: ((String) -> Unit)? = null,
     onClearMeshEdit: (() -> Unit)? = null,
-    onClose: () -> Unit = {}
+    isCollapsed: Boolean = false,
+    onToggleCollapse: () -> Unit = {}
 ) {
     var expandedEffect by remember(selectedLayer?.id) { mutableStateOf<EffectType?>(null) }
 
@@ -3464,9 +3472,7 @@ fun EffectToolPanel(
                 ) {}
             }
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onClose() },
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -3476,16 +3482,17 @@ fun EffectToolPanel(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 IconButton(
-                    onClick = onClose,
+                    onClick = onToggleCollapse,
                     modifier = Modifier.size(28.dp)
                 ) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Tutup panel",
-                        modifier = Modifier.size(18.dp)
-                    )
+                        Icon(
+                            if (isCollapsed) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = if (isCollapsed) "Expand panel" else "Minimize panel",
+                            modifier = Modifier.size(22.dp)
+                        )
                 }
             }
+            if (!isCollapsed) {
             if (selectedLayer == null) {
                 Text(
                     text = "Pilih layer terlebih dahulu untuk mengatur transparansi dan efek.",
@@ -4193,6 +4200,7 @@ fun EffectToolPanel(
                     }
                 }
             }
+            }
         }
     }
 }
@@ -4211,7 +4219,8 @@ private fun ScriptPanel(
     onApplyScriptLine: () -> Unit,
     onSkipScriptLine: () -> Unit,
     onScriptPage: (Int) -> Unit,
-    onClose: () -> Unit = {}
+    isCollapsed: Boolean = false,
+    onToggleCollapse: () -> Unit = {}
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -4236,9 +4245,7 @@ private fun ScriptPanel(
                 ) {}
             }
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onClose() },
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -4248,16 +4255,17 @@ private fun ScriptPanel(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 IconButton(
-                    onClick = onClose,
+                    onClick = onToggleCollapse,
                     modifier = Modifier.size(28.dp)
                 ) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Tutup panel",
-                        modifier = Modifier.size(18.dp)
-                    )
+                        Icon(
+                            if (isCollapsed) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = if (isCollapsed) "Expand panel" else "Minimize panel",
+                            modifier = Modifier.size(22.dp)
+                        )
                 }
             }
+            if (!isCollapsed) {
             SectionCard(title = "Queue") {
             OutlinedButton(
                 onClick = onLoadScriptFile,
@@ -4321,6 +4329,7 @@ private fun ScriptPanel(
                 )
             }
             }
+            }
         }
     }
 }
@@ -4340,7 +4349,8 @@ fun LayersToolPanel(
     onUpdateOpacity: ((Float, Boolean) -> Unit)? = null,
     onSliderDragStart: () -> Unit = {},
     onSliderDragEnd: () -> Unit = {},
-    onClose: () -> Unit = {}
+    isCollapsed: Boolean = false,
+    onToggleCollapse: () -> Unit = {}
 ) {
     val selectedLayer = layers.find { it.id == selectedId }
     Surface(
@@ -4364,9 +4374,7 @@ fun LayersToolPanel(
                 ) {}
             }
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onClose() },
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -4376,16 +4384,17 @@ fun LayersToolPanel(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 IconButton(
-                    onClick = onClose,
+                    onClick = onToggleCollapse,
                     modifier = Modifier.size(28.dp)
                 ) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Tutup panel",
-                        modifier = Modifier.size(18.dp)
-                    )
+                        Icon(
+                            if (isCollapsed) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = if (isCollapsed) "Expand panel" else "Minimize panel",
+                            modifier = Modifier.size(22.dp)
+                        )
                 }
             }
+            if (!isCollapsed) {
             SectionCard(title = "Active Layer") {
             if (selectedLayer != null) {
                 Row(
@@ -4541,12 +4550,13 @@ fun LayersToolPanel(
                         }
                         IconButton(onClick = onLoadBaseImage) {
                             Icon(Icons.Default.Image, contentDescription = "Ganti gambar latar")
-                        }
                     }
                 }
             }
+            }
         }
     }
+}
 }
 
 
@@ -4574,7 +4584,8 @@ fun FontToolPanel(
     onSliderDragEnd: () -> Unit = {},
     favoriteKeys: Set<String> = emptySet(),
     onToggleFavorite: ((String) -> Boolean)? = null,
-    onClose: () -> Unit = {}
+    isCollapsed: Boolean = false,
+    onToggleCollapse: () -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var showFavoritesOnly by remember { mutableStateOf(false) }
@@ -4617,9 +4628,7 @@ fun FontToolPanel(
                 ) {}
             }
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onClose() },
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -4629,16 +4638,17 @@ fun FontToolPanel(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 IconButton(
-                    onClick = onClose,
+                    onClick = onToggleCollapse,
                     modifier = Modifier.size(28.dp)
                 ) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Tutup panel",
-                        modifier = Modifier.size(18.dp)
-                    )
+                        Icon(
+                            if (isCollapsed) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = if (isCollapsed) "Expand panel" else "Minimize panel",
+                            modifier = Modifier.size(22.dp)
+                        )
                 }
             }
+            if (!isCollapsed) {
             SectionCard(title = "Search") {
             OutlinedTextField(
                 value = searchQuery,
@@ -4728,7 +4738,7 @@ fun FontToolPanel(
 
             SectionCard(title = "Style & Size") {
             OptionCycler(
-                label = "Gaya",
+                label = "Style",
                 options = listOf("Regular", "Bold", "Italic", "BoldItalic"),
                 selected = currentStyle.fontStyle,
                 onSelect = { onUpdateStyle(currentStyle.copy(fontStyle = it), true) },
@@ -4751,6 +4761,7 @@ fun FontToolPanel(
                 modifier = Modifier.fillMaxWidth()
             )
             }
+            }
 
         }
     }
@@ -4766,7 +4777,8 @@ fun StylePresetPanel(
     onDeleteAllBuiltIns: (() -> Int)? = null,
     pinnedIds: Set<String> = emptySet(),
     onTogglePin: ((String) -> Boolean)? = null,
-    onClose: () -> Unit = {}
+    isCollapsed: Boolean = false,
+    onToggleCollapse: () -> Unit = {}
 ) {
     var presetName by remember { mutableStateOf("") }
 
@@ -4795,9 +4807,7 @@ fun StylePresetPanel(
                 ) {}
             }
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onClose() },
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -4807,16 +4817,17 @@ fun StylePresetPanel(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 IconButton(
-                    onClick = onClose,
+                    onClick = onToggleCollapse,
                     modifier = Modifier.size(28.dp)
                 ) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Tutup panel",
-                        modifier = Modifier.size(18.dp)
-                    )
+                        Icon(
+                            if (isCollapsed) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = if (isCollapsed) "Expand panel" else "Minimize panel",
+                            modifier = Modifier.size(22.dp)
+                        )
                 }
             }
+            if (!isCollapsed) {
             SectionCard(title = "Save") {
             if (onDeleteAllBuiltIns != null && presets.any { it.isBuiltIn }) {
                 TextButton(
@@ -4919,6 +4930,7 @@ fun StylePresetPanel(
                         }
                     }
                 }
+            }
             }
         }
     }
