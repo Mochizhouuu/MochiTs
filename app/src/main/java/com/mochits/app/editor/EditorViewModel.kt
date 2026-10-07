@@ -118,7 +118,7 @@ class EditorViewModel @Inject constructor(
 
     val maskToolMode = MutableStateFlow(MaskToolMode.BRUSH)
     val brushSize = MutableStateFlow(40f)
-    val magicWandTolerance = MutableStateFlow(10f)
+    val magicWandTolerance = MutableStateFlow(32f)
     val magicWandExpand = MutableStateFlow(0f)
     /** Tutup celah garis (0 = mati, 1..5 px). Berlaku saat ketuk berikutnya. */
     val magicWandGap = MutableStateFlow(0f)
@@ -140,6 +140,21 @@ class EditorViewModel @Inject constructor(
 
     fun invalidateFlattenedCache() {
         flattenGen.incrementAndGet()
+    }
+
+    private var flattenWarmJob: kotlinx.coroutines.Job? = null
+
+    /** Bangun ulang komposit di latar (debounce) agar tap wand berikutnya instan. */
+    private fun scheduleFlattenWarm() {
+        flattenWarmJob?.cancel()
+        flattenWarmJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            kotlinx.coroutines.delay(400)
+            try {
+                flattenForSelection()
+            } catch (t: Throwable) {
+                Logger.e("scheduleFlattenWarm: ${t.message}", t)
+            }
+        }
     }
 
     /** Hangatkan cache komposit di latar (buka panel Erase) agar tap wand instan. */
@@ -537,7 +552,7 @@ data class HistoryManifest(
         // invalidate the cached bitmap, otherwise taps sample a stale image and the
         // selection appears outside the tapped object.
         viewModelScope.launch {
-            layers.collect { invalidateFlattenedCache() }
+            layers.collect { invalidateFlattenedCache(); scheduleFlattenWarm() }
         }
         viewModelScope.launch {
             baseBitmap.collect { bmp ->
@@ -545,6 +560,7 @@ data class HistoryManifest(
                     canvasState.mapper.updateCanvasSize(bmp.width, bmp.height)
                 }
                 invalidateFlattenedCache()
+                scheduleFlattenWarm()
             }
         }
         loadProject()
