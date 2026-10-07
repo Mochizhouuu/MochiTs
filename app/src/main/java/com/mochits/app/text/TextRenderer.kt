@@ -656,6 +656,21 @@ class TextRenderer(private val context: Context) {
     var flatVersion: Long = 0L
         private set
 
+    private data class MinBoxWidthKey(
+        val text: String,
+        val textSize: Float,
+        val fontName: String,
+        val fontStyle: String,
+        val shape: TextContainerShape
+    )
+
+    /** Cache ukur kata/suku kata (pure function; hemat CPU tiap tick slider/ketikan). */
+    private val minBoxWidthCache = object : java.util.LinkedHashMap<MinBoxWidthKey, Float>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<MinBoxWidthKey, Float>?): Boolean {
+            return size > 256
+        }
+    }
+
     /**
      * Kunci render teks: semua input yang memengaruhi piksel (posisi
      * dikecualikan — bitmap konten independen posisi, origin mengikuti
@@ -981,6 +996,16 @@ class TextRenderer(private val context: Context) {
         shape: TextContainerShape = TextContainerShape.BOX
     ): Float {
         if (text.isEmpty()) return 30f
+        val key = MinBoxWidthKey(
+            text = text,
+            textSize = style.fontSize,
+            fontName = style.fontName.trim().lowercase(),
+            fontStyle = style.fontStyle.trim().lowercase(),
+            shape = shape
+        )
+        synchronized(minBoxWidthCache) {
+            minBoxWidthCache[key]?.let { return it }
+        }
         val paint = reusableLayoutPaint.apply {
             reset()
             isAntiAlias = true
@@ -1000,11 +1025,15 @@ class TextRenderer(private val context: Context) {
             }
         }
         val minW = maxChunkW + 4f
-        return if (shape == TextContainerShape.OVAL) {
+        val result = if (shape == TextContainerShape.OVAL) {
             (minW * 1.15f).coerceAtLeast(40f)
         } else {
             minW.coerceAtLeast(30f)
         }
+        synchronized(minBoxWidthCache) {
+            minBoxWidthCache[key] = result
+        }
+        return result
     }
 
 }

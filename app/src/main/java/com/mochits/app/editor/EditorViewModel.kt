@@ -1705,6 +1705,14 @@ data class HistoryManifest(
     fun onSliderDragEnd() {
         if (isSliderDragging) {
             isSliderDragging = false
+            // Selesaikan FX gambar yang ditunda selama drag (yang sudah
+            // cocok cache jadi no-op di dalam refresh).
+            layers.value.forEach { layer ->
+                if (layer is Layer.ImageLayer) {
+                    refreshImageMotionBlur(layer)
+                    refreshImageGlow(layer)
+                }
+            }
             autoSave()
         }
     }
@@ -1759,8 +1767,12 @@ data class HistoryManifest(
             autoSave()
         }
         invalidateFlattenedCache()
-        refreshImageMotionBlur(updated)
-        refreshImageGlow(updated)
+        // Selama drag slider: tunda job blur/glow (pratinjau FX memang
+        // muncul setelah slider dilepas); hemat N-1 job terbuang per drag.
+        if (!isSliderDragging) {
+            refreshImageMotionBlur(updated)
+            refreshImageGlow(updated)
+        }
     }
 
     /**
