@@ -277,4 +277,28 @@ class MaskSelectionToolsTest {
             (tools.maskBitmap.getPixel(0, 0) ushr 24) and 0xFF
         )
     }
+
+    @Test
+    fun magicWand_additiveMode_unionsAcrossTaps() {
+        val tools = MaskSelectionTools(100, 100)
+        val srcBitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
+        srcBitmap.eraseColor(Color.WHITE)
+        for (y in 10 until 20) {
+            for (x in 10 until 20) {
+                srcBitmap.setPixel(x, y, Color.BLACK)
+            }
+        }
+        for (y in 70 until 80) {
+            for (x in 70 until 80) {
+                srcBitmap.setPixel(x, y, Color.BLACK)
+            }
+        }
+
+        tools.magicWandSelect(srcBitmap, Offset(15f, 15f), tolerance = 10f, expandPixels = 0, additive = false)
+        tools.magicWandSelect(srcBitmap, Offset(75f, 75f), tolerance = 10f, expandPixels = 0, additive = true)
+
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 15)))
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(75, 75)))
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(50, 50)))
+    }
 }
