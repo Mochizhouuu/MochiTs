@@ -816,7 +816,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onSkipScriptLine = { viewModel.skipScriptLine() },
                         onScriptPage = { viewModel.setScriptPage(it) },
                         isCollapsed = EditorPanel.SCRIPT in collapsedPanels,
-                        onToggleCollapse = { togglePanelCollapse(EditorPanel.SCRIPT) } }
+                        onToggleCollapse = { togglePanelCollapse(EditorPanel.SCRIPT) }
                     )
                     else -> {}
                 }
@@ -2205,11 +2205,12 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                             )
                                             if (!drewMesh) {
                                                 drawContext.canvas.nativeCanvas.drawBitmap(imgBmp, layer.x, layer.y, imgPaint)
-                }
-            }
-            }
-        }
-    }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
                     }
                 } catch (t: Throwable) {
