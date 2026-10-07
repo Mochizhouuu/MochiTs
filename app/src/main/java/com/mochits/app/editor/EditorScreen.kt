@@ -1217,10 +1217,21 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                                     refreshMaskState()
                                                                     triggerRedraw++
                                                                 }
+                                                            } catch (t: Throwable) {
+                                                                com.mochits.app.util.Logger.e("Magic wand gagal: ${t.message}", t)
+                                                                viewModel.userMessage.value = com.mochits.app.model.UiMessage(
+                                                                    "Wand gagal (${t.javaClass.simpleName}), coba lagi.",
+                                                                    com.mochits.app.model.UiMessage.Kind.ERROR
+                                                                )
                                                             } finally {
                                                                 isProcessingMagicWand = false
                                                             }
                                                         }
+                                                    } else {
+                                                        viewModel.userMessage.value = com.mochits.app.model.UiMessage(
+                                                            "Ketuk di dalam gambar.",
+                                                            com.mochits.app.model.UiMessage.Kind.INFO
+                                                        )
                                                     }
                                                 }
                                                 isMagicWandPending = false
