@@ -277,4 +277,156 @@ class MaskSelectionToolsTest {
             (tools.maskBitmap.getPixel(0, 0) ushr 24) and 0xFF
         )
     }
+
+    @Test
+    fun testMagicWandSelect_thinLineEdgeAware() {
+        // Create 30x30 bitmap with white background and a 1px black line at x=15
+        val tools = MaskSelectionTools(30, 30)
+        val srcBitmap = Bitmap.createBitmap(30, 30, Bitmap.Config.ARGB_8888)
+        srcBitmap.eraseColor(Color.WHITE)
+        for (y in 0 until 30) {
+            srcBitmap.setPixel(15, y, Color.BLACK)
+        }
+
+        // Tap left region (5, 15) with gapRadius=1
+        tools.magicWandSelect(srcBitmap, Offset(5f, 15f), tolerance = 10f, gapRadius = 1)
+
+        // Left region should be masked (255)
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(5, 15)))
+        // Right region across the black line (20, 15) must NOT be masked
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(20, 15)))
+    }
+
+    @Test
+    fun testMagicWandSelect_transparentVSBlackAlphaHandling() {
+        val tools = MaskSelectionTools(20, 20)
+        val srcBitmap = Bitmap.createBitmap(20, 20, Bitmap.Config.ARGB_8888)
+        // Fill top half transparent (0,0,0,0) and bottom half solid black (255,0,0,0)
+        for (y in 0 until 10) {
+            for (x in 0 until 20) {
+                srcBitmap.setPixel(x, y, Color.TRANSPARENT)
+            }
+        }
+        for (y in 10 until 20) {
+            for (x in 0 until 20) {
+                srcBitmap.setPixel(x, y, Color.BLACK)
+            }
+        }
+
+        // Tap transparent region (5, 5) with low tolerance
+        tools.magicWandSelect(srcBitmap, Offset(5f, 5f), tolerance = 10f)
+
+        // Transparent area masked
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(5, 5)))
+        // Solid black area across alpha boundary must NOT be masked
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(5, 15)))
+    }
+
+    @Test
+    fun testMagicWandSelect_contiguousVSGlobal() {
+        val tools = MaskSelectionTools(50, 50)
+        val srcBitmap = Bitmap.createBitmap(50, 50, Bitmap.Config.ARGB_8888)
+        srcBitmap.eraseColor(Color.WHITE)
+
+        // Two separated red squares (10..19, 10..19) and (30..39, 30..39)
+        for (y in 10 until 20) {
+            for (x in 10 until 20) {
+                srcBitmap.setPixel(x, y, Color.RED)
+            }
+        }
+        for (y in 30 until 40) {
+            for (x in 30 until 40) {
+                srcBitmap.setPixel(x, y, Color.RED)
+            }
+        }
+
+        // 1. Contiguous tap on square A (15, 15)
+        tools.magicWandSelect(srcBitmap, Offset(15f, 15f), tolerance = 10f, isGlobal = false, wandMode = 0)
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 15)))
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(35, 35)))
+
+        // 2. Global tap on square A (15, 15)
+        tools.clearMask()
+        tools.magicWandSelect(srcBitmap, Offset(15f, 15f), tolerance = 10f, isGlobal = true, wandMode = 0)
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 15)))
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(35, 35)))
+    }
+
+    @Test
+    fun testMagicWandSelect_modesReplaceAddSubtract() {
+        val tools = MaskSelectionTools(50, 50)
+        val srcBitmap = Bitmap.createBitmap(50, 50, Bitmap.Config.ARGB_8888)
+        srcBitmap.eraseColor(Color.WHITE)
+
+        // Red square at 0..24 x 0..24
+        for (y in 0 until 25) {
+            for (x in 0 until 25) {
+                srcBitmap.setPixel(x, y, Color.RED)
+            }
+        }
+        // Blue square at 20..44 x 20..44
+        for (y in 20 until 45) {
+            for (x in 20 until 45) {
+                srcBitmap.setPixel(x, y, Color.BLUE)
+            }
+        }
+
+        // 1. Mode 0 (REPLACE): select Red
+        tools.magicWandSelect(srcBitmap, Offset(10f, 10f), tolerance = 10f, wandMode = 0)
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(10, 10)))
+
+        // Mode 0 (REPLACE): select Blue -> Red selection cleared
+        tools.magicWandSelect(srcBitmap, Offset(30f, 30f), tolerance = 10f, wandMode = 0)
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(10, 10)))
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(30, 30)))
+
+        // 2. Mode 1 (ADD): add Red back
+        tools.magicWandSelect(srcBitmap, Offset(10f, 10f), tolerance = 10f, wandMode = 1)
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(10, 10)))
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(30, 30)))
+
+        // 3. Mode 2 (SUBTRACT): subtract Red
+        tools.magicWandSelect(srcBitmap, Offset(10f, 10f), tolerance = 10f, wandMode = 2)
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(10, 10)))
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(30, 30)))
+    }
+
+    @Test
+    fun testMagicWandSelect_feathering() {
+        val tools = MaskSelectionTools(40, 40)
+        val srcBitmap = Bitmap.createBitmap(40, 40, Bitmap.Config.ARGB_8888)
+        srcBitmap.eraseColor(Color.WHITE)
+        for (y in 0 until 20) {
+            for (x in 0 until 40) {
+                srcBitmap.setPixel(x, y, Color.BLACK)
+            }
+        }
+
+        // Select with featherRadius = 5f
+        tools.magicWandSelect(srcBitmap, Offset(10f, 10f), tolerance = 10f, featherRadius = 5f)
+
+        // Inside selection center
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(10, 5)))
+        // Outside selection
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(10, 35)))
+
+        // Edge transition pixel near y=20 should have intermediate alpha value (between 0 and 255)
+        val edgeAlpha = getAlpha(tools.maskBitmap.getPixel(10, 20))
+        assertTrue("Feathered edge alpha ($edgeAlpha) should be soft (> 0 and < 255)", edgeAlpha in 1..254)
+    }
+
+    @Test
+    fun testMagicWandSelect_largeImagePerformance() {
+        val size = 2400
+        val tools = MaskSelectionTools(size, size)
+        val srcBitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        srcBitmap.eraseColor(Color.WHITE)
+
+        val startTime = System.currentTimeMillis()
+        val outcome = tools.magicWandSelect(srcBitmap, Offset(100f, 100f), tolerance = 10f)
+        val elapsed = System.currentTimeMillis() - startTime
+
+        assertTrue("Large image magic wand must succeed without error", outcome.ok)
+        assertTrue("Execution time on large bitmap ($size x $size) should be reasonable (was ${elapsed}ms)", elapsed < 10000)
+    }
 }
