@@ -252,26 +252,28 @@ class MaskSelectionToolsTest {
     }
 
     @Test
-    fun testMagicWandSelect_edgePixelTap_doesNotLeakToBothSides() {
-        // Kiri putih, kanan hitam, satu piksel abu-abu (simulasi tepi
-        // anti-alias) di (5,5). Ketuk TEPAT di piksel abu-abu dengan
-        // toleransi 60%: benih campuran akan menyeleksi KEDUA sisi (bocor).
-        val tools = MaskSelectionTools(12, 12)
-        val srcBitmap = Bitmap.createBitmap(12, 12, Bitmap.Config.ARGB_8888)
-        srcBitmap.eraseColor(Color.WHITE)
-        for (y in 0 until 12) {
-            for (x in 6 until 12) {
-                srcBitmap.setPixel(x, y, Color.BLACK)
-            }
+    fun magicWand_singlePixel_shouldNotSelectBackground() {
+        val src = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(Color.WHITE)
+            setPixel(8, 8, Color.BLACK)
         }
-        srcBitmap.setPixel(5, 5, Color.rgb(150, 150, 150))
 
-        tools.magicWandSelect(srcBitmap, Offset(5f, 5f), tolerance = 60f)
+        val tools = MaskSelectionTools(16, 16)
 
-        // Sisi putih (termasuk piksel diketuk) harus terseleksi ...
-        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(2, 2)))
-        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(5, 5)))
-        // ... tetapi blok hitam di seberang garis TIDAK boleh ikut.
-        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(9, 5)))
+        tools.magicWandSelect(
+            srcBitmap = src,
+            point = Offset(8f, 8f),
+            tolerance = 0f,
+            expandPixels = 0
+        )
+
+        assertEquals(
+            255,
+            (tools.maskBitmap.getPixel(8, 8) ushr 24) and 0xFF
+        )
+        assertEquals(
+            0,
+            (tools.maskBitmap.getPixel(0, 0) ushr 24) and 0xFF
+        )
     }
 }

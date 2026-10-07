@@ -1207,12 +1207,18 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                                 viewModel.saveUndoSnapshot()
                                                                 val flattened = viewModel.flattenForSelection()
                                                                 val src = flattened ?: viewModel.baseBitmap.value
-                                                                viewModel.maskSelectionTools?.magicWandSelect(
+                                                                val wandOk = viewModel.maskSelectionTools?.magicWandSelect(
                                                                     srcBitmap = src,
                                                                     point = canvasPt,
                                                                     tolerance = startTol,
                                                                     expandPixels = startExp
-                                                                )
+                                                                ) ?: false
+                                                                if (!wandOk) {
+                                                                    viewModel.userMessage.value = com.mochits.app.model.UiMessage(
+                                                                        "Wand gagal (seleksi tidak jalan).",
+                                                                        com.mochits.app.model.UiMessage.Kind.ERROR
+                                                                    )
+                                                                }
                                                                 withContext(Dispatchers.Main) {
                                                                     refreshMaskState()
                                                                     triggerRedraw++

@@ -22,8 +22,10 @@ struct PointF {
     float y;
 };
 
-// Mask Selection helper functions operating on ALPHA_8 native bitmap buffer
-static void drawCircleAlpha8(uint8_t* pixels, int width, int height, float cx, float cy, float radius, bool draw) {
+// Mask Selection helper functions operating on ALPHA_8 native bitmap buffer.
+// stride = bytes per row (info.stride); never assume stride == width.
+// Row base: pixels + y * stride; pixel: base[x] (1 byte per pixel).
+static void drawCircleAlpha8(uint8_t* pixels, int width, int height, int stride, float cx, float cy, float radius, bool draw) {
     int minX = std::max(0, (int)std::floor(cx - radius));
     int maxX = std::min(width - 1, (int)std::ceil(cx + radius));
     int minY = std::max(0, (int)std::floor(cy - radius));
@@ -35,22 +37,22 @@ static void drawCircleAlpha8(uint8_t* pixels, int width, int height, float cx, f
     for (int y = minY; y <= maxY; ++y) {
         float dy = (float)y - cy;
         float dy2 = dy * dy;
-        int rowIdx = y * width;
+        uint8_t* row = pixels + y * stride;
         for (int x = minX; x <= maxX; ++x) {
             float dx = (float)x - cx;
             if (dx * dx + dy2 <= r2) {
-                pixels[rowIdx + x] = val;
+                row[x] = val;
             }
         }
     }
 }
 
-static void drawLineAlpha8(uint8_t* pixels, int width, int height, float x0, float y0, float x1, float y1, float radius, bool draw) {
+static void drawLineAlpha8(uint8_t* pixels, int width, int height, int stride, float x0, float y0, float x1, float y1, float radius, bool draw) {
     float dx = x1 - x0;
     float dy = y1 - y0;
     float len = std::sqrt(dx * dx + dy * dy);
     if (len == 0.0f) {
-        drawCircleAlpha8(pixels, width, height, x0, y0, radius, draw);
+        drawCircleAlpha8(pixels, width, height, stride, x0, y0, radius, draw);
         return;
     }
 
@@ -61,13 +63,13 @@ static void drawLineAlpha8(uint8_t* pixels, int width, int height, float x0, flo
     float curX = x0;
     float curY = y0;
     for (int i = 0; i <= steps; ++i) {
-        drawCircleAlpha8(pixels, width, height, curX, curY, radius, draw);
+        drawCircleAlpha8(pixels, width, height, stride, curX, curY, radius, draw);
         curX += stepX;
         curY += stepY;
     }
 }
 
-static void fillPolygonAlpha8(uint8_t* pixels, int width, int height, const std::vector<PointF>& pts, uint8_t val) {
+static void fillPolygonAlpha8(uint8_t* pixels, int width, int height, int stride, const std::vector<PointF>& pts, uint8_t val) {
     if (pts.size() < 3) return;
 
     int minY = height - 1;
@@ -94,19 +96,52 @@ static void fillPolygonAlpha8(uint8_t* pixels, int width, int height, const std:
 
         std::sort(nodeX.begin(), nodeX.end());
 
-        int rowIdx = y * width;
+        int rowBase = y * stride;
         for (size_t k = 0; k < nodeX.size(); k += 2) {
             if (k + 1 >= nodeX.size()) break;
             int startX = std::max(0, (int)std::ceil(nodeX[k]));
             int endX = std::min(width - 1, (int)std::floor(nodeX[k + 1]));
             for (int x = startX; x <= endX; ++x) {
-                pixels[rowIdx + x] = val;
+                pixels[rowBase + x] = val;
             }
         }
     }
 }
 
 extern "C" {
+
+// Dilatasi lingkaran manual stride-aware (dipakai bila tanpa OpenCV atau
+// bila cv::dilate melempar exception).
+static void dilateMaskHand(uint8_t* srcPtr, uint8_t* dstPtr, int w, int h,
+                           int srcStride, int dstStride, int radius) {
+    for (int y = 0; y < h; ++y) {
+        std::memcpy(dstPtr + y * dstStride, srcPtr + y * srcStride, w);
+    }
+
+    int r2 = radius * radius;
+    for (int y = 0; y < h; ++y) {
+        uint8_t* srcRow = srcPtr + y * srcStride;
+        for (int x = 0; x < w; ++x) {
+            if (srcRow[x] > 0) {
+                int minY = std::max(0, y - radius);
+                int maxY = std::min(h - 1, y + radius);
+                int minX = std::max(0, x - radius);
+                int maxX = std::min(w - 1, x + radius);
+                for (int ny = minY; ny <= maxY; ++ny) {
+                    int dy = ny - y;
+                    int dy2 = dy * dy;
+                    uint8_t* dstRow = dstPtr + ny * dstStride;
+                    for (int nx = minX; nx <= maxX; ++nx) {
+                        int dx = nx - x;
+                        if (dx * dx + dy2 <= r2) {
+                            dstRow[nx] = 255;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 JNIEXPORT jstring JNICALL
 Java_com_mochits_core_imaging_NativeBridge_nativeGetOpenCVVersion(
@@ -134,7 +169,7 @@ Java_com_mochits_core_imaging_NativeBridge_nativeDrawCircle(
     if (AndroidBitmap_getInfo(env, bitmap, &info) < 0 || info.format != ANDROID_BITMAP_FORMAT_A_8) return;
     if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0 || !pixels) return;
 
-    drawCircleAlpha8(static_cast<uint8_t*>(pixels), info.width, info.height, cx, cy, radius, draw);
+    drawCircleAlpha8(static_cast<uint8_t*>(pixels), info.width, info.height, info.stride, cx, cy, radius, draw);
 
     AndroidBitmap_unlockPixels(env, bitmap);
 }
@@ -155,7 +190,7 @@ Java_com_mochits_core_imaging_NativeBridge_nativeDrawLine(
     if (AndroidBitmap_getInfo(env, bitmap, &info) < 0 || info.format != ANDROID_BITMAP_FORMAT_A_8) return;
     if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0 || !pixels) return;
 
-    drawLineAlpha8(static_cast<uint8_t*>(pixels), info.width, info.height, x0, y0, x1, y1, radius, draw);
+    drawLineAlpha8(static_cast<uint8_t*>(pixels), info.width, info.height, info.stride, x0, y0, x1, y1, radius, draw);
 
     AndroidBitmap_unlockPixels(env, bitmap);
 }
@@ -190,7 +225,7 @@ Java_com_mochits_core_imaging_NativeBridge_nativeDrawPolygon(
     if (AndroidBitmap_getInfo(env, bitmap, &info) < 0 || info.format != ANDROID_BITMAP_FORMAT_A_8) return;
     if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0 || !pixels) return;
 
-    fillPolygonAlpha8(static_cast<uint8_t*>(pixels), info.width, info.height, pts, draw ? 255 : 0);
+    fillPolygonAlpha8(static_cast<uint8_t*>(pixels), info.width, info.height, info.stride, pts, draw ? 255 : 0);
 
     AndroidBitmap_unlockPixels(env, bitmap);
 }
@@ -219,44 +254,40 @@ Java_com_mochits_core_imaging_NativeBridge_nativeDilateMask(
 
     int w = srcInfo.width;
     int h = srcInfo.height;
+    int srcStride = srcInfo.stride;
+    int dstStride = dstInfo.stride;
 
     if (radius <= 0) {
-        std::memcpy(dstPixels, srcPixels, w * h);
-    } else {
-#ifdef HAVE_OPENCV
-        cv::Mat srcMat(h, w, CV_8UC1, srcPixels);
-        cv::Mat dstMat(h, w, CV_8UC1, dstPixels);
-
-        int kernelSize = radius * 2 + 1;
-        cv::Mat element = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(kernelSize, kernelSize));
-        cv::dilate(srcMat, dstMat, element);
-#else
         uint8_t* srcPtr = static_cast<uint8_t*>(srcPixels);
         uint8_t* dstPtr = static_cast<uint8_t*>(dstPixels);
-        std::memcpy(dstPtr, srcPtr, w * h);
-
-        int r2 = radius * radius;
         for (int y = 0; y < h; ++y) {
-            for (int x = 0; x < w; ++x) {
-                if (srcPtr[y * w + x] > 0) {
-                    int minY = std::max(0, y - radius);
-                    int maxY = std::min(h - 1, y + radius);
-                    int minX = std::max(0, x - radius);
-                    int maxX = std::min(w - 1, x + radius);
-                    for (int ny = minY; ny <= maxY; ++ny) {
-                        int dy = ny - y;
-                        int dy2 = dy * dy;
-                        int rowIdx = ny * w;
-                        for (int nx = minX; nx <= maxX; ++nx) {
-                            int dx = nx - x;
-                            if (dx * dx + dy2 <= r2) {
-                                dstPtr[rowIdx + nx] = 255;
-                            }
-                        }
-                    }
-                }
-            }
+            std::memcpy(dstPtr + y * dstStride, srcPtr + y * srcStride, w);
         }
+    } else {
+#ifdef HAVE_OPENCV
+        bool ocvOk = false;
+        try {
+            cv::Mat srcMat(h, w, CV_8UC1, srcPixels, srcStride);
+            cv::Mat dstMat(h, w, CV_8UC1, dstPixels, dstStride);
+
+            int kernelSize = radius * 2 + 1;
+            cv::Mat element = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(kernelSize, kernelSize));
+            cv::dilate(srcMat, dstMat, element);
+            ocvOk = true;
+        } catch (const cv::Exception& e) {
+            LOGE("dilate OCV gagal, pakai loop tangan: %s", e.what());
+        } catch (...) {
+            LOGE("dilate OCV gagal (unknown), pakai loop tangan");
+        }
+        if (!ocvOk) {
+            dilateMaskHand(
+                static_cast<uint8_t*>(srcPixels), static_cast<uint8_t*>(dstPixels),
+                w, h, srcStride, dstStride, radius);
+        }
+#else
+        dilateMaskHand(
+            static_cast<uint8_t*>(srcPixels), static_cast<uint8_t*>(dstPixels),
+            w, h, srcStride, dstStride, radius);
 #endif
     }
 
@@ -264,7 +295,7 @@ Java_com_mochits_core_imaging_NativeBridge_nativeDilateMask(
     AndroidBitmap_unlockPixels(env, srcMaskBitmap);
 }
 
-JNIEXPORT void JNICALL
+JNIEXPORT jint JNICALL
 Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         JNIEnv* env,
         jobject /* this */,
@@ -273,101 +304,92 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         jint startX,
         jint startY,
         jfloat tolerance) {
+    // Status: 0 ok, 1 format citra, 2 ukuran mask, 3 seed di luar,
+    // 4 kunci piksel gagal, 5 alokasi/proses gagal.
     AndroidBitmapInfo srcInfo, maskInfo;
     void* srcPixels = nullptr;
     void* maskPixels = nullptr;
 
-    if (AndroidBitmap_getInfo(env, srcBitmap, &srcInfo) < 0 || srcInfo.format != ANDROID_BITMAP_FORMAT_RGBA_8888) return;
-    if (AndroidBitmap_getInfo(env, maskBitmap, &maskInfo) < 0 || maskInfo.format != ANDROID_BITMAP_FORMAT_A_8) return;
+    if (AndroidBitmap_getInfo(env, srcBitmap, &srcInfo) < 0 || srcInfo.format != ANDROID_BITMAP_FORMAT_RGBA_8888) return 1;
+    if (AndroidBitmap_getInfo(env, maskBitmap, &maskInfo) < 0 || maskInfo.format != ANDROID_BITMAP_FORMAT_A_8) return 1;
 
     int width = srcInfo.width;
     int height = srcInfo.height;
-    if (maskInfo.width != width || maskInfo.height != height) return;
-    if (startX < 0 || startX >= width || startY < 0 || startY >= height) return;
+    if (maskInfo.width != width || maskInfo.height != height) return 2;
+    if (startX < 0 || startX >= width || startY < 0 || startY >= height) return 3;
 
-    if (AndroidBitmap_lockPixels(env, srcBitmap, &srcPixels) < 0 || !srcPixels) return;
+    if (AndroidBitmap_lockPixels(env, srcBitmap, &srcPixels) < 0 || !srcPixels) return 4;
     if (AndroidBitmap_lockPixels(env, maskBitmap, &maskPixels) < 0 || !maskPixels) {
         AndroidBitmap_unlockPixels(env, srcBitmap);
-        return;
+        return 4;
     }
 
-#ifdef HAVE_OPENCV
-    // Jalur utama: cv::floodFill resmi (FIXED_RANGE = banding ke seed,
-    // MASK_ONLY = citra tak diubah, konektivitas 4). Mask OCV wajib +2px.
-    {
-        cv::Mat srcMat(height, width, CV_8UC4, srcPixels);
-        cv::Mat bgrMat;
-        cv::cvtColor(srcMat, bgrMat, cv::COLOR_RGBA2BGR);
-        cv::Mat floodMask = cv::Mat::zeros(height + 2, width + 2, CV_8UC1);
-        // Bola Euclidean r -> kubus per-channel sisi r (perilaku selektif
-        // setara implementasi tangan; BGR simetris jadi urutan tak masalah).
-        float ch = tolerance / 1.7320508f;
-        int flags = 4 | (255 << 8) | cv::FLOODFILL_FIXED_RANGE | cv::FLOODFILL_MASK_ONLY;
-        cv::Rect ccomp;
-        cv::floodFill(bgrMat, floodMask, cv::Point(startX, startY), cv::Scalar(),
-                      &ccomp, cv::Scalar(ch, ch, ch), cv::Scalar(ch, ch, ch), flags);
-        cv::Mat inner = floodMask(cv::Rect(1, 1, width, height));
-        cv::Mat dstMat(height, width, CV_8UC1, maskPixels);
-        // Union dengan mask yang sudah ada (perilaku tap wand).
-        cv::max(dstMat, inner, dstMat);
-    }
-#else
-    uint32_t* srcPtr = static_cast<uint32_t*>(srcPixels);
-    uint8_t* maskPtr = static_cast<uint8_t*>(maskPixels);
+    // Satu-satunya implementasi flood (kontrak Euclidean ke seed,
+    // FIXED-range, konektivitas 4 — sama di semua backend/build).
+    // Stride-aware: RGBA stride piksel = stride byte / 4; mask 1 byte/px.
+    int status = 0;
+    try {
+        const int srcStridePx = srcInfo.stride / 4;
+        const int maskStride = maskInfo.stride;
+        uint32_t* srcBase = static_cast<uint32_t*>(srcPixels);
+        uint8_t* maskBase = static_cast<uint8_t*>(maskPixels);
 
-    uint32_t targetColor = srcPtr[startY * width + startX];
-    int targetR = (targetColor) & 0xFF;
-    int targetG = (targetColor >> 8) & 0xFF;
-    int targetB = (targetColor >> 16) & 0xFF;
+        uint32_t targetColor = srcBase[startY * srcStridePx + startX];
+        int targetR = (targetColor) & 0xFF;
+        int targetG = (targetColor >> 8) & 0xFF;
+        int targetB = (targetColor >> 16) & 0xFF;
 
-    // Euclidean RGB distance (tolerance already mapped to 0..441.673).
-    // Tighter than per-channel Chebyshev; prevents diagonal color leaks outside target.
-    float tolSq = tolerance * tolerance;
+        // Euclidean RGB distance (tolerance already mapped to 0..441.673).
+        // Tighter than per-channel Chebyshev; prevents diagonal color leaks outside target.
+        float tolSq = tolerance * tolerance;
 
-    std::vector<uint8_t> visited(width * height, 0);
-    std::queue<std::pair<int, int>> q;
-    q.push({startX, startY});
-    visited[startY * width + startX] = 1;
+        std::vector<uint8_t> visited((size_t)width * (size_t)height, 0);
+        std::queue<std::pair<int, int>> q;
+        q.push({startX, startY});
+        visited[(size_t)startY * (size_t)width + startX] = 1;
 
-    const int dx[4] = {0, 0, -1, 1};
-    const int dy[4] = {-1, 1, 0, 0};
+        const int dx[4] = {0, 0, -1, 1};
+        const int dy[4] = {-1, 1, 0, 0};
 
-    while (!q.empty()) {
-        auto [cx, cy] = q.front();
-        q.pop();
+        while (!q.empty()) {
+            auto [cx, cy] = q.front();
+            q.pop();
 
-        int currIdx = cy * width + cx;
-        maskPtr[currIdx] = 255; // Union with existing mask
+            maskBase[(size_t)cy * (size_t)maskStride + cx] = 255; // Union with existing mask
 
-        for (int i = 0; i < 4; ++i) {
-            int nx = cx + dx[i];
-            int ny = cy + dy[i];
+            for (int i = 0; i < 4; ++i) {
+                int nx = cx + dx[i];
+                int ny = cy + dy[i];
 
-            if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                int nIdx = ny * width + nx;
-                if (!visited[nIdx]) {
-                    visited[nIdx] = 1;
-                    uint32_t c = srcPtr[nIdx];
-                    int r = (c) & 0xFF;
-                    int g = (c >> 8) & 0xFF;
-                    int b = (c >> 16) & 0xFF;
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                    size_t nIdx = (size_t)ny * (size_t)width + nx;
+                    if (!visited[nIdx]) {
+                        visited[nIdx] = 1;
+                        uint32_t c = srcBase[(size_t)ny * (size_t)srcStridePx + nx];
+                        int r = (c) & 0xFF;
+                        int g = (c >> 8) & 0xFF;
+                        int b = (c >> 16) & 0xFF;
 
-                    float dr = static_cast<float>(r - targetR);
-                    float dg = static_cast<float>(g - targetG);
-                    float db = static_cast<float>(b - targetB);
-                    float distSq = dr * dr + dg * dg + db * db;
+                        float dr = static_cast<float>(r - targetR);
+                        float dg = static_cast<float>(g - targetG);
+                        float db = static_cast<float>(b - targetB);
+                        float distSq = dr * dr + dg * dg + db * db;
 
-                    if (distSq <= tolSq) {
-                        q.push({nx, ny});
+                        if (distSq <= tolSq) {
+                            q.push({nx, ny});
+                        }
                     }
                 }
             }
         }
+    } catch (...) {
+        LOGE("nativeMagicWandSelect gagal (alloc/proses)");
+        status = 5;
     }
-#endif
 
     AndroidBitmap_unlockPixels(env, maskBitmap);
     AndroidBitmap_unlockPixels(env, srcBitmap);
+    return status;
 }
 
 JNIEXPORT void JNICALL
@@ -380,7 +402,7 @@ Java_com_mochits_core_imaging_NativeBridge_nativeClearMask(
     if (AndroidBitmap_getInfo(env, bitmap, &info) < 0 || info.format != ANDROID_BITMAP_FORMAT_A_8) return;
     if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0 || !pixels) return;
 
-    std::memset(pixels, 0, info.width * info.height);
+    std::memset(pixels, 0, (size_t)info.stride * (size_t)info.height);
 
     AndroidBitmap_unlockPixels(env, bitmap);
 }
@@ -396,9 +418,11 @@ Java_com_mochits_core_imaging_NativeBridge_nativeInvertMask(
     if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0 || !pixels) return;
 
     uint8_t* ptr = static_cast<uint8_t*>(pixels);
-    int total = info.width * info.height;
-    for (int i = 0; i < total; ++i) {
-        ptr[i] = 255 - ptr[i];
+    for (int y = 0; y < info.height; ++y) {
+        uint8_t* row = ptr + y * info.stride;
+        for (int x = 0; x < info.width; ++x) {
+            row[x] = 255 - row[x];
+        }
     }
 
     AndroidBitmap_unlockPixels(env, bitmap);
@@ -415,18 +439,12 @@ Java_com_mochits_core_imaging_NativeBridge_nativeHasMask(
     if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0 || !pixels) return JNI_FALSE;
 
     uint8_t* ptr = static_cast<uint8_t*>(pixels);
-    int total = info.width * info.height;
     bool has = false;
 
-    for (int i = 0; i < total; i += 16) {
-        if (ptr[i] > 0) {
-            has = true;
-            break;
-        }
-    }
-    if (!has) {
-        for (int i = 0; i < total; ++i) {
-            if (ptr[i] > 0) {
+    for (int y = 0; y < info.height && !has; ++y) {
+        uint8_t* row = ptr + y * info.stride;
+        for (int x = 0; x < info.width; ++x) {
+            if (row[x] > 0) {
                 has = true;
                 break;
             }
@@ -472,16 +490,16 @@ Java_com_mochits_core_imaging_NativeBridge_nativeInpaintTelea(
     int w = srcInfo.width;
     int h = srcInfo.height;
 
-    cv::Mat srcMat(h, w, CV_8UC4, srcPixels);
+    cv::Mat srcMat(h, w, CV_8UC4, srcPixels, srcInfo.stride);
     cv::Mat bgrMat;
     cv::cvtColor(srcMat, bgrMat, cv::COLOR_RGBA2BGR);
 
-    cv::Mat maskMat(h, w, CV_8UC1, maskPixels);
+    cv::Mat maskMat(h, w, CV_8UC1, maskPixels, maskInfo.stride);
 
     cv::Mat inpaintedBgr;
     cv::inpaint(bgrMat, maskMat, inpaintedBgr, static_cast<double>(radius), cv::INPAINT_TELEA);
 
-    cv::Mat dstMat(h, w, CV_8UC4, dstPixels);
+    cv::Mat dstMat(h, w, CV_8UC4, dstPixels, dstInfo.stride);
     cv::cvtColor(inpaintedBgr, dstMat, cv::COLOR_BGR2RGBA);
 
     AndroidBitmap_unlockPixels(env, dstBitmap);

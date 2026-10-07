@@ -24,7 +24,7 @@ object NativeBridge {
     external fun nativeDrawCircle(bitmap: Bitmap, cx: Float, cy: Float, radius: Float, draw: Boolean)
     external fun nativeDrawLine(bitmap: Bitmap, x0: Float, y0: Float, x1: Float, y1: Float, radius: Float, draw: Boolean)
     external fun nativeDrawPolygon(bitmap: Bitmap, pointsX: FloatArray, pointsY: FloatArray, draw: Boolean)
-    external fun nativeMagicWandSelect(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float)
+    external fun nativeMagicWandSelect(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float): Int
     external fun nativeDilateMask(srcMaskBitmap: Bitmap, dstMaskBitmap: Bitmap, radius: Int)
     external fun nativeClearMask(bitmap: Bitmap)
     external fun nativeInvertMask(bitmap: Bitmap)
@@ -56,9 +56,12 @@ object NativeBridge {
         queueInt[tail++] = startY * w + startX
         visited[startY * w + startX] = true
 
-        val buffer = java.nio.ByteBuffer.allocate(w * h)
+        val buffer = java.nio.ByteBuffer.allocate(maskBitmap.byteCount)
         maskBitmap.copyPixelsToBuffer(buffer)
         val maskPixels = buffer.array()
+        // Offset byte = y * rowBytes + x (stride-aware; padding ikut tersalin
+        // utuh oleh copyPixelsToBuffer/FromBuffer).
+        val rowBytes = maskBitmap.rowBytes
 
         fun colorMatches(c: Int): Boolean {
             val dr = ((c ushr 16) and 0xFF) - targetR
@@ -72,7 +75,7 @@ object NativeBridge {
             val cx = idx % w
             val cy = idx / w
 
-            maskPixels[idx] = 0xFF.toByte()
+            maskPixels[cy * rowBytes + cx] = 0xFF.toByte()
 
             if (cy > 0) {
                 val nIdx = idx - w
@@ -179,11 +182,22 @@ object NativeBridge {
         }
     }
 
-    fun magicWandSelectSafe(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float) {
-        try {
-            nativeMagicWandSelect(srcBitmap, maskBitmap, startX, startY, tolerance)
-        } catch (e: UnsatisfiedLinkError) {
+    /**
+     * Kontrak: true bila seleksi berjalan (native status 0 atau fallback
+     * selesai). False → pemanggil WAJIB memberi tahu UI (jangan sunyi).
+     */
+    fun magicWandSelectSafe(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float): Boolean {
+        if (isNativeAvailable) {
+            try {
+                if (nativeMagicWandSelect(srcBitmap, maskBitmap, startX, startY, tolerance) == 0) return true
+            } catch (_: Throwable) {
+            }
+        }
+        return try {
             fallbackMagicWandSelect(srcBitmap, maskBitmap, startX, startY, tolerance)
+            true
+        } catch (_: Throwable) {
+            false
         }
     }
 
