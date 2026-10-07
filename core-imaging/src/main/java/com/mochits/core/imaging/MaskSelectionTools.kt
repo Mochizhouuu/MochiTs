@@ -199,6 +199,7 @@ class MaskSelectionTools(
         val ok = NativeBridge.magicWandSelectSafe(srcBitmap, rawMaskBitmap, startX, startY, mappedTolerance, gapRadius)
         applyExpandInternal()
         return ok
+        }
     }
 
     /**
