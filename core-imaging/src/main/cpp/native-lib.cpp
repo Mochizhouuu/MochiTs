@@ -365,7 +365,7 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
                     float dr = static_cast<float>(((int)(c & 0xFF)) - targetR);
                     float dg = static_cast<float>(((int)((c >> 8) & 0xFF)) - targetG);
                     float db = static_cast<float>(((int)((c >> 16) & 0xFF)) - targetB);
-                    float da = static_cast<float>(((int)((c >> 24) & 0xFF)) - targetA;
+                    float da = static_cast<float>(((int)((c >> 24) & 0xFF)) - targetA);
                     if (dr * dr + dg * dg + db * db + da * da <= tolSq) {
                         elig[(size_t)y * (size_t)width + x] = 255;
                     }
