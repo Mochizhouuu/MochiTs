@@ -295,6 +295,89 @@ Java_com_mochits_core_imaging_NativeBridge_nativeDilateMask(
     AndroidBitmap_unlockPixels(env, srcMaskBitmap);
 }
 
+static void applyMorphologicalCloseAndFeather(
+        uint8_t* selectionMatData, int w, int h, int stride, jfloat featherRadius) {
+#ifdef HAVE_OPENCV
+    try {
+        cv::Mat selectionMat(h, w, CV_8UC1, selectionMatData, stride);
+        // Morphological close (3x3 ellipse)
+        cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
+        cv::morphologyEx(selectionMat, selectionMat, cv::MORPH_CLOSE, kernel);
+
+        if (featherRadius > 0.0f) {
+            int ksize = static_cast<int>(std::ceil(featherRadius) * 2 + 1);
+            if (ksize % 2 == 0) ksize++;
+            if (ksize < 3) ksize = 3;
+            cv::GaussianBlur(selectionMat, selectionMat, cv::Size(ksize, ksize), featherRadius);
+        }
+        return;
+    } catch (const cv::Exception& e) {
+        LOGE("applyMorphologicalCloseAndFeather OCV failed: %s", e.what());
+    } catch (...) {
+        LOGE("applyMorphologicalCloseAndFeather OCV failed (unknown)");
+    }
+#endif
+    // Hand fallback for morphological close (3x3 dilate then 3x3 erode)
+    std::vector<uint8_t> tmp(static_cast<size_t>(w) * h, 0);
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            uint8_t maxV = 0;
+            for (int dy = -1; dy <= 1; ++dy) {
+                int ny = y + dy;
+                if (ny < 0 || ny >= h) continue;
+                for (int dx = -1; dx <= 1; ++dx) {
+                    int nx = x + dx;
+                    if (nx < 0 || nx >= w) continue;
+                    maxV = std::max(maxV, selectionMatData[ny * stride + nx]);
+                }
+            }
+            tmp[static_cast<size_t>(y) * w + x] = maxV;
+        }
+    }
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            uint8_t minV = 255;
+            for (int dy = -1; dy <= 1; ++dy) {
+                int ny = y + dy;
+                if (ny < 0 || ny >= h) continue;
+                for (int dx = -1; dx <= 1; ++dx) {
+                    int nx = x + dx;
+                    if (nx < 0 || nx >= w) continue;
+                    minV = std::min(minV, tmp[static_cast<size_t>(ny) * w + nx]);
+                }
+            }
+            selectionMatData[y * stride + x] = minV;
+        }
+    }
+
+    if (featherRadius > 0.0f) {
+        int r = static_cast<int>(std::ceil(featherRadius));
+        if (r < 1) r = 1;
+        std::vector<uint8_t> blurred(static_cast<size_t>(w) * h, 0);
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                int sum = 0, count = 0;
+                int minY = std::max(0, y - r);
+                int maxY = std::min(h - 1, y + r);
+                int minX = std::max(0, x - r);
+                int maxX = std::min(w - 1, x + r);
+                for (int ny = minY; ny <= maxY; ++ny) {
+                    for (int nx = minX; nx <= maxX; ++nx) {
+                        sum += selectionMatData[ny * stride + nx];
+                        count++;
+                    }
+                }
+                blurred[static_cast<size_t>(y) * w + x] = static_cast<uint8_t>(sum / count);
+            }
+        }
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                selectionMatData[y * stride + x] = blurred[static_cast<size_t>(y) * w + x];
+            }
+        }
+    }
+}
+
 JNIEXPORT jlong JNICALL
 Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         JNIEnv* env,
@@ -304,10 +387,13 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         jint startX,
         jint startY,
         jfloat tolerance,
-        jint gapRadius) {
+        jint gapRadius,
+        jboolean isGlobal,
+        jint wandMode,
+        jfloat featherRadius) {
     // Status (32 bit bawah): 0 ok, 1 format citra, 2 ukuran mask,
     // 3 seed di luar, 4 kunci piksel gagal, 5 alokasi/proses gagal.
-    // 32 bit atas: jumlah piksel terseleksi (untuk peringatan bocor).
+    // 32 bit atas: jumlah piksel terseleksi.
     AndroidBitmapInfo srcInfo, maskInfo;
     void* srcPixels = nullptr;
     void* maskPixels = nullptr;
@@ -326,9 +412,6 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         return 4;
     }
 
-    // Satu-satunya implementasi flood (kontrak Euclidean ke seed,
-    // FIXED-range, konektivitas 4 — sama di semua backend/build).
-    // Stride-aware: RGBA stride piksel = stride byte / 4; mask 1 byte/px.
     int status = 0;
     size_t floodCount = 0;
     try {
@@ -338,28 +421,22 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         uint8_t* maskBase = static_cast<uint8_t*>(maskPixels);
 
         uint32_t targetColor = srcBase[startY * srcStridePx + startX];
-        // lockPixels memberi PREMULTIPLIED: transparan = (0,0,0,0) sama
-        // dengan hitam pekat bila alpha diabaikan. Bandingkan alpha juga
-        // (Euclidean 4D) agar garis hitam tak bocor ke area transparan.
-        // Fallback JVM menyamakan ruang ini (premultiply ulang).
         int targetR = (targetColor) & 0xFF;
         int targetG = (targetColor >> 8) & 0xFF;
         int targetB = (targetColor >> 16) & 0xFF;
         int targetA = (targetColor >> 24) & 0xFF;
 
-        // Euclidean RGB distance (tolerance already mapped to 0..441.673).
-        // Tighter than per-channel Chebyshev; prevents diagonal color leaks outside target.
         float tolSq = tolerance * tolerance;
+        const size_t wh = static_cast<size_t>(width) * static_cast<size_t>(height);
 
-        const size_t wh = (size_t)width * (size_t)height;
-        const int g = gapRadius < 0 ? 0 : (gapRadius > 8 ? 8 : gapRadius);
-        // Eligibility vs seed + penghalang terdilasi (jalur Tutup celah).
-        std::vector<uint8_t> elig;
-        std::vector<uint8_t> barDil;
-        if (g > 0) {
-            elig.assign(wh, 0);
+        // Selection buffer for current wand operation
+        std::vector<uint8_t> selectionMat(wh, 0);
+
+        if (isGlobal) {
+            // Global selection: compare all pixels against seed color
             for (int y = 0; y < height; ++y) {
-                size_t srcOff = (size_t)y * (size_t)srcStridePx;
+                size_t srcOff = static_cast<size_t>(y) * static_cast<size_t>(srcStridePx);
+                size_t selOff = static_cast<size_t>(y) * static_cast<size_t>(width);
                 for (int x = 0; x < width; ++x) {
                     uint32_t c = srcBase[srcOff + x];
                     float dr = static_cast<float>(((int)(c & 0xFF)) - targetR);
@@ -367,84 +444,150 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
                     float db = static_cast<float>(((int)((c >> 16) & 0xFF)) - targetB);
                     float da = static_cast<float>(((int)((c >> 24) & 0xFF)) - targetA);
                     if (dr * dr + dg * dg + db * db + da * da <= tolSq) {
-                        elig[(size_t)y * (size_t)width + x] = 255;
+                        selectionMat[selOff + x] = 255;
                     }
                 }
             }
-            std::vector<uint8_t> bar(wh, 0);
-            barDil.assign(wh, 0);
-            for (size_t i = 0; i < wh; ++i) bar[i] = elig[i] ? 0 : 255;
-            dilateMaskHand(bar.data(), barDil.data(), width, height, width, width, g);
-        }
+        } else {
+            // Contiguous edge-aware flood fill
+            const int g = gapRadius < 0 ? 0 : (gapRadius > 8 ? 8 : gapRadius);
 
-        std::vector<uint8_t> visited((size_t)width * (size_t)height, 0);
-        std::queue<std::pair<int, int>> q;
-        q.push({startX, startY});
-        visited[(size_t)startY * (size_t)width + startX] = 1;
+#ifdef HAVE_OPENCV
+            bool ocvSuccess = false;
+            try {
+                cv::Mat srcMat(height, width, CV_8UC4, srcPixels, srcInfo.stride);
+                cv::Mat grayMat;
+                cv::cvtColor(srcMat, grayMat, cv::COLOR_RGBA2GRAY);
 
-        const int dx[4] = {0, 0, -1, 1};
-        const int dy[4] = {-1, 1, 0, 0};
+                cv::Mat edgeMask;
+                cv::Canny(grayMat, edgeMask, 50, 150);
 
-        while (!q.empty()) {
-            auto [cx, cy] = q.front();
-            q.pop();
+                if (g > 0) {
+                    cv::Mat element = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(g * 2 + 1, g * 2 + 1));
+                    cv::dilate(edgeMask, edgeMask, element);
+                }
 
-            maskBase[(size_t)cy * (size_t)maskStride + cx] = 255; // Panggilable: pemanggil mengosongkan dulu (semantik ganti)
-            ++floodCount;
+                // OpenCV floodFill requires mask size = (height + 2) x (width + 2)
+                cv::Mat floodMask = cv::Mat::zeros(height + 2, width + 2, CV_8UC1);
+                edgeMask.copyTo(floodMask(cv::Rect(1, 1, width, height)));
 
-            for (int i = 0; i < 4; ++i) {
-                int nx = cx + dx[i];
-                int ny = cy + dy[i];
+                int perChannelTol = static_cast<int>(std::min(255.0f, (tolerance / 441.673f) * 255.0f));
+                cv::Scalar diff(perChannelTol, perChannelTol, perChannelTol, perChannelTol);
 
-                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                    size_t nIdx = (size_t)ny * (size_t)width + nx;
-                    if (!visited[nIdx]) {
-                        visited[nIdx] = 1;
-                        if (g > 0 && !barDil.empty() && barDil[nIdx]) continue; // penghalang: jangan seberangi
-                        uint32_t c = srcBase[(size_t)ny * (size_t)srcStridePx + nx];
-                        int r = (c) & 0xFF;
-                        int g = (c >> 8) & 0xFF;
-                        int b = (c >> 16) & 0xFF;
-                        int a = (c >> 24) & 0xFF;
+                // Flood fill with fixed range and mask output = 255
+                cv::floodFill(srcMat, floodMask, cv::Point(startX, startY), cv::Scalar(255, 255, 255, 255),
+                              nullptr, diff, diff,
+                              cv::FLOODFILL_MASK_ONLY | cv::FLOODFILL_FIXED_RANGE | (255 << 8) | 4);
 
-                        float dr = static_cast<float>(r - targetR);
-                        float dg = static_cast<float>(g - targetG);
-                        float db = static_cast<float>(b - targetB);
-                        float da = static_cast<float>(a - targetA);
-                        float distSq = dr * dr + dg * dg + db * db + da * da;
+                // Copy flood result from floodMask to selectionMat
+                for (int y = 0; y < height; ++y) {
+                    const uint8_t* fRow = floodMask.ptr<uint8_t>(y + 1) + 1;
+                    const uint8_t* eRow = edgeMask.ptr<uint8_t>(y);
+                    uint8_t* sRow = selectionMat.data() + y * width;
+                    for (int x = 0; x < width; ++x) {
+                        // Include pixels filled by floodFill that were not original edge barriers
+                        if (fRow[x] > 0 && eRow[x] == 0) {
+                            sRow[x] = 255;
+                        }
+                    }
+                }
+                // Ensure seed pixel itself is selected
+                selectionMat[startY * width + startX] = 255;
+                ocvSuccess = true;
+            } catch (const cv::Exception& e) {
+                LOGE("OpenCV floodFill failed, falling back to C++ BFS: %s", e.what());
+            } catch (...) {
+                LOGE("OpenCV floodFill failed (unknown), falling back to C++ BFS");
+            }
 
-                        if (distSq <= tolSq) {
-                            q.push({nx, ny});
+            if (!ocvSuccess)
+#endif
+            {
+                // Fallback BFS flood fill with edge barrier detection
+                std::vector<uint8_t> barDil;
+                if (g > 0) {
+                    std::vector<uint8_t> bar(wh, 0);
+                    barDil.assign(wh, 0);
+                    for (int y = 0; y < height; ++y) {
+                        size_t srcOff = static_cast<size_t>(y) * static_cast<size_t>(srcStridePx);
+                        for (int x = 0; x < width; ++x) {
+                            uint32_t c = srcBase[srcOff + x];
+                            float dr = static_cast<float>(((int)(c & 0xFF)) - targetR);
+                            float dg = static_cast<float>(((int)((c >> 8) & 0xFF)) - targetG);
+                            float db = static_cast<float>(((int)((c >> 16) & 0xFF)) - targetB);
+                            float da = static_cast<float>(((int)((c >> 24) & 0xFF)) - targetA);
+                            if (dr * dr + dg * dg + db * db + da * da > tolSq) {
+                                bar[static_cast<size_t>(y) * width + x] = 255;
+                            }
+                        }
+                    }
+                    dilateMaskHand(bar.data(), barDil.data(), width, height, width, width, g);
+                }
+
+                std::vector<uint8_t> visited(wh, 0);
+                std::queue<std::pair<int, int>> q;
+                q.push({startX, startY});
+                visited[static_cast<size_t>(startY) * width + startX] = 1;
+
+                const int dx[4] = {0, 0, -1, 1};
+                const int dy[4] = {-1, 1, 0, 0};
+
+                while (!q.empty()) {
+                    auto [cx, cy] = q.front();
+                    q.pop();
+
+                    selectionMat[static_cast<size_t>(cy) * width + cx] = 255;
+
+                    for (int i = 0; i < 4; ++i) {
+                        int nx = cx + dx[i];
+                        int ny = cy + dy[i];
+
+                        if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                            size_t nIdx = static_cast<size_t>(ny) * width + nx;
+                            if (!visited[nIdx]) {
+                                visited[nIdx] = 1;
+                                if (g > 0 && !barDil.empty() && barDil[nIdx]) continue;
+
+                                uint32_t c = srcBase[static_cast<size_t>(ny) * srcStridePx + nx];
+                                float dr = static_cast<float>(((int)(c & 0xFF)) - targetR);
+                                float dg = static_cast<float>(((int)((c >> 8) & 0xFF)) - targetG);
+                                float db = static_cast<float>(((int)((c >> 16) & 0xFF)) - targetB);
+                                float da = static_cast<float>(((int)((c >> 24) & 0xFF)) - targetA);
+                                if (dr * dr + dg * dg + db * db + da * da <= tolSq) {
+                                    q.push({nx, ny});
+                                }
+                            }
                         }
                     }
                 }
             }
         }
-        // Tutup celah: dilasi hasil flood sebesar g lalu AND dengan
-        // eligible (mengembalikan area dekat garis + hitung ulang).
-        if (g > 0 && !elig.empty()) {
-            std::vector<uint8_t> floodTmp(wh, 0);
-            for (int y = 0; y < height; ++y) {
-                uint8_t* mrow = maskBase + (size_t)y * (size_t)maskStride;
-                for (int x = 0; x < width; ++x) {
-                    floodTmp[(size_t)y * (size_t)width + x] = mrow[x];
+
+        // Apply morphological close and feathering to selectionMat
+        applyMorphologicalCloseAndFeather(selectionMat.data(), width, height, width, featherRadius);
+
+        // Combine selectionMat into maskBitmap based on wandMode
+        // 0 = REPLACE, 1 = ADD, 2 = SUBTRACT
+        floodCount = 0;
+        for (int y = 0; y < height; ++y) {
+            uint8_t* mRow = maskBase + static_cast<size_t>(y) * maskStride;
+            const uint8_t* sRow = selectionMat.data() + static_cast<size_t>(y) * width;
+            for (int x = 0; x < width; ++x) {
+                uint8_t selV = sRow[x];
+                if (wandMode == 0) { // REPLACE
+                    mRow[x] = selV;
+                } else if (wandMode == 1) { // ADD
+                    mRow[x] = std::max(mRow[x], selV);
+                } else if (wandMode == 2) { // SUBTRACT
+                    mRow[x] = static_cast<uint8_t>(std::max(0, static_cast<int>(mRow[x]) - static_cast<int>(selV)));
                 }
-            }
-            std::vector<uint8_t> dilTmp(wh, 0);
-            dilateMaskHand(floodTmp.data(), dilTmp.data(), width, height, width, width, g);
-            floodCount = 0;
-            for (int y = 0; y < height; ++y) {
-                uint8_t* mrow = maskBase + (size_t)y * (size_t)maskStride;
-                size_t pOff = (size_t)y * (size_t)width;
-                for (int x = 0; x < width; ++x) {
-                    uint8_t v = (dilTmp[pOff + x] && elig[pOff + x]) ? 255 : 0;
-                    mrow[x] = v;
-                    if (v) ++floodCount;
+                if (mRow[x] > 0) {
+                    ++floodCount;
                 }
             }
         }
     } catch (...) {
-        LOGE("nativeMagicWandSelect gagal (alloc/proses)");
+        LOGE("nativeMagicWandSelect failed (alloc/process)");
         status = 5;
     }
 

@@ -122,6 +122,9 @@ class EditorViewModel @Inject constructor(
     val magicWandExpand = MutableStateFlow(0f)
     /** Tutup celah garis (0 = mati, 1..5 px). Berlaku saat ketuk berikutnya. */
     val magicWandGap = MutableStateFlow(0f)
+    val magicWandIsGlobal = MutableStateFlow(false)
+    val magicWandMode = MutableStateFlow(1) // 0 = REPLACE, 1 = ADD, 2 = SUBTRACT
+    val magicWandFeather = MutableStateFlow(0f)
 
     val isEyedropperActive = MutableStateFlow(false)
     val eyedropperCanvasPt = MutableStateFlow<Offset?>(null)
@@ -1454,6 +1457,18 @@ data class HistoryManifest(
         magicWandGap.value = gap.coerceIn(0f, 5f)
     }
 
+    fun setMagicWandIsGlobal(isGlobal: Boolean) {
+        magicWandIsGlobal.value = isGlobal
+    }
+
+    fun setMagicWandMode(mode: Int) {
+        magicWandMode.value = mode.coerceIn(0, 2)
+    }
+
+    fun setMagicWandFeather(feather: Float) {
+        magicWandFeather.value = feather.coerceIn(0f, 20f)
+    }
+
     /**
      * Satu ketuk wand utuh: flatten + flood DI DALAM satu lock sehingga
      * cache tak mungkin di-recycle warm-job di tengah flood (native crash/
@@ -1463,12 +1478,15 @@ data class HistoryManifest(
         point: androidx.compose.ui.geometry.Offset,
         tolerance: Float,
         expandPixels: Int,
-        gapRadius: Int
+        gapRadius: Int,
+        isGlobal: Boolean = magicWandIsGlobal.value,
+        wandMode: Int = magicWandMode.value,
+        featherRadius: Float = magicWandFeather.value
     ): com.mochits.core.imaging.NativeBridge.WandOutcome = wandMutex.withLock {
         wandBusy = true
         try {
             val flat = flattenForSelection() ?: return@withLock com.mochits.core.imaging.NativeBridge.WandOutcome(false, 0L)
-            maskSelectionTools?.magicWandSelect(flat, point, tolerance, expandPixels, gapRadius)
+            maskSelectionTools?.magicWandSelect(flat, point, tolerance, expandPixels, gapRadius, isGlobal, wandMode, featherRadius)
                 ?: com.mochits.core.imaging.NativeBridge.WandOutcome(false, 0L)
         } finally {
             wandBusy = false

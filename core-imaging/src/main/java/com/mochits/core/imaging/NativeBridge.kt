@@ -24,7 +24,17 @@ object NativeBridge {
     external fun nativeDrawCircle(bitmap: Bitmap, cx: Float, cy: Float, radius: Float, draw: Boolean)
     external fun nativeDrawLine(bitmap: Bitmap, x0: Float, y0: Float, x1: Float, y1: Float, radius: Float, draw: Boolean)
     external fun nativeDrawPolygon(bitmap: Bitmap, pointsX: FloatArray, pointsY: FloatArray, draw: Boolean)
-    external fun nativeMagicWandSelect(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float, gapRadius: Int): Long
+    external fun nativeMagicWandSelect(
+        srcBitmap: Bitmap,
+        maskBitmap: Bitmap,
+        startX: Int,
+        startY: Int,
+        tolerance: Float,
+        gapRadius: Int,
+        isGlobal: Boolean,
+        wandMode: Int,
+        featherRadius: Float
+    ): Long
     external fun nativeDilateMask(srcMaskBitmap: Bitmap, dstMaskBitmap: Bitmap, radius: Int)
     external fun nativeClearMask(bitmap: Bitmap)
     external fun nativeInvertMask(bitmap: Bitmap)
@@ -33,7 +43,17 @@ object NativeBridge {
     // Fallback implementations for host-side unit tests when native library is not present
     // @return pixel ter-seleksi, atau -1 bila gagal (ukuran/seed) agar
     // pemanggil bisa melapor, bukan mengklaim sukses.
-    private fun fallbackMagicWandSelect(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float): Long {
+    private fun fallbackMagicWandSelect(
+        srcBitmap: Bitmap,
+        maskBitmap: Bitmap,
+        startX: Int,
+        startY: Int,
+        tolerance: Float,
+        gapRadius: Int = 0,
+        isGlobal: Boolean = false,
+        wandMode: Int = 1,
+        featherRadius: Float = 0f
+    ): Long {
         val w = srcBitmap.width
         val h = srcBitmap.height
         if (maskBitmap.width != w || maskBitmap.height != h) return -1L
@@ -42,8 +62,6 @@ object NativeBridge {
         val pixels = IntArray(w * h)
         srcBitmap.getPixels(pixels, 0, w, 0, 0, w, h)
 
-        // Premultiply SEKALI di awal (ruang native): tanpa ini tiap
-        // perbandingan alokasi IntArray per piksel (hang di gambar besar).
         for (i in pixels.indices) {
             val c = pixels[i]
             val a = (c ushr 24) and 0xFF
@@ -59,24 +77,8 @@ object NativeBridge {
         val targetB = targetColor and 0xFF
         val targetA = (targetColor ushr 24) and 0xFF
 
-        // Euclidean RGB distance (tolerance is already mapped to 0..441.673).
-        // Tighter than per-channel Chebyshev; prevents diagonal color leaks.
         val tolSq = tolerance * tolerance
-        val visited = BooleanArray(w * h)
-        val queueInt = IntArray(w * h)
-        var head = 0
-        var tail = 0
-        var selectedCount = 0L
-
-        queueInt[tail++] = startY * w + startX
-        visited[startY * w + startX] = true
-
-        val buffer = java.nio.ByteBuffer.allocate(maskBitmap.byteCount)
-        maskBitmap.copyPixelsToBuffer(buffer)
-        val maskPixels = buffer.array()
-        // Offset byte = y * rowBytes + x (stride-aware; padding ikut tersalin
-        // utuh oleh copyPixelsToBuffer/FromBuffer).
-        val rowBytes = maskBitmap.rowBytes
+        val selectionMat = ByteArray(w * h)
 
         fun colorMatches(c: Int): Boolean {
             val dr = ((c ushr 16) and 0xFF) - targetR
@@ -86,49 +88,158 @@ object NativeBridge {
             return (dr * dr + dg * dg + db * db + da * da).toFloat() <= tolSq
         }
 
-        while (head < tail) {
-            val idx = queueInt[head++]
-            val cx = idx % w
-            val cy = idx / w
+        if (isGlobal) {
+            for (i in pixels.indices) {
+                if (colorMatches(pixels[i])) {
+                    selectionMat[i] = 0xFF.toByte()
+                }
+            }
+        } else {
+            val visited = BooleanArray(w * h)
+            val queueInt = IntArray(w * h)
+            var head = 0
+            var tail = 0
 
-            maskPixels[cy * rowBytes + cx] = 0xFF.toByte()
-            selectedCount++
+            queueInt[tail++] = startY * w + startX
+            visited[startY * w + startX] = true
 
-            if (cy > 0) {
-                val nIdx = idx - w
-                if (!visited[nIdx]) {
-                    visited[nIdx] = true
-                    if (colorMatches(pixels[nIdx])) {
-                        queueInt[tail++] = nIdx
+            val g = gapRadius.coerceIn(0, 8)
+            val barDil = if (g > 0) {
+                val bar = BooleanArray(w * h) { !colorMatches(pixels[it]) }
+                val dil = BooleanArray(w * h)
+                val r2 = g * g
+                for (cy in 0 until h) {
+                    for (cx in 0 until w) {
+                        if (bar[cy * w + cx]) {
+                            val minY = (cy - g).coerceAtLeast(0)
+                            val maxY = (cy + g).coerceAtMost(h - 1)
+                            val minX = (cx - g).coerceAtLeast(0)
+                            val maxX = (cx + g).coerceAtMost(w - 1)
+                            for (ny in minY..maxY) {
+                                val dy = ny - cy
+                                val dy2 = dy * dy
+                                for (nx in minX..maxX) {
+                                    val dx = nx - cx
+                                    if (dx * dx + dy2 <= r2) {
+                                        dil[ny * w + nx] = true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                dil
+            } else null
+
+            while (head < tail) {
+                val idx = queueInt[head++]
+                val cx = idx % w
+                val cy = idx / w
+
+                selectionMat[idx] = 0xFF.toByte()
+
+                val neighbors = intArrayOf(
+                    if (cy > 0) idx - w else -1,
+                    if (cy < h - 1) idx + w else -1,
+                    if (cx > 0) idx - 1 else -1,
+                    if (cx < w - 1) idx + 1 else -1
+                )
+
+                for (nIdx in neighbors) {
+                    if (nIdx != -1 && !visited[nIdx]) {
+                        visited[nIdx] = true
+                        if (barDil != null && barDil[nIdx]) continue
+                        if (colorMatches(pixels[nIdx])) {
+                            queueInt[tail++] = nIdx
+                        }
                     }
                 }
             }
-            if (cy < h - 1) {
-                val nIdx = idx + w
-                if (!visited[nIdx]) {
-                    visited[nIdx] = true
-                    if (colorMatches(pixels[nIdx])) {
-                        queueInt[tail++] = nIdx
+        }
+
+        // Morphological close (3x3 dilate then 3x3 erode)
+        val closedMat = ByteArray(w * h)
+        val tmpDilate = ByteArray(w * h)
+        for (cy in 0 until h) {
+            for (cx in 0 until w) {
+                var maxV = 0
+                for (dy in -1..1) {
+                    val ny = cy + dy
+                    if (ny !in 0 until h) continue
+                    for (dx in -1..1) {
+                        val nx = cx + dx
+                        if (nx !in 0 until w) continue
+                        val v = selectionMat[ny * w + nx].toInt() and 0xFF
+                        if (v > maxV) maxV = v
                     }
+                }
+                tmpDilate[cy * w + cx] = maxV.toByte()
+            }
+        }
+        for (cy in 0 until h) {
+            for (cx in 0 until w) {
+                var minV = 255
+                for (dy in -1..1) {
+                    val ny = cy + dy
+                    if (ny !in 0 until h) continue
+                    for (dx in -1..1) {
+                        val nx = cx + dx
+                        if (nx !in 0 until w) continue
+                        val v = tmpDilate[ny * w + nx].toInt() and 0xFF
+                        if (v < minV) minV = v
+                    }
+                }
+                closedMat[cy * w + cx] = minV.toByte()
+            }
+        }
+
+        // Feathering (if featherRadius > 0)
+        val finalSel = if (featherRadius > 0f) {
+            val r = kotlin.math.ceil(featherRadius).toInt().coerceAtLeast(1)
+            val blurred = ByteArray(w * h)
+            for (cy in 0 until h) {
+                val minY = (cy - r).coerceAtLeast(0)
+                val maxY = (cy + r).coerceAtMost(h - 1)
+                for (cx in 0 until w) {
+                    val minX = (cx - r).coerceAtLeast(0)
+                    val maxX = (cx + r).coerceAtMost(w - 1)
+                    var sum = 0
+                    var count = 0
+                    for (ny in minY..maxY) {
+                        for (nx in minX..maxX) {
+                            sum += closedMat[ny * w + nx].toInt() and 0xFF
+                            count++
+                        }
+                    }
+                    blurred[cy * w + cx] = (sum / count).toByte()
                 }
             }
-            if (cx > 0) {
-                val nIdx = idx - 1
-                if (!visited[nIdx]) {
-                    visited[nIdx] = true
-                    if (colorMatches(pixels[nIdx])) {
-                        queueInt[tail++] = nIdx
-                    }
+            blurred
+        } else {
+            closedMat
+        }
+
+        // Combine into maskBitmap according to wandMode
+        // 0 = REPLACE, 1 = ADD, 2 = SUBTRACT
+        val buffer = java.nio.ByteBuffer.allocate(maskBitmap.byteCount)
+        maskBitmap.copyPixelsToBuffer(buffer)
+        val maskPixels = buffer.array()
+        val rowBytes = maskBitmap.rowBytes
+        var selectedCount = 0L
+
+        for (cy in 0 until h) {
+            for (cx in 0 until w) {
+                val idx = cy * rowBytes + cx
+                val selV = finalSel[cy * w + cx].toInt() and 0xFF
+                val curV = maskPixels[idx].toInt() and 0xFF
+                val newV = when (wandMode) {
+                    0 -> selV // REPLACE
+                    1 -> maxOf(curV, selV) // ADD
+                    2 -> maxOf(0, curV - selV) // SUBTRACT
+                    else -> selV
                 }
-            }
-            if (cx < w - 1) {
-                val nIdx = idx + 1
-                if (!visited[nIdx]) {
-                    visited[nIdx] = true
-                    if (colorMatches(pixels[nIdx])) {
-                        queueInt[tail++] = nIdx
-                    }
-                }
+                maskPixels[idx] = newV.toByte()
+                if (newV > 0) selectedCount++
             }
         }
 
@@ -206,22 +317,33 @@ object NativeBridge {
      */
     data class WandOutcome(val ok: Boolean, val selectedCount: Long)
 
-    fun magicWandSelectSafe(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float, gapRadius: Int = 0): WandOutcome {
+    fun magicWandSelectSafe(
+        srcBitmap: Bitmap,
+        maskBitmap: Bitmap,
+        startX: Int,
+        startY: Int,
+        tolerance: Float,
+        gapRadius: Int = 0,
+        isGlobal: Boolean = false,
+        wandMode: Int = 1,
+        featherRadius: Float = 0f
+    ): WandOutcome {
         if (isNativeAvailable) {
             try {
-                val res = nativeMagicWandSelect(srcBitmap, maskBitmap, startX, startY, tolerance, gapRadius)
+                val res = nativeMagicWandSelect(
+                    srcBitmap, maskBitmap, startX, startY, tolerance, gapRadius, isGlobal, wandMode, featherRadius
+                )
                 val status = (res and 0xFFFFFFFFL).toInt()
                 if (status == 0) return WandOutcome(true, res ushr 32)
                 android.util.Log.w("NativeBridge", "wand native status=$status, tanpa fallback sunyi")
-                // Status fatal (format/lock/OOM) atau ukuran/seed salah:
-                // JANGAN fallback diam-diam (hang/OOM ganda), laporkan gagal.
                 return WandOutcome(false, 0L)
             } catch (_: Throwable) {
             }
         }
         return try {
-            // Fallback belum mendukung Tutup celah (terdokumentasi).
-            val count = fallbackMagicWandSelect(srcBitmap, maskBitmap, startX, startY, tolerance)
+            val count = fallbackMagicWandSelect(
+                srcBitmap, maskBitmap, startX, startY, tolerance, gapRadius, isGlobal, wandMode, featherRadius
+            )
             if (count >= 0L) WandOutcome(true, count) else WandOutcome(false, 0L)
         } catch (_: Throwable) {
             WandOutcome(false, 0L)
