@@ -142,6 +142,21 @@ class EditorViewModel @Inject constructor(
         flattenGen.incrementAndGet()
     }
 
+    /** Hangatkan cache komposit di latar (buka panel Erase) agar tap wand instan. */
+    fun warmSelectionCache() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            try {
+                flattenForSelection()
+            } catch (t: Throwable) {
+                Logger.e("warmSelectionCache: ${t.message}", t)
+            }
+        }
+    }
+
+    /**
+     * Komposit untuk seleksi wand: TANPA FX gambar (blur/glow hanya visual,
+     * tak menggeser konten; menghitungnya per tap = loading). Selalu cache.
+     */
     suspend fun flattenForSelection(): Bitmap? = flattenMutex.withLock {
         val gen = flattenGen.get()
         val base = baseBitmap.value ?: return@withLock null
@@ -152,7 +167,6 @@ class EditorViewModel @Inject constructor(
             return@withLock cached
         }
         val old = cachedFlattenedBitmap
-        prepareImageEffects(layers.value)
         val flattened = exporter.exportToBitmap(
             base,
             layers.value,
