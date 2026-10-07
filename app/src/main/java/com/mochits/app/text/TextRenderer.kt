@@ -284,7 +284,6 @@ class TextRenderer(private val context: Context) {
             boxHeight
         }
 
-        val minLineWidth = paint.measureText("M-").coerceAtLeast(20f)
         val ovalA = targetW / 2f
         val ovalB = (effectiveBoxHeight ?: 20f).coerceAtLeast(20f) / 2f
 
@@ -302,7 +301,9 @@ class TextRenderer(private val context: Context) {
                 val yRelativeToContainerTop = computedTopOffset + (lineIdx + 0.5f) * lineHeight
                 val yRelativeToCenter = yRelativeToContainerTop - ovalB
                 val ratio = (yRelativeToCenter / ovalB).coerceIn(-0.98f, 0.98f)
-                val avail = (2f * ovalA * sqrt(1f - ratio * ratio)).coerceAtLeast(minLineWidth)
+                // Lantai kecil: teks harus tetap di dalam elips walau di
+                // garis atas/bawah yang sempit (bukan minLineWidth).
+                val avail = (2f * ovalA * sqrt(1f - ratio * ratio)).coerceAtLeast(4f)
                 if (lineIdx in availableWidthCache.indices) {
                     availableWidthCache[lineIdx] = avail
                 }
@@ -592,9 +593,10 @@ class TextRenderer(private val context: Context) {
         if (style.motionBlurRadius > 0f) {
             // Objeknya sendiri yang blur (tanpa salinan tajam di atasnya,
             // kalau tidak terbaca sebagai drop shadow).
+            val smearKey = "$text|${style.hashCode()}|$shape|$boxWidth|$boxHeight"
             drawMotionBlurSmear(
                 canvas, x, y, layoutResult, style,
-                paint, glowPaint, shadowPaint, strokePaint
+                paint, glowPaint, shadowPaint, strokePaint, smearKey
             )
         } else {
             drawTextRuns(
@@ -634,11 +636,52 @@ class TextRenderer(private val context: Context) {
     private var motionBlurBitmap: Bitmap? = null
     private val motionBlurUpscalePaint = Paint().apply { isFilterBitmap = true }
 
-    // Render datar untuk warp perspektif: bitmap dipakai ulang bila ukuran
-    // sama; flatVersion naik tiap render agar cache warp tahu konten baru.
-    private var flatBitmap: Bitmap? = null
+    /**
+     * Cache hasil smear: konten bitmap independen posisi (di-render
+     * seolah x=0,y=0 lalu ditempel di left/top aktual), jadi teks blur
+     * yang diam tidak di-blur ulang tiap frame.
+     */
+    private val smearCache = object : java.util.LinkedHashMap<String, Bitmap>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>?): Boolean {
+            if (size > 4) {
+                try { eldest?.value?.recycle() } catch (_: Exception) {}
+                return true
+            }
+            return false
+        }
+    }
+
+    // Versi konten render: naik hanya saat benar-benar menggambar ulang
+    // (cache-hit tidak menaikkannya agar cache warp ikut hit).
     var flatVersion: Long = 0L
         private set
+
+    /**
+     * Kunci render teks: semua input yang memengaruhi piksel (posisi
+     * dikecualikan — bitmap konten independen posisi, origin mengikuti
+     * bounds saat ini sehingga drag teks warp tetap cache-hit).
+     */
+    private data class FlatKey(
+        val layerId: String,
+        val text: String,
+        val style: TextStyleConfig,
+        val shape: TextContainerShape,
+        val boxW: Float?,
+        val boxH: Float?
+    )
+
+    private data class FlatEntry(var bitmap: Bitmap, var origin: Offset)
+
+    /** Cache render per layer (maks 6, yang terbuang di-recycle). */
+    private val flatCache = object : java.util.LinkedHashMap<FlatKey, FlatEntry>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<FlatKey, FlatEntry>?): Boolean {
+            if (size > 6) {
+                try { eldest?.value?.bitmap?.recycle() } catch (_: Exception) {}
+                return true
+            }
+            return false
+        }
+    }
 
     /**
      * Smear motion blur searah [TextStyleConfig.motionBlurAngle].
@@ -655,7 +698,8 @@ class TextRenderer(private val context: Context) {
         paint: Paint,
         glowPaint: Paint?,
         shadowPaint: Paint?,
-        strokePaint: Paint?
+        strokePaint: Paint?,
+        cacheKey: String
     ) {
         val radius = style.motionBlurRadius
         if (radius <= 0f) return
@@ -670,6 +714,18 @@ class TextRenderer(private val context: Context) {
         val down = minOf(1f, 512f / maxOf(bw, bh).toFloat(), 48f / radius)
         val ww = maxOf(1, (bw * down).toInt())
         val hh = maxOf(1, (bh * down).toInt())
+
+        // Cache-hit: langsung tempel, lewati render + blur yang mahal.
+        smearCache[cacheKey]?.let { cached ->
+            if (!cached.isRecycled && cached.width == ww && cached.height == hh) {
+                val left = (x + layoutResult.minX) - pad
+                val top = (y + layoutResult.topOffset) - pad
+                canvas.drawBitmap(cached, null, RectF(left, top, left + bw, top + bh), motionBlurUpscalePaint)
+                return
+            }
+            try { cached.recycle() } catch (_: Exception) {}
+            smearCache.remove(cacheKey)
+        }
 
         var bmp = motionBlurBitmap
         if (bmp == null || bmp.isRecycled || bmp.width != ww || bmp.height != hh) {
@@ -693,6 +749,10 @@ class TextRenderer(private val context: Context) {
         work.getPixels(px, 0, ww, 0, 0, ww, hh)
         val blurred = MotionBlur.blurDirectional(px, ww, hh, style.motionBlurAngle, radius * down)
         work.setPixels(blurred, 0, ww, 0, 0, ww, hh)
+        // Simpan salinan untuk frame berikutnya (buffer kerja dipakai ulang).
+        try {
+            work.copy(Bitmap.Config.ARGB_8888, false)?.let { smearCache[cacheKey] = it }
+        } catch (_: Throwable) {}
 
         val left = (x + layoutResult.minX) - pad
         val top = (y + layoutResult.topOffset) - pad
@@ -711,23 +771,37 @@ class TextRenderer(private val context: Context) {
         val w = ceil(bounds.width()).toInt().coerceAtLeast(1)
         val h = ceil(bounds.height()).toInt().coerceAtLeast(1)
         if (w > 4096 || h > 4096) return@synchronized null
-        var bmp = flatBitmap
-        if (bmp == null || bmp.isRecycled || bmp.width != w || bmp.height != h) {
-            try { bmp?.recycle() } catch (_: Exception) {}
-            bmp = try {
-                Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            } catch (_: Throwable) {
-                return@synchronized null
+        // Cache-hit: konten sama → bitmap dipakai ulang TANPA gambar ulang
+        // dan TANPA menaikkan flatVersion (cache warp ikut hit).
+        val key = FlatKey(
+            layerId = layer.id,
+            text = layer.text,
+            style = layer.style,
+            shape = layer.textContainerShape,
+            boxW = layer.boxWidth,
+            boxH = layer.boxHeight
+        )
+        flatCache[key]?.let { e ->
+            if (!e.bitmap.isRecycled && e.bitmap.width == w && e.bitmap.height == h) {
+                e.origin = Offset(bounds.left, bounds.top)
+                return@synchronized e.bitmap to e.origin
             }
-            flatBitmap = bmp
+            try { e.bitmap.recycle() } catch (_: Exception) {}
+            flatCache.remove(key)
         }
-        val work = bmp ?: return@synchronized null
-        work.eraseColor(Color.TRANSPARENT)
-        val off = Canvas(work)
+        val bmp = try {
+            Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        } catch (_: Throwable) {
+            return@synchronized null
+        }
+        bmp.eraseColor(Color.TRANSPARENT)
+        val off = Canvas(bmp)
         off.translate(-bounds.left, -bounds.top)
         drawStyledText(off, layer)
         flatVersion += 1
-        return@synchronized work to Offset(bounds.left, bounds.top)
+        val entry = FlatEntry(bmp, Offset(bounds.left, bounds.top))
+        flatCache[key] = entry
+        return@synchronized bmp to entry.origin
     }
 
     /**

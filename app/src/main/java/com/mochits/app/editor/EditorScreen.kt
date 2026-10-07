@@ -363,7 +363,6 @@ val favoriteFontKeys by viewModel.favoriteFontKeys.collectAsState()
 val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
     val canUndo by viewModel.canUndo.collectAsState()
     val canRedo by viewModel.canRedo.collectAsState()
-    val historyEntries by viewModel.historyEntries.collectAsState()
     val scriptQueue by viewModel.scriptQueue.collectAsState()
 
     // Picker simpan bundel .mts proyek ini.
@@ -802,14 +801,6 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onUpdateOpacity = { opacity, saveUndo -> viewModel.updateSelectedLayerOpacity(opacity, saveUndo = saveUndo) },
                         onSliderDragStart = { viewModel.onSliderDragStart() },
                         onSliderDragEnd = { viewModel.onSliderDragEnd() }
-                    )
-                    EditorPanel.HISTORY ->                     HistoryPanel(
-                        entries = historyEntries,
-                        onClose = { viewModel.setActivePanel(EditorPanel.NONE) },
-                        onJump = {
-                            viewModel.jumpToHistory(it)
-                            refreshMaskState()
-                        }
                     )
                     EditorPanel.SCRIPT -> ScriptPanel(
                         scriptQueue = scriptQueue,
@@ -1839,10 +1830,17 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         if (layer.isVisible) {
                             when (layer) {
                                 is Layer.TextLayer -> {
+                                    val layerAlpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
                                     val alphaPaint = alphaPaintCache.apply {
-                                        alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
+                                        alpha = layerAlpha
                                     }
-                                    val count = drawContext.canvas.nativeCanvas.saveLayer(null, alphaPaint)
+                                    // Opacity penuh: save() biasa (tanpa buffer offscreen
+                                    // saveLayer yang mahal tiap frame).
+                                    val count = if (layerAlpha >= 255) {
+                                        drawContext.canvas.nativeCanvas.save()
+                                    } else {
+                                        drawContext.canvas.nativeCanvas.saveLayer(null, alphaPaint)
+                                    }
 
                                     val bounds: RectF = textRenderer.getTextBounds(layer)
                                     val textCenterX = bounds.centerX()
@@ -2671,8 +2669,8 @@ private fun SectionCard(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
                 text = title,
@@ -2738,13 +2736,6 @@ fun EditorBottomBar(
             label = { Text("Style", maxLines = 1) },
             modifier = Modifier.widthIn(min = 60.dp)
         )
-        NavigationBarItem(
-            selected = activePanel == EditorPanel.HISTORY,
-            onClick = { onPanelSelect(EditorPanel.HISTORY) },
-            icon = { Icon(Icons.Default.History, contentDescription = "History") },
-            label = { Text("History", maxLines = 1) },
-            modifier = Modifier.widthIn(min = 60.dp)
-        )
         }
     }
 }
@@ -2776,7 +2767,7 @@ fun EraseToolPanel(
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = 320.dp)
+            .heightIn(max = 280.dp)
     ) {
         Column(
             modifier = Modifier
@@ -2794,12 +2785,14 @@ fun EraseToolPanel(
                 ) {}
             }
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onClose() },
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Hapus",
+                    text = "Erase",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -2816,7 +2809,7 @@ fun EraseToolPanel(
             }
             Spacer(modifier = Modifier.height(2.dp))
 
-            SectionCard(title = "Alat") {
+            SectionCard(title = "Tool") {
                 OptionCycler(
                         label = "Alat",
                         options = listOf(
@@ -2876,7 +2869,7 @@ fun EraseToolPanel(
                 Spacer(modifier = Modifier.height(2.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedButton(
@@ -2906,7 +2899,7 @@ fun EraseToolPanel(
                 }
 
                 Spacer(modifier = Modifier.height(2.dp))
-            SectionCard(title = "Kekuatan") {
+            SectionCard(title = "Strength") {
                 if (mode == MaskToolMode.MAGIC_WAND) {
                     if (!hasMask) {
                         Text(
@@ -3012,13 +3005,13 @@ fun TextToolPanel(
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = 380.dp)
+            .heightIn(max = 320.dp)
     ) {
         Column(
             modifier = Modifier
                 .padding(horizontal = 10.dp, vertical = 8.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Box(
                 modifier = Modifier.fillMaxWidth(),
@@ -3031,12 +3024,14 @@ fun TextToolPanel(
                 ) {}
             }
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onClose() },
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Teks",
+                    text = "Text",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -3051,7 +3046,7 @@ fun TextToolPanel(
                     )
                 }
             }
-            SectionCard(title = "Isi") {
+            SectionCard(title = "Content") {
             OutlinedTextField(
                 value = textInput,
                 onValueChange = { newText ->
@@ -3096,7 +3091,7 @@ fun TextToolPanel(
             }
             }
 
-            SectionCard(title = "Tata Letak") {
+            SectionCard(title = "Layout") {
             OptionCycler(
                 label = "Perataan",
                 options = listOf(
@@ -3162,7 +3157,7 @@ fun TextToolPanel(
             }
             }
 
-            SectionCard(title = "Kapital") {
+            SectionCard(title = "Case") {
             if (selectedLayer != null && onCapitalizationTransform != null) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -3449,14 +3444,14 @@ fun EffectToolPanel(
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = 400.dp)
+            .heightIn(max = 340.dp)
             .animateContentSize()
     ) {
         Column(
             modifier = Modifier
                 .padding(horizontal = 10.dp, vertical = 8.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Box(
                 modifier = Modifier.fillMaxWidth(),
@@ -3469,12 +3464,14 @@ fun EffectToolPanel(
                 ) {}
             }
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onClose() },
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Efek",
+                    text = "Effect",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -3506,14 +3503,11 @@ fun EffectToolPanel(
                     }
                 }
 
-                // Grid kartu efek 2 kolom: ketuk kartu untuk buka/tutup kontrolnya.
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    availableEffects.chunked(2).forEach { rowEffects ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            rowEffects.forEach { effect ->
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp)
+                ) {
+                    items(availableEffects) { effect ->
                         val isSelected = expandedEffect == effect
                         val isActive = when (effect) {
                             EffectType.OPACITY -> selectedLayer.opacity < 1.0f
@@ -3581,83 +3575,63 @@ fun EffectToolPanel(
                             EffectType.IMAGE_WARP -> Icons.Default.GridOn to "Warp"
                         }
 
-                        Surface(
+                        Card(
                             onClick = {
                                 expandedEffect = if (isSelected) null else effect
                             },
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                            modifier = Modifier.weight(1f),
-                            color = if (isSelected) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else if (isActive) {
-                                MaterialTheme.colorScheme.secondaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant
-                            },
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isSelected) {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                } else if (isActive) {
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant
+                                }
+                            ),
                             border = if (isSelected) {
                                 BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
                             } else if (isActive) {
                                 BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
                             } else null,
+                            modifier = Modifier.width(105.dp)
                         ) {
-                            Row(
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                    .padding(vertical = 10.dp, horizontal = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                if (isActive && !isSelected) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .background(
-                                                color = MaterialTheme.colorScheme.primary,
-                                                shape = CircleShape
+                                BadgedBox(
+                                    badge = {
+                                        if (isActive) {
+                                            Badge(
+                                                containerColor = MaterialTheme.colorScheme.primary,
+                                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(8.dp)
                                             )
+                                        }
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = title,
+                                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(24.dp)
                                     )
                                 }
-                                Icon(
-                                    imageVector = icon,
-                                    contentDescription = title,
-                                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp)
-                                )
                                 Text(
                                     text = title,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1
                                 )
-                            }
-                        }
-                            }
-                            if (rowEffects.size == 1) {
-                                Spacer(modifier = Modifier.weight(1f))
                             }
                         }
                     }
                 }
 
-                val expandedEffectTitle = when (expandedEffect) {
-                    EffectType.OPACITY -> "Opacity"
-                    EffectType.TEXT_COLOR -> "Warna Teks"
-                    EffectType.STROKE -> "Stroke"
-                    EffectType.DROP_SHADOW -> "Drop Shadow"
-                    EffectType.MOTION_BLUR -> "Motion Blur"
-                    EffectType.GLOW -> "Glow"
-                    EffectType.PERSPECTIVE -> "Perspective"
-                    EffectType.WARP -> "Warp"
-                    EffectType.IMAGE_TONE -> "Tone"
-                    EffectType.IMAGE_MOTION_BLUR -> "Motion Blur"
-                    EffectType.IMAGE_GLOW -> "Glow"
-                    EffectType.IMAGE_PERSPECTIVE -> "Perspective"
-                    EffectType.IMAGE_WARP -> "Warp"
-                    null -> ""
-                }
                 if (expandedEffect != null) {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                    SectionCard(title = expandedEffectTitle) {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -4217,7 +4191,6 @@ fun EffectToolPanel(
                             null -> {}
                         }
                     }
-                    }
                 }
             }
         }
@@ -4246,11 +4219,11 @@ private fun ScriptPanel(
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = 340.dp)
+            .heightIn(max = 280.dp)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Box(
                 modifier = Modifier.fillMaxWidth(),
@@ -4263,12 +4236,14 @@ private fun ScriptPanel(
                 ) {}
             }
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onClose() },
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Script TL",
+                    text = "Script",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -4283,7 +4258,7 @@ private fun ScriptPanel(
                     )
                 }
             }
-            SectionCard(title = "Antrean") {
+            SectionCard(title = "Queue") {
             OutlinedButton(
                 onClick = onLoadScriptFile,
                 modifier = Modifier.fillMaxWidth()
@@ -4351,124 +4326,6 @@ private fun ScriptPanel(
 }
 
 @Composable
-private fun HistoryPanel(
-    entries: List<EditorViewModel.HistoryEntry>,
-    onJump: (EditorViewModel.HistoryEntry) -> Unit,
-    onClose: () -> Unit = {}
-) {
-    val timeFmt = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        tonalElevation = 6.dp,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(max = 340.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Box(
-                modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.Center
-            ) {
-                Surface(
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                    shape = CircleShape,
-                    modifier = Modifier.size(width = 36.dp, height = 4.dp)
-                ) {}
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Riwayat",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                IconButton(
-                    onClick = onClose,
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Tutup panel",
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-            SectionCard(title = "Info") {
-            Text(
-                "Ketuk entri untuk lompat ke keadaan itu.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            }
-            if (entries.isEmpty()) {
-                Text(
-                    "Belum ada riwayat.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            } else {
-                LazyColumn(
-                    modifier = Modifier.heightIn(max = 270.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    itemsIndexed(
-                        entries,
-                        key = { i, e -> "$i-${e.isRedo}-${e.timestamp}-${e.label}" }
-                    ) { _, entry ->
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (entry.isRedo) {
-                                    MaterialTheme.colorScheme.secondaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceVariant
-                                }
-                            ),
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = { onJump(entry) }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    if (entry.isRedo) Icons.AutoMirrored.Filled.Redo else Icons.AutoMirrored.Filled.Undo,
-                                    contentDescription = if (entry.isRedo) "Redo" else "Undo",
-                                    modifier = Modifier.size(18.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = entry.label,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    modifier = Modifier.weight(1f),
-                                    maxLines = 1
-                                )
-                                Text(
-                                    text = if (entry.timestamp > 0L) {
-                                        timeFmt.format(java.util.Date(entry.timestamp))
-                                    } else {
-                                        ""
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 fun LayersToolPanel(
     layers: List<Layer>,
     selectedId: String?,
@@ -4507,12 +4364,14 @@ fun LayersToolPanel(
                 ) {}
             }
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onClose() },
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Lapisan",
+                    text = "Layers",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -4527,7 +4386,7 @@ fun LayersToolPanel(
                     )
                 }
             }
-            SectionCard(title = "Layer Aktif") {
+            SectionCard(title = "Active Layer") {
             if (selectedLayer != null) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
@@ -4739,13 +4598,13 @@ fun FontToolPanel(
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = 360.dp)
+            .heightIn(max = 300.dp)
     ) {
         Column(
             modifier = Modifier
                 .padding(horizontal = 10.dp, vertical = 8.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Box(
                 modifier = Modifier.fillMaxWidth(),
@@ -4758,7 +4617,9 @@ fun FontToolPanel(
                 ) {}
             }
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onClose() },
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -4778,7 +4639,7 @@ fun FontToolPanel(
                     )
                 }
             }
-            SectionCard(title = "Cari") {
+            SectionCard(title = "Search") {
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
@@ -4812,7 +4673,7 @@ fun FontToolPanel(
                 )
             }
             }
-            SectionCard(title = "Jenis") {
+            SectionCard(title = "Fonts") {
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -4865,7 +4726,7 @@ fun FontToolPanel(
             }
             }
 
-            SectionCard(title = "Gaya & Ukuran") {
+            SectionCard(title = "Style & Size") {
             OptionCycler(
                 label = "Gaya",
                 options = listOf("Regular", "Bold", "Italic", "BoldItalic"),
@@ -4915,13 +4776,13 @@ fun StylePresetPanel(
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = 360.dp)
+            .heightIn(max = 300.dp)
     ) {
         Column(
             modifier = Modifier
                 .padding(horizontal = 10.dp, vertical = 8.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Box(
                 modifier = Modifier.fillMaxWidth(),
@@ -4934,12 +4795,14 @@ fun StylePresetPanel(
                 ) {}
             }
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onClose() },
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Gaya",
+                    text = "Style",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -4954,7 +4817,7 @@ fun StylePresetPanel(
                     )
                 }
             }
-            SectionCard(title = "Simpan") {
+            SectionCard(title = "Save") {
             if (onDeleteAllBuiltIns != null && presets.any { it.isBuiltIn }) {
                 TextButton(
                     onClick = { onDeleteAllBuiltIns() },
@@ -4977,7 +4840,7 @@ fun StylePresetPanel(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedTextField(
