@@ -2774,7 +2774,7 @@ fun EraseToolPanel(
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .height(250.dp)
+            .then(if (isCollapsed) Modifier.heightIn(max = 120.dp) else Modifier.height(250.dp))
     ) {
         Column(
             modifier = Modifier
@@ -4358,7 +4358,7 @@ fun LayersToolPanel(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-        modifier = Modifier.fillMaxWidth().height(220.dp)
+        modifier = Modifier.fillMaxWidth().then(if (isCollapsed) Modifier.heightIn(max = 120.dp) else Modifier.height(220.dp))
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
