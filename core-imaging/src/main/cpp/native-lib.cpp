@@ -291,27 +291,6 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         return;
     }
 
-#ifdef HAVE_OPENCV
-    // Jalur utama: cv::floodFill resmi (FIXED_RANGE = banding ke seed,
-    // MASK_ONLY = citra tak diubah, konektivitas 4). Mask OCV wajib +2px.
-    {
-        cv::Mat srcMat(height, width, CV_8UC4, srcPixels);
-        cv::Mat bgrMat;
-        cv::cvtColor(srcMat, bgrMat, cv::COLOR_RGBA2BGR);
-        cv::Mat floodMask = cv::Mat::zeros(height + 2, width + 2, CV_8UC1);
-        // Bola Euclidean r -> kubus per-channel sisi r (perilaku selektif
-        // setara implementasi tangan; BGR simetris jadi urutan tak masalah).
-        float ch = tolerance / 1.7320508f;
-        int flags = 4 | (255 << 8) | cv::FLOODFILL_FIXED_RANGE | cv::FLOODFILL_MASK_ONLY;
-        cv::Rect ccomp;
-        cv::floodFill(bgrMat, floodMask, cv::Point(startX, startY), cv::Scalar(),
-                      &ccomp, cv::Scalar(ch, ch, ch), cv::Scalar(ch, ch, ch), flags);
-        cv::Mat inner = floodMask(cv::Rect(1, 1, width, height));
-        cv::Mat dstMat(height, width, CV_8UC1, maskPixels);
-        // Union dengan mask yang sudah ada (perilaku tap wand).
-        cv::max(dstMat, inner, dstMat);
-    }
-#else
     uint32_t* srcPtr = static_cast<uint32_t*>(srcPixels);
     uint8_t* maskPtr = static_cast<uint8_t*>(maskPixels);
 
@@ -364,7 +343,6 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
             }
         }
     }
-#endif
 
     AndroidBitmap_unlockPixels(env, maskBitmap);
     AndroidBitmap_unlockPixels(env, srcBitmap);
