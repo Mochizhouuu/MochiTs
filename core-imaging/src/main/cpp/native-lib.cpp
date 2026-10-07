@@ -355,7 +355,7 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
             auto [cx, cy] = q.front();
             q.pop();
 
-            maskBase[(size_t)cy * (size_t)maskStride + cx] = 255; // Union with existing mask
+            maskBase[(size_t)cy * (size_t)maskStride + cx] = 255; // Panggilable: pemanggil mengosongkan dulu (semantik ganti)
 
             for (int i = 0; i < 4; ++i) {
                 int nx = cx + dx[i];

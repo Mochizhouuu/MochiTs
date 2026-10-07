@@ -215,11 +215,12 @@ class MaskSelectionToolsTest {
         assertEquals(255, getAlpha(tools.maskBitmap.getPixel(5, 15)))
         assertEquals(0, getAlpha(tools.rawMaskBitmap.getPixel(5, 15)))
 
-        // 3. Select Object B (different object) with expand = 5
+        // 3. Select Object B (different object) with expand = 5.
+        // Semantik ganti: ketuk baru mengganti seleksi lama (tidak menumpuk).
         tools.magicWandSelect(srcBitmap, Offset(75f, 75f), tolerance = 10f, expandPixels = 5)
 
-        // Verify Object A (expanded) and Object B (expanded) are both selected
-        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 15)))
+        // Verify Object A is GONE and only Object B (expanded) is selected
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(15, 15)))
         assertEquals(255, getAlpha(tools.maskBitmap.getPixel(75, 75)))
         assertEquals(255, getAlpha(tools.maskBitmap.getPixel(65, 75)))
 
@@ -230,7 +231,7 @@ class MaskSelectionToolsTest {
         // 4. Reset expand back to 0
         tools.applyExpand(expandPixels = 0)
 
-        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 15)))
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(15, 15)))
         assertEquals(255, getAlpha(tools.maskBitmap.getPixel(75, 75)))
         assertEquals(0, getAlpha(tools.maskBitmap.getPixel(5, 15)))
         assertEquals(0, getAlpha(tools.maskBitmap.getPixel(65, 75)))

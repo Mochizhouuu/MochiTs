@@ -165,6 +165,9 @@ class MaskSelectionTools(
         // leaking into neighbouring colors diagonally (e.g. corner (81,81,81)).
         val mappedTolerance = (tolerance.coerceIn(0f, 100f) / 100f) * 441.673f
         currentExpandPixels = expandPixels.coerceIn(0, 30)
+        // Tiap ketuk = seleksi BARU (ganti, bukan menumpuk): seleksi kecil
+        // tak terlihat tak lagi terakumulasi diam-diam menjadi gumpalan.
+        NativeBridge.clearMaskSafe(rawMaskBitmap)
         val ok = NativeBridge.magicWandSelectSafe(srcBitmap, rawMaskBitmap, startX, startY, mappedTolerance)
         applyExpandInternal()
         return ok

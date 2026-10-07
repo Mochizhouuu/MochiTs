@@ -214,13 +214,13 @@ class EditorViewModelTest {
         // Save Snapshot state 1 (Object A selected with expand 5)
         viewModel.saveUndoSnapshot()
 
-        // 2. Select Object B
+        // 2. Select Object B (semantik ganti: A hilang, hanya B)
         tools?.magicWandSelect(srcBitmap, androidx.compose.ui.geometry.Offset(75f, 75f), tolerance = 10f, expandPixels = 5)
 
-        // Both Object A and B are selected
+        // Only Object B is selected now
         val pA = (tools?.maskBitmap?.getPixel(15, 15) ?: 0)
         val pB = (tools?.maskBitmap?.getPixel(75, 75) ?: 0)
-        assertEquals(255, (pA ushr 24) or (pA and 0xFF))
+        assertEquals(0, (pA ushr 24) or (pA and 0xFF))
         assertEquals(255, (pB ushr 24) or (pB and 0xFF))
 
         // 3. Perform UNDO -> Should restore to state before tapping Object B
@@ -237,16 +237,16 @@ class EditorViewModelTest {
         assertEquals(255, (rawA ushr 24) or (rawA and 0xFF))
         assertEquals(0, (rawB ushr 24) or (rawB and 0xFF))
 
-        // 4. Perform REDO -> Should restore state containing both A and B
+        // 4. Perform REDO -> Should restore state containing only B
         viewModel.redo()
 
         val pA2 = (tools?.maskBitmap?.getPixel(15, 15) ?: 0)
         val pB2 = (tools?.maskBitmap?.getPixel(75, 75) ?: 0)
         val rawA2 = (tools?.rawMaskBitmap?.getPixel(15, 15) ?: 0)
         val rawB2 = (tools?.rawMaskBitmap?.getPixel(75, 75) ?: 0)
-        assertEquals(255, (pA2 ushr 24) or (pA2 and 0xFF))
+        assertEquals(0, (pA2 ushr 24) or (pA2 and 0xFF))
         assertEquals(255, (pB2 ushr 24) or (pB2 and 0xFF))
-        assertEquals(255, (rawA2 ushr 24) or (rawA2 and 0xFF))
+        assertEquals(0, (rawA2 ushr 24) or (rawA2 and 0xFF))
         assertEquals(255, (rawB2 ushr 24) or (rawB2 and 0xFF))
     }
     @Test
