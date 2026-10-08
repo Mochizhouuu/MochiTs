@@ -277,4 +277,33 @@ class MaskSelectionToolsTest {
             (tools.maskBitmap.getPixel(0, 0) ushr 24) and 0xFF
         )
     }
+
+    @Test
+    fun magicWand_gappedOutline_doesNotLeakOutside() {
+        // Kotak outline hitam 10..19 dengan celah 1px di atas (x=15,y=10
+        // dibiarkan abu-abu 220 = jembatan AA). Dalam putih, luar abu-abu
+        // 220. Toleransi 60: tanpa penahan tepi, flood keluar lewat celah.
+        val tools = MaskSelectionTools(30, 30)
+        val srcBitmap = Bitmap.createBitmap(30, 30, Bitmap.Config.ARGB_8888)
+        srcBitmap.eraseColor(Color.rgb(220, 220, 220))
+        for (x in 10..19) {
+            srcBitmap.setPixel(x, 10, Color.BLACK)
+            srcBitmap.setPixel(x, 19, Color.BLACK)
+        }
+        for (y in 10..19) {
+            srcBitmap.setPixel(10, y, Color.BLACK)
+            srcBitmap.setPixel(19, y, Color.BLACK)
+        }
+        for (x in 11..18) {
+            for (y in 11..18) {
+                srcBitmap.setPixel(x, y, Color.WHITE)
+            }
+        }
+        srcBitmap.setPixel(15, 10, Color.rgb(220, 220, 220))
+
+        tools.magicWandSelect(srcBitmap, Offset(15f, 15f), tolerance = 60f)
+
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 15)))
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(5, 5)))
+    }
 }

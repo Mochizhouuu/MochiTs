@@ -69,20 +69,46 @@ object NativeBridge {
         // utuh oleh copyPixelsToBuffer/FromBuffer).
         val rowBytes = maskBitmap.rowBytes
 
-        fun colorMatches(c: Int): Boolean {
-            val dr = ((c ushr 16) and 0xFF) - targetR
-            val dg = ((c ushr 8) and 0xFF) - targetG
-            val db = (c and 0xFF) - targetB
-            val da = ((c ushr 24) and 0xFF) - targetA
-            return (dr * dr + dg * dg + db * db + da * da).toFloat() <= tolSq
-        }
-
         // Span flood ala Paintroid: antrean berisi rentang baris (bukan
         // piksel) -> hasil komponen terhubung SAMA, memori kecil.
         val filled = BooleanArray(w * h)
         var selectedCount = 0L
 
-        fun matchAt(x: Int, y: Int): Boolean = colorMatches(pixels[y * w + x])
+        fun lumOf(c: Int): Int =
+            (((c ushr 16) and 0xFF) * 77 + (((c ushr 8) and 0xFF) * 150) + ((c and 0xFF) * 29)) shr 8
+
+        val edgeDil = BooleanArray(w * h)
+        for (y in 0 until h) {
+            val y2 = if (y + 1 < h) y + 1 else y
+            for (x in 0 until w) {
+                val x2 = if (x + 1 < w) x + 1 else x
+                val l0 = lumOf(pixels[y * w + x])
+                val dh = kotlin.math.abs(l0 - lumOf(pixels[y * w + x2]))
+                val dv = kotlin.math.abs(l0 - lumOf(pixels[y2 * w + x]))
+                if (maxOf(dh, dv) >= 100) {
+                    for (jy in (y - 1)..(y + 1)) {
+                        if (jy < 0 || jy >= h) continue
+                        for (jx in (x - 1)..(x + 1)) {
+                            if (jx < 0 || jx >= w) continue
+                            edgeDil[jy * w + jx] = true
+                        }
+                    }
+                }
+            }
+        }
+
+        fun matchAt(x: Int, y: Int): Boolean {
+            val c = pixels[y * w + x]
+            val dr = ((c ushr 16) and 0xFF) - targetR
+            val dg = ((c ushr 8) and 0xFF) - targetG
+            val db = (c and 0xFF) - targetB
+            val da = ((c ushr 24) and 0xFF) - targetA
+            val distSq = (dr * dr + dg * dg + db * db + da * da).toFloat()
+            // Pita ketat: warna ≈ seed selalu lolos dinding.
+            if (distSq <= 625f) return true
+            if (edgeDil[y * w + x]) return false
+            return distSq <= tolSq
+        }
 
         fun fillRun(y: Int, xa: Int, xb: Int) {
             val off = y * w

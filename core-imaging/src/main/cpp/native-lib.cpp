@@ -350,20 +350,63 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         // Tighter than per-channel Chebyshev; prevents diagonal color leaks outside target.
         float tolSq = tolerance * tolerance;
 
-        // Span flood ala Paintroid: antrean berisi rentang baris (bukan
-        // piksel) -> memori kecil, tanpa antrean raksasa/OOM. Hasil =
-        // komponen terhubung yang SAMA PERSIS dengan BFS per-piksel.
+        // Penahan tepi (edge-gated, rujukan Canny: gradien kuat = dinding).
+        // Gradien luminance >= 100 (garis tinta; halo AA ~30-80 lolos) jadi
+        // dinding, didilasi 1px untuk menutup patahan 1px. Seleksi berhenti
+        // di garis asli walau toleransi longgar. Seed selalu ditulis.
+        const int EDGE_THR = 100;
+        auto lumOf = [](uint32_t c) -> int {
+            return (int)(((c & 0xFF) * 77 + ((c >> 8) & 0xFF) * 150 + ((c >> 16) & 0xFF) * 29) >> 8);
+        };
         const size_t wh = (size_t)width * (size_t)height;
+        std::vector<uint8_t> edgeDil(wh, 0);
+        {
+            std::vector<uint8_t> edge(wh, 0);
+            for (int y = 0; y < height; ++y) {
+                size_t sOff = (size_t)y * (size_t)srcStridePx;
+                int y2 = y + 1 < height ? y + 1 : y;
+                size_t sOff2 = (size_t)y2 * (size_t)srcStridePx;
+                for (int x = 0; x < width; ++x) {
+                    int x2 = x + 1 < width ? x + 1 : x;
+                    int l0 = lumOf(srcBase[sOff + x]);
+                    int dh = l0 - lumOf(srcBase[sOff + x2]);
+                    if (dh < 0) dh = -dh;
+                    int dv = l0 - lumOf(srcBase[sOff2 + x]);
+                    if (dv < 0) dv = -dv;
+                    if ((dh > dv ? dh : dv) >= EDGE_THR) edge[(size_t)y * (size_t)width + x] = 255;
+                }
+            }
+            for (int y = 0; y < height; ++y) {
+                for (int x = 0; x < width; ++x) {
+                    bool w = false;
+                    for (int jy = y - 1; jy <= y + 1 && !w; ++jy) {
+                        if (jy < 0 || jy >= height) continue;
+                        size_t eOff = (size_t)jy * (size_t)width;
+                        for (int jx = x - 1; jx <= x + 1; ++jx) {
+                            if (jx < 0 || jx >= width) continue;
+                            if (edge[eOff + jx]) { w = true; break; }
+                        }
+                    }
+                    if (w) edgeDil[(size_t)y * (size_t)width + x] = 255;
+                }
+            }
+        }
         struct FloodSpan { int y; int x1; int x2; int dy; };
         std::vector<uint8_t> filled(wh, 0);
 
         auto eligibleAt = [&](int x, int y) -> bool {
+            size_t p = (size_t)y * (size_t)width + (size_t)x;
             uint32_t c = srcBase[(size_t)y * (size_t)srcStridePx + (size_t)x];
             float dr = static_cast<float>(((int)(c & 0xFF)) - targetR);
             float dg = static_cast<float>(((int)((c >> 8) & 0xFF)) - targetG);
             float db = static_cast<float>(((int)((c >> 16) & 0xFF)) - targetB);
             float da = static_cast<float>(((int)((c >> 24) & 0xFF)) - targetA);
-            return dr * dr + dg * dg + db * db + da * da <= tolSq;
+            float distSq = dr * dr + dg * dg + db * db + da * da;
+            // Pita ketat: warna ≈ seed selalu lolos dinding (garis tipis /
+            // titik kecil utuh walau tiap pikselnya menempel tepi).
+            if (distSq <= 625.0f) return true;
+            if (edgeDil[p]) return false;
+            return distSq <= tolSq;
         };
         auto fillRun = [&](int y, int xa, int xb) {
             uint8_t* mrow = maskBase + (size_t)y * (size_t)maskStride;
