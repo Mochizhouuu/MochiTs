@@ -307,7 +307,7 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         jint gapRadius) {
     // Status (32 bit bawah): 0 ok, 1 format citra, 2 ukuran mask,
     // 3 seed di luar, 4 kunci piksel gagal, 5 alokasi/proses gagal.
-    // 32 bit atas: jumlah piksel terseleksi (untuk peringatan bocor).
+    // 32 bit atas: jumlah piksel terseleksi.
     AndroidBitmapInfo srcInfo, maskInfo;
     void* srcPixels = nullptr;
     void* maskPixels = nullptr;
@@ -326,57 +326,76 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         return 4;
     }
 
-    // Satu-satunya implementasi flood (kontrak Euclidean ke seed,
-    // FIXED-range, konektivitas 4 — sama di semua backend/build).
-    // Stride-aware: RGBA stride piksel = stride byte / 4; mask 1 byte/px.
     int status = 0;
     size_t floodCount = 0;
     try {
+#ifdef HAVE_OPENCV
+        // Build OpenCV Mat from locked buffers
+        cv::Mat srcMat(height, width, CV_8UC4, srcPixels, srcInfo.stride);
+        cv::Mat maskMat(height, width, CV_8UC1, maskPixels, maskInfo.stride);
+
+        // Convert RGBA -> BGR then BGR -> Lab
+        cv::Mat bgrMat;
+        cv::cvtColor(srcMat, bgrMat, cv::COLOR_RGBA2BGR);
+        cv::Mat labMat;
+        cv::cvtColor(bgrMat, labMat, cv::COLOR_BGR2Lab);
+
+        // Seed pixel values
+        cv::Vec3b seedLab = labMat.at<cv::Vec3b>(startY, startX);
+        uint8_t seedAlpha = srcMat.at<cv::Vec4b>(startY, startX)[3];
+
+        // Map tolerance (0..100) -> Delta E threshold (1.0 .. 60.0)
+        float deltaEThresh = 1.0f + (tolerance / 100.0f) * 59.0f;
+        float deltaEThreshSq = deltaEThresh * deltaEThresh;
+        float alphaThresh = (tolerance / 100.0f) * 255.0f;
+
+        // Build floodFill barrier mask (height + 2 x width + 2 as required by cv::floodFill)
+        cv::Mat floodMask = cv::Mat::zeros(height + 2, width + 2, CV_8UC1);
+
+        // Pre-compute barrier: 0 = matching pixel (passable), 1 = barrier
+        for (int y = 0; y < height; ++y) {
+            const cv::Vec3b* labRow = labMat.ptr<cv::Vec3b>(y);
+            const cv::Vec4b* rgbaRow = srcMat.ptr<cv::Vec4b>(y);
+            uint8_t* mRow = floodMask.ptr<uint8_t>(y + 1);
+
+            for (int x = 0; x < width; ++x) {
+                float dL = static_cast<float>(labRow[x][0]) - static_cast<float>(seedLab[0]);
+                float da = static_cast<float>(labRow[x][1]) - static_cast<float>(seedLab[1]);
+                float db = static_cast<float>(labRow[x][2]) - static_cast<float>(seedLab[2]);
+                float dAlpha = std::abs(static_cast<float>(rgbaRow[x][3]) - static_cast<float>(seedAlpha));
+
+                if ((dL * dL + da * da + db * db) <= deltaEThreshSq && dAlpha <= alphaThresh) {
+                    mRow[x + 1] = 0; // Matching pixel
+                } else {
+                    mRow[x + 1] = 1; // Barrier
+                }
+            }
+        }
+
+        // Perform OpenCV flood fill with FLOODFILL_MASK_ONLY
+        int flags = 4 | cv::FLOODFILL_MASK_ONLY | (255 << 8);
+        cv::Mat dummyImg = cv::Mat::zeros(height, width, CV_8UC1);
+        cv::floodFill(dummyImg, floodMask, cv::Point(startX, startY), cv::Scalar(255), nullptr, cv::Scalar(), cv::Scalar(), flags);
+
+        // Extract result from floodMask into target maskMat
+        cv::Mat filledArea = floodMask(cv::Rect(1, 1, width, height));
+        filledArea.copyTo(maskMat);
+
+        floodCount = cv::countNonZero(maskMat);
+#else
+        // Fallback BFS C++ implementation if built without OpenCV
         const int srcStridePx = srcInfo.stride / 4;
         const int maskStride = maskInfo.stride;
         uint32_t* srcBase = static_cast<uint32_t*>(srcPixels);
         uint8_t* maskBase = static_cast<uint8_t*>(maskPixels);
 
         uint32_t targetColor = srcBase[startY * srcStridePx + startX];
-        // lockPixels memberi PREMULTIPLIED: transparan = (0,0,0,0) sama
-        // dengan hitam pekat bila alpha diabaikan. Bandingkan alpha juga
-        // (Euclidean 4D) agar garis hitam tak bocor ke area transparan.
-        // Fallback JVM menyamakan ruang ini (premultiply ulang).
         int targetR = (targetColor) & 0xFF;
         int targetG = (targetColor >> 8) & 0xFF;
         int targetB = (targetColor >> 16) & 0xFF;
         int targetA = (targetColor >> 24) & 0xFF;
 
-        // Euclidean RGB distance (tolerance already mapped to 0..441.673).
-        // Tighter than per-channel Chebyshev; prevents diagonal color leaks outside target.
         float tolSq = tolerance * tolerance;
-
-        const size_t wh = (size_t)width * (size_t)height;
-        const int g = gapRadius < 0 ? 0 : (gapRadius > 8 ? 8 : gapRadius);
-        // Eligibility vs seed + penghalang terdilasi (jalur Tutup celah).
-        std::vector<uint8_t> elig;
-        std::vector<uint8_t> barDil;
-        if (g > 0) {
-            elig.assign(wh, 0);
-            for (int y = 0; y < height; ++y) {
-                size_t srcOff = (size_t)y * (size_t)srcStridePx;
-                for (int x = 0; x < width; ++x) {
-                    uint32_t c = srcBase[srcOff + x];
-                    float dr = static_cast<float>(((int)(c & 0xFF)) - targetR);
-                    float dg = static_cast<float>(((int)((c >> 8) & 0xFF)) - targetG);
-                    float db = static_cast<float>(((int)((c >> 16) & 0xFF)) - targetB);
-                    float da = static_cast<float>(((int)((c >> 24) & 0xFF)) - targetA);
-                    if (dr * dr + dg * dg + db * db + da * da <= tolSq) {
-                        elig[(size_t)y * (size_t)width + x] = 255;
-                    }
-                }
-            }
-            std::vector<uint8_t> bar(wh, 0);
-            barDil.assign(wh, 0);
-            for (size_t i = 0; i < wh; ++i) bar[i] = elig[i] ? 0 : 255;
-            dilateMaskHand(bar.data(), barDil.data(), width, height, width, width, g);
-        }
-
         std::vector<uint8_t> visited((size_t)width * (size_t)height, 0);
         std::queue<std::pair<int, int>> q;
         q.push({startX, startY});
@@ -389,7 +408,7 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
             auto [cx, cy] = q.front();
             q.pop();
 
-            maskBase[(size_t)cy * (size_t)maskStride + cx] = 255; // Panggilable: pemanggil mengosongkan dulu (semantik ganti)
+            maskBase[(size_t)cy * (size_t)maskStride + cx] = 255;
             ++floodCount;
 
             for (int i = 0; i < 4; ++i) {
@@ -400,7 +419,6 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
                     size_t nIdx = (size_t)ny * (size_t)width + nx;
                     if (!visited[nIdx]) {
                         visited[nIdx] = 1;
-                        if (g > 0 && !barDil.empty() && barDil[nIdx]) continue; // penghalang: jangan seberangi
                         uint32_t c = srcBase[(size_t)ny * (size_t)srcStridePx + nx];
                         int r = (c) & 0xFF;
                         int g = (c >> 8) & 0xFF;
@@ -420,29 +438,7 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
                 }
             }
         }
-        // Tutup celah: dilasi hasil flood sebesar g lalu AND dengan
-        // eligible (mengembalikan area dekat garis + hitung ulang).
-        if (g > 0 && !elig.empty()) {
-            std::vector<uint8_t> floodTmp(wh, 0);
-            for (int y = 0; y < height; ++y) {
-                uint8_t* mrow = maskBase + (size_t)y * (size_t)maskStride;
-                for (int x = 0; x < width; ++x) {
-                    floodTmp[(size_t)y * (size_t)width + x] = mrow[x];
-                }
-            }
-            std::vector<uint8_t> dilTmp(wh, 0);
-            dilateMaskHand(floodTmp.data(), dilTmp.data(), width, height, width, width, g);
-            floodCount = 0;
-            for (int y = 0; y < height; ++y) {
-                uint8_t* mrow = maskBase + (size_t)y * (size_t)maskStride;
-                size_t pOff = (size_t)y * (size_t)width;
-                for (int x = 0; x < width; ++x) {
-                    uint8_t v = (dilTmp[pOff + x] && elig[pOff + x]) ? 255 : 0;
-                    mrow[x] = v;
-                    if (v) ++floodCount;
-                }
-            }
-        }
+#endif
     } catch (...) {
         LOGE("nativeMagicWandSelect gagal (alloc/proses)");
         status = 5;

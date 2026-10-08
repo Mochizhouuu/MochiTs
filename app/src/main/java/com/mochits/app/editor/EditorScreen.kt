@@ -2841,18 +2841,18 @@ fun EraseToolPanel(
                     onClick = onToggleCollapse,
                     modifier = Modifier.size(28.dp)
                 ) {
-                        Icon(
-                            if (isCollapsed) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                            contentDescription = if (isCollapsed) "Expand panel" else "Minimize panel",
-                            modifier = Modifier.size(22.dp)
-                        )
+                    Icon(
+                        if (isCollapsed) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (isCollapsed) "Expand panel" else "Minimize panel",
+                        modifier = Modifier.size(22.dp)
+                    )
                 }
             }
             if (!isCollapsed) {
-            Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(2.dp))
 
-            SectionCard(title = "Tool") {
-                OptionCycler(
+                SectionCard(title = "Tool") {
+                    OptionCycler(
                         label = "Tool",
                         options = listOf(
                             MaskToolMode.BRUSH,
@@ -2871,42 +2871,42 @@ fun EraseToolPanel(
                             }
                         }
                     )
-            }
+                }
 
                 Spacer(modifier = Modifier.height(2.dp))
 
-            SectionCard(title = "Model") {
-                OptionCycler(
-                    label = "Model",
-                    options = listOf(
-                        EditorViewModel.InpaintModel.TELEA,
-                        EditorViewModel.InpaintModel.LAMA
-                    ),
-                    selected = selectedModel,
-                    onSelect = onModelSelected,
-                    labelOf = {
-                        when (it) {
-                            EditorViewModel.InpaintModel.TELEA -> "Telea (Cepat)"
-                            EditorViewModel.InpaintModel.LAMA -> "LaMa (AI)"
+                SectionCard(title = "Model") {
+                    OptionCycler(
+                        label = "Model",
+                        options = listOf(
+                            EditorViewModel.InpaintModel.TELEA,
+                            EditorViewModel.InpaintModel.LAMA
+                        ),
+                        selected = selectedModel,
+                        onSelect = onModelSelected,
+                        labelOf = {
+                            when (it) {
+                                EditorViewModel.InpaintModel.TELEA -> "Telea (Cepat)"
+                                EditorViewModel.InpaintModel.LAMA -> "LaMa (AI)"
+                            }
+                        }
+                    )
+
+                    if (isDownloading) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Column {
+                            Text(
+                                text = "Mengunduh Model LaMa... ${(downloadProgress * 100).toInt()}%",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            LinearProgressIndicator(
+                                progress = { downloadProgress },
+                                modifier = Modifier.fillMaxWidth().height(6.dp)
+                            )
                         }
                     }
-                )
-
-                if (isDownloading) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Column {
-                        Text(
-                            text = "Mengunduh Model LaMa... ${(downloadProgress * 100).toInt()}%",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        LinearProgressIndicator(
-                            progress = { downloadProgress },
-                            modifier = Modifier.fillMaxWidth().height(6.dp)
-                        )
-                    }
                 }
-            }
 
                 Spacer(modifier = Modifier.height(2.dp))
                 Row(
@@ -2941,57 +2941,46 @@ fun EraseToolPanel(
                 }
 
                 Spacer(modifier = Modifier.height(2.dp))
-            SectionCard(title = "Strength") {
-                if (mode == MaskToolMode.MAGIC_WAND) {
-                    if (!hasMask) {
-                        Text(
-                            text = "Ketuk objek untuk seleksi warna.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                SectionCard(title = "Strength") {
+                    if (mode == MaskToolMode.MAGIC_WAND) {
+                        if (!hasMask) {
+                            Text(
+                                text = "Ketuk objek untuk seleksi warna.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                        }
+                        Text("Sensitivity: ${magicWandTolerance.toInt()}%", style = MaterialTheme.typography.labelLarge)
+                        Slider(
+                            value = magicWandTolerance,
+                            onValueChange = onToleranceChange,
+                            valueRange = 0f..100f
                         )
+
                         Spacer(modifier = Modifier.height(2.dp))
+                        var localExpandValue by remember(magicWandExpand) { mutableFloatStateOf(magicWandExpand) }
+
+                        Text("Expand: ${localExpandValue.toInt()} px", style = MaterialTheme.typography.labelLarge)
+                        Slider(
+                            value = localExpandValue,
+                            onValueChange = { localExpandValue = it },
+                            onValueChangeFinished = {
+                                if (localExpandValue != magicWandExpand) {
+                                    onExpandChange?.invoke(localExpandValue)
+                                }
+                            },
+                            valueRange = 0f..30f
+                        )
+                    } else {
+                        Text("Kuas: ${brushSize.toInt()} px", style = MaterialTheme.typography.labelLarge)
+                        Slider(
+                            value = brushSize.coerceIn(5f, 200f),
+                            onValueChange = onSizeChange,
+                            valueRange = 5f..200f
+                        )
                     }
-                    Text("Toleransi: ${magicWandTolerance.toInt()}%", style = MaterialTheme.typography.labelLarge)
-                    Slider(
-                        value = magicWandTolerance,
-                        onValueChange = onToleranceChange,
-                        valueRange = 0f..100f
-                    )
-
-                    Spacer(modifier = Modifier.height(2.dp))
-                    // Local drag state: the expensive re-dilate runs only on
-                    // release, keeping the slider smooth on big masks.
-                    var localExpandValue by remember(magicWandExpand) { mutableFloatStateOf(magicWandExpand) }
-
-                    Text("Perluas: ${localExpandValue.toInt()} px", style = MaterialTheme.typography.labelLarge)
-                    Slider(
-                        value = localExpandValue,
-                        onValueChange = { localExpandValue = it },
-                        onValueChangeFinished = {
-                            if (localExpandValue != magicWandExpand) {
-                                onExpandChange?.invoke(localExpandValue)
-                            }
-                        },
-                        valueRange = 0f..30f
-                    )
-
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text("Tutup celah: ${magicWandGap.toInt()}", style = MaterialTheme.typography.labelLarge)
-                    Slider(
-                        value = magicWandGap,
-                        onValueChange = { onGapChange?.invoke(it) },
-                        valueRange = 0f..5f,
-                        steps = 4
-                    )
-                } else {
-                    Text("Kuas: ${brushSize.toInt()} px", style = MaterialTheme.typography.labelLarge)
-                    Slider(
-                        value = brushSize.coerceIn(5f, 200f),
-                        onValueChange = onSizeChange,
-                        valueRange = 5f..200f
-                    )
                 }
-            }
             }
         }
     }

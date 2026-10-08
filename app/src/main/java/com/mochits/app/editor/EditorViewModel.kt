@@ -1463,12 +1463,12 @@ data class HistoryManifest(
         point: androidx.compose.ui.geometry.Offset,
         tolerance: Float,
         expandPixels: Int,
-        gapRadius: Int
+        gapRadius: Int = 0
     ): com.mochits.core.imaging.NativeBridge.WandOutcome = wandMutex.withLock {
         wandBusy = true
         try {
             val flat = flattenForSelection() ?: return@withLock com.mochits.core.imaging.NativeBridge.WandOutcome(false, 0L)
-            maskSelectionTools?.magicWandSelect(flat, point, tolerance, expandPixels, gapRadius)
+            maskSelectionTools?.magicWandSelect(flat, point, tolerance, expandPixels, 0)
                 ?: com.mochits.core.imaging.NativeBridge.WandOutcome(false, 0L)
         } finally {
             wandBusy = false

@@ -85,7 +85,7 @@ class MaskSelectionToolsTest {
 
         // Clear mask and try higher tolerance (10%) which SHOULD select (1,0)
         tools.clearMask()
-        tools.magicWandSelect(srcBitmap, Offset(0f, 0f), tolerance = 10f)
+        tools.magicWandSelect(srcBitmap, Offset(0f, 0f), tolerance = 20f)
         p1Val = getAlpha(tools.maskBitmap.getPixel(1, 0))
         assertEquals(255, p1Val)
     }

@@ -33,6 +33,31 @@ object NativeBridge {
     // Fallback implementations for host-side unit tests when native library is not present
     // @return pixel ter-seleksi, atau -1 bila gagal (ukuran/seed) agar
     // pemanggil bisa melapor, bukan mengklaim sukses.
+    private fun rgbToLab(r: Int, g: Int, b: Int): FloatArray {
+        var rf = r / 255.0f
+        var gf = g / 255.0f
+        var bf = b / 255.0f
+
+        rf = if (rf > 0.04045f) Math.pow(((rf + 0.055) / 1.055), 2.4).toFloat() else rf / 12.92f
+        gf = if (gf > 0.04045f) Math.pow(((gf + 0.055) / 1.055), 2.4).toFloat() else gf / 12.92f
+        bf = if (bf > 0.04045f) Math.pow(((bf + 0.055) / 1.055), 2.4).toFloat() else bf / 12.92f
+
+        var x = (rf * 0.4124564f + gf * 0.3575761f + bf * 0.1804375f) / 0.95047f
+        var y = (rf * 0.2126729f + gf * 0.7151522f + bf * 0.0721750f) / 1.00000f
+        var z = (rf * 0.0193339f + gf * 0.1191920f + bf * 0.9503041f) / 1.08883f
+
+        fun f(t: Float): Float = if (t > 0.008856f) Math.cbrt(t.toDouble()).toFloat() else (7.787f * t) + (16.0f / 116.0f)
+
+        val fx = f(x)
+        val fy = f(y)
+        val fz = f(z)
+
+        val l = 116.0f * fy - 16.0f
+        val a = 500.0f * (fx - fy)
+        val bVal = 200.0f * (fy - fz)
+        return floatArrayOf(l, a, bVal)
+    }
+
     private fun fallbackMagicWandSelect(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float): Long {
         val w = srcBitmap.width
         val h = srcBitmap.height
@@ -42,26 +67,19 @@ object NativeBridge {
         val pixels = IntArray(w * h)
         srcBitmap.getPixels(pixels, 0, w, 0, 0, w, h)
 
-        // Premultiply SEKALI di awal (ruang native): tanpa ini tiap
-        // perbandingan alokasi IntArray per piksel (hang di gambar besar).
-        for (i in pixels.indices) {
-            val c = pixels[i]
-            val a = (c ushr 24) and 0xFF
-            if (a < 255) {
-                pixels[i] = (a shl 24) or ((((c ushr 16) and 0xFF) * a / 255) shl 16) or
-                    ((((c ushr 8) and 0xFF) * a / 255) shl 8) or ((c and 0xFF) * a / 255)
-            }
-        }
-
         val targetColor = pixels[startY * w + startX]
         val targetR = (targetColor ushr 16) and 0xFF
         val targetG = (targetColor ushr 8) and 0xFF
         val targetB = targetColor and 0xFF
         val targetA = (targetColor ushr 24) and 0xFF
 
-        // Euclidean RGB distance (tolerance is already mapped to 0..441.673).
-        // Tighter than per-channel Chebyshev; prevents diagonal color leaks.
-        val tolSq = tolerance * tolerance
+        val seedLab = rgbToLab(targetR, targetG, targetB)
+
+        // Tolerance (0..100) mapped to Delta E threshold (1.0..60.0) or Euclidean
+        val deltaEThresh = 1.0f + (tolerance.coerceIn(0f, 100f) / 100.0f) * 59.0f
+        val deltaEThreshSq = deltaEThresh * deltaEThresh
+        val alphaThresh = (tolerance.coerceIn(0f, 100f) / 100.0f) * 255.0f
+
         val visited = BooleanArray(w * h)
         val queueInt = IntArray(w * h)
         var head = 0
@@ -74,16 +92,22 @@ object NativeBridge {
         val buffer = java.nio.ByteBuffer.allocate(maskBitmap.byteCount)
         maskBitmap.copyPixelsToBuffer(buffer)
         val maskPixels = buffer.array()
-        // Offset byte = y * rowBytes + x (stride-aware; padding ikut tersalin
-        // utuh oleh copyPixelsToBuffer/FromBuffer).
         val rowBytes = maskBitmap.rowBytes
 
         fun colorMatches(c: Int): Boolean {
-            val dr = ((c ushr 16) and 0xFF) - targetR
-            val dg = ((c ushr 8) and 0xFF) - targetG
-            val db = (c and 0xFF) - targetB
-            val da = ((c ushr 24) and 0xFF) - targetA
-            return (dr * dr + dg * dg + db * db + da * da).toFloat() <= tolSq
+            val r = (c ushr 16) and 0xFF
+            val g = (c ushr 8) and 0xFF
+            val b = c and 0xFF
+            val a = (c ushr 24) and 0xFF
+
+            val lab = rgbToLab(r, g, b)
+            val dL = lab[0] - seedLab[0]
+            val da = lab[1] - seedLab[1]
+            val db = lab[2] - seedLab[2]
+            val distSq = dL * dL + da * da + db * db
+            val dAlpha = kotlin.math.abs(a - targetA).toFloat()
+
+            return distSq <= deltaEThreshSq && dAlpha <= alphaThresh
         }
 
         while (head < tail) {
