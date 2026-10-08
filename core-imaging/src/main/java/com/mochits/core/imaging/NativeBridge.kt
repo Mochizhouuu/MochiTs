@@ -62,6 +62,21 @@ object NativeBridge {
         // Euclidean RGB distance (tolerance is already mapped to 0..441.673).
         // Tighter than per-channel Chebyshev; prevents diagonal color leaks.
         val tolSq = tolerance * tolerance
+        val buffer = java.nio.ByteBuffer.allocate(maskBitmap.byteCount)
+        maskBitmap.copyPixelsToBuffer(buffer)
+        val maskPixels = buffer.array()
+        // Offset byte = y * rowBytes + x (stride-aware; padding ikut tersalin
+        // utuh oleh copyPixelsToBuffer/FromBuffer).
+        val rowBytes = maskBitmap.rowBytes
+
+        fun colorMatches(c: Int): Boolean {
+            val dr = ((c ushr 16) and 0xFF) - targetR
+            val dg = ((c ushr 8) and 0xFF) - targetG
+            val db = (c and 0xFF) - targetB
+            val da = ((c ushr 24) and 0xFF) - targetA
+            return (dr * dr + dg * dg + db * db + da * da).toFloat() <= tolSq
+        }
+
         // Span flood ala Paintroid: antrean berisi rentang baris (bukan
         // piksel) -> hasil komponen terhubung SAMA, memori kecil.
         val filled = BooleanArray(w * h)
@@ -109,21 +124,6 @@ object NativeBridge {
                 stack.addLast(Span(ny, nx1, nx2, -s.dy))
                 x = nx2 + 1
             }
-        }
-
-        val buffer = java.nio.ByteBuffer.allocate(maskBitmap.byteCount)
-        maskBitmap.copyPixelsToBuffer(buffer)
-        val maskPixels = buffer.array()
-        // Offset byte = y * rowBytes + x (stride-aware; padding ikut tersalin
-        // utuh oleh copyPixelsToBuffer/FromBuffer).
-        val rowBytes = maskBitmap.rowBytes
-
-        fun colorMatches(c: Int): Boolean {
-            val dr = ((c ushr 16) and 0xFF) - targetR
-            val dg = ((c ushr 8) and 0xFF) - targetG
-            val db = (c and 0xFF) - targetB
-            val da = ((c ushr 24) and 0xFF) - targetA
-            return (dr * dr + dg * dg + db * db + da * da).toFloat() <= tolSq
         }
 
         val outBuffer = java.nio.ByteBuffer.wrap(maskPixels)
