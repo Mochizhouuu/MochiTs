@@ -448,6 +448,16 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
     // mask-mutating events (never per-recompose: hasMask() scans the bitmap).
     var hasMaskState by remember { mutableStateOf(false) }
     var isProcessingMagicWand by remember { mutableStateOf(false) }
+    // Overlay wand hanya bila proses >400ms (operasi cepat tak berkedip).
+    var showWandOverlay by remember { mutableStateOf(false) }
+    LaunchedEffect(isProcessingMagicWand) {
+        if (isProcessingMagicWand) {
+            kotlinx.coroutines.delay(400)
+            showWandOverlay = true
+        } else {
+            showWandOverlay = false
+        }
+    }
     fun refreshMaskState() {
         hasMaskState = viewModel.maskSelectionTools?.hasMask() == true
     }
@@ -1215,26 +1225,12 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                                     expandPixels = startExp,
                                                                     gapRadius = magicWandGap.toInt()
                                                                 )
-                                                                val src = viewModel.baseBitmap.value
                                                                 if (!wandRes.ok) {
                                                                     viewModel.rollbackUndoSnapshot()
                                                                     viewModel.userMessage.value = com.mochits.app.model.UiMessage(
                                                                         "Wand gagal (seleksi tidak jalan).",
                                                                         com.mochits.app.model.UiMessage.Kind.ERROR
                                                                     )
-                                                                } else {
-                                                                    val totalPx = (src?.width ?: 0) * (src?.height ?: 0)
-                                                                    if (wandRes.selectedCount < 20L) {
-                                                                        viewModel.userMessage.value = com.mochits.app.model.UiMessage(
-                                                                            "Area terlalu kecil, naikkan toleransi.",
-                                                                            com.mochits.app.model.UiMessage.Kind.INFO
-                                                                        )
-                                                                    } else if (totalPx > 0 && wandRes.selectedCount > totalPx / 2L) {
-                                                                        viewModel.userMessage.value = com.mochits.app.model.UiMessage(
-                                                                            "Seleksi bocor? Turunkan toleransi.",
-                                                                            com.mochits.app.model.UiMessage.Kind.WARNING
-                                                                        )
-                                                                    }
                                                                 }
                                                                 withContext(Dispatchers.Main) {
                                                                     refreshMaskState()
@@ -2339,7 +2335,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
 
             // Floating Confirm/Cancel Action Bar for Eyedropper (Pill Container)
             // Loading Overlay for Magic Wand Processing
-            if (isProcessingMagicWand) {
+            if (showWandOverlay) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -2975,14 +2971,6 @@ fun EraseToolPanel(
                         valueRange = 0f..30f
                     )
 
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text("Tutup celah: ${magicWandGap.toInt()}", style = MaterialTheme.typography.labelLarge)
-                    Slider(
-                        value = magicWandGap,
-                        onValueChange = { onGapChange?.invoke(it) },
-                        valueRange = 0f..5f,
-                        steps = 4
-                    )
                 } else {
                     Text("Kuas: ${brushSize.toInt()} px", style = MaterialTheme.typography.labelLarge)
                     Slider(
