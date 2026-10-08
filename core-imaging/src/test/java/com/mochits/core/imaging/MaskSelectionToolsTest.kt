@@ -53,7 +53,7 @@ class MaskSelectionToolsTest {
         assertFalse(tools.hasMask())
 
         // Tap white region with low tolerance
-        tools.magicWandSelect(srcBitmap, Offset(10f, 10f), tolerance = 10f)
+        tools.magicWandSelect(srcBitmap, Offset(10f, 10f), sensitivity = 20f)
 
         assertTrue(tools.hasMask())
 
@@ -79,13 +79,13 @@ class MaskSelectionToolsTest {
         srcBitmap.setPixel(1, 0, Color.rgb(120, 100, 100))
 
         // Low tolerance (2%) should NOT select (1,0)
-        tools.magicWandSelect(srcBitmap, Offset(0f, 0f), tolerance = 2f)
+        tools.magicWandSelect(srcBitmap, Offset(0f, 0f), sensitivity = 2f)
         var p1Val = getAlpha(tools.maskBitmap.getPixel(1, 0))
         assertEquals(0, p1Val)
 
         // Clear mask and try higher tolerance (10%) which SHOULD select (1,0)
         tools.clearMask()
-        tools.magicWandSelect(srcBitmap, Offset(0f, 0f), tolerance = 10f)
+        tools.magicWandSelect(srcBitmap, Offset(0f, 0f), sensitivity = 20f)
         p1Val = getAlpha(tools.maskBitmap.getPixel(1, 0))
         assertEquals(255, p1Val)
     }
@@ -109,7 +109,7 @@ class MaskSelectionToolsTest {
         }
 
         // Low tolerance (e.g. 5%) from center (25,25)
-        tools.magicWandSelect(srcBitmap, Offset(25f, 25f), tolerance = 5f)
+        tools.magicWandSelect(srcBitmap, Offset(25f, 25f), sensitivity = 5f)
         var lowTolCount = 0
         val maskBmp1 = tools.maskBitmap
         for (y in 0 until 50) {
@@ -120,7 +120,7 @@ class MaskSelectionToolsTest {
 
         // High tolerance (e.g. 50%) from center (25,25)
         tools.clearMask()
-        tools.magicWandSelect(srcBitmap, Offset(25f, 25f), tolerance = 50f)
+        tools.magicWandSelect(srcBitmap, Offset(25f, 25f), sensitivity = 50f)
         var highTolCount = 0
         val maskBmp2 = tools.maskBitmap
         for (y in 0 until 50) {
@@ -145,7 +145,7 @@ class MaskSelectionToolsTest {
         srcBitmap.setPixel(15, 15, Color.BLACK)
 
         // Select with expandPixels = 0
-        tools.magicWandSelect(srcBitmap, Offset(14f, 14f), tolerance = 10f, expandPixels = 0)
+        tools.magicWandSelect(srcBitmap, Offset(14f, 14f), sensitivity = 20f, expandPixels = 0)
 
         var unexpandedCount = 0
         for (y in 0 until 30) {
@@ -203,7 +203,7 @@ class MaskSelectionToolsTest {
         }
 
         // 1. Select Object A with expand = 0
-        tools.magicWandSelect(srcBitmap, Offset(15f, 15f), tolerance = 10f, expandPixels = 0)
+        tools.magicWandSelect(srcBitmap, Offset(15f, 15f), sensitivity = 20f, expandPixels = 0)
 
         assertEquals(255, getAlpha(tools.rawMaskBitmap.getPixel(15, 15)))
         assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 15)))
@@ -215,12 +215,11 @@ class MaskSelectionToolsTest {
         assertEquals(255, getAlpha(tools.maskBitmap.getPixel(5, 15)))
         assertEquals(0, getAlpha(tools.rawMaskBitmap.getPixel(5, 15)))
 
-        // 3. Select Object B (different object) with expand = 5.
-        // Semantik menumpuk: ketuk baru ditambahkan ke seleksi lama.
-        tools.magicWandSelect(srcBitmap, Offset(75f, 75f), tolerance = 10f, expandPixels = 5)
+        // 3. Select Object B (different object) with expand = 5 in REPLACE mode.
+        tools.magicWandSelect(srcBitmap, Offset(75f, 75f), sensitivity = 20f, expandPixels = 5)
 
-        // Verify Object A is KEPT and Object B is added
-        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 15)))
+        // Verify Object A is REPLACED and Object B is selected
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(15, 15)))
         assertEquals(255, getAlpha(tools.maskBitmap.getPixel(75, 75)))
         assertEquals(255, getAlpha(tools.maskBitmap.getPixel(65, 75)))
 
@@ -231,7 +230,7 @@ class MaskSelectionToolsTest {
         // 4. Reset expand back to 0
         tools.applyExpand(expandPixels = 0)
 
-        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 15)))
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(15, 15)))
         assertEquals(255, getAlpha(tools.maskBitmap.getPixel(75, 75)))
         assertEquals(0, getAlpha(tools.maskBitmap.getPixel(5, 15)))
         assertEquals(0, getAlpha(tools.maskBitmap.getPixel(65, 75)))
@@ -244,11 +243,11 @@ class MaskSelectionToolsTest {
         srcBitmap.eraseColor(Color.RED)
 
         // Tap outside bounds (e.g., -5, -5 or 100, 100) should not crash
-        tools.magicWandSelect(srcBitmap, Offset(-5f, -5f), tolerance = 20f)
-        tools.magicWandSelect(srcBitmap, Offset(100f, 100f), tolerance = 20f)
+        tools.magicWandSelect(srcBitmap, Offset(-5f, -5f), sensitivity = 20f)
+        tools.magicWandSelect(srcBitmap, Offset(100f, 100f), sensitivity = 20f)
 
         // Tap corner (0,0)
-        tools.magicWandSelect(srcBitmap, Offset(0f, 0f), tolerance = 20f)
+        tools.magicWandSelect(srcBitmap, Offset(0f, 0f), sensitivity = 20f)
         assertTrue(tools.hasMask())
     }
 
@@ -264,7 +263,7 @@ class MaskSelectionToolsTest {
         tools.magicWandSelect(
             srcBitmap = src,
             point = Offset(8f, 8f),
-            tolerance = 0f,
+            sensitivity = 0f,
             expandPixels = 0
         )
 

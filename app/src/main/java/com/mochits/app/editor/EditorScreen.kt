@@ -349,7 +349,7 @@ fun EditorScreen(
     val brushSize by viewModel.brushSize.collectAsState()
     val magicWandTolerance by viewModel.magicWandTolerance.collectAsState()
     val magicWandExpand by viewModel.magicWandExpand.collectAsState()
-    val magicWandGap by viewModel.magicWandGap.collectAsState()
+
     val isProcessingInpaint by viewModel.isProcessingInpaint.collectAsState()
     val selectedInpaintModel by viewModel.selectedInpaintModel.collectAsState()
     val isDownloadingLaMaModel by viewModel.isDownloadingLaMaModel.collectAsState()
@@ -447,7 +447,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
     // Whether the erase mask currently holds a selection. Updated only on
     // mask-mutating events (never per-recompose: hasMask() scans the bitmap).
     var hasMaskState by remember { mutableStateOf(false) }
-    var isProcessingMagicWand by remember { mutableStateOf(false) }
+
     fun refreshMaskState() {
         hasMaskState = viewModel.maskSelectionTools?.hasMask() == true
     }
@@ -694,7 +694,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         magicWandTolerance = magicWandTolerance,
                         magicWandExpand = magicWandExpand,
                         selectedModel = selectedInpaintModel,
-                        isProcessing = isProcessingInpaint || isProcessingMagicWand,
+                        isProcessing = isProcessingInpaint,
                         isDownloading = isDownloadingLaMaModel,
                         downloadProgress = lamaDownloadProgress,
                         hasMask = hasMaskState,
@@ -709,8 +709,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             viewModel.setMagicWandExpand(it)
                             triggerRedraw++
                         },
-                        magicWandGap = magicWandGap,
-                        onGapChange = { viewModel.setMagicWandGap(it) },
+
+
                         onClear = {
                             viewModel.saveUndoSnapshot()
                             viewModel.maskSelectionTools?.clearMask()
@@ -929,10 +929,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                 val changes = event.changes
                                 if (changes.isEmpty()) continue
 
-                                if (isProcessingMagicWand) {
-                                    changes.forEach { it.consume() }
-                                    continue
-                                }
+
 
                                 // 0. PERSPECTIVE CORNER DRAG (mode edit titik aktif).
                                 if (perspEditId != null) {
@@ -1192,7 +1189,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                         val releasedChange = changes.find { it.previousPressed && !it.pressed }
                                         if (releasedChange != null) {
                                             if (maskToolMode == MaskToolMode.MAGIC_WAND) {
-                                                if (isMagicWandPending && magicWandMovedDistance <= 15f && magicWandTouchStartPt != null && !isProcessingMagicWand) {
+                                                if (isMagicWandPending && magicWandMovedDistance <= 15f && magicWandTouchStartPt != null && true) {
                                                     val startPt = magicWandTouchStartPt!!
                                                     val startTol = magicWandTolerance
                                                     val startExp = magicWandExpand.toInt()
@@ -1204,7 +1201,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                         canvasPt.x >= 0f && canvasPt.y >= 0f &&
                                                         canvasPt.x < base.width.toFloat() && canvasPt.y < base.height.toFloat()
                                                     if (insideImage) {
-                                                        isProcessingMagicWand = true
+
                                                         coroutineScope.launch(Dispatchers.Default) {
                                                             try {
                                                                 viewModel.saveUndoSnapshot()
@@ -1213,7 +1210,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                                     point = canvasPt,
                                                                     tolerance = startTol,
                                                                     expandPixels = startExp,
-                                                                    gapRadius = magicWandGap.toInt()
+
                                                                 )
                                                                 val src = viewModel.baseBitmap.value
                                                                 if (!wandRes.ok) {
@@ -1247,7 +1244,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                                     com.mochits.app.model.UiMessage.Kind.ERROR
                                                                 )
                                                             } finally {
-                                                                isProcessingMagicWand = false
+
                                                             }
                                                         }
                                                     }
@@ -2338,37 +2335,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
             }
 
             // Floating Confirm/Cancel Action Bar for Eyedropper (Pill Container)
-            // Loading Overlay for Magic Wand Processing
-            if (isProcessingMagicWand) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.35f))
-                        .pointerInput(Unit) { },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Surface(
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 6.dp
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                strokeWidth = 2.5.dp
-                            )
-                            Text(
-                                text = "Memproses seleksi Magic Wand...",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-                    }
-                }
-            }
+
 
             if (isEyedropperActive) {
                 Surface(
@@ -2786,8 +2753,7 @@ fun EraseToolPanel(
     brushSize: Float,
     magicWandTolerance: Float,
     magicWandExpand: Float = 0f,
-    magicWandGap: Float = 0f,
-    onGapChange: ((Float) -> Unit)? = null,
+
     selectedModel: EditorViewModel.InpaintModel,
     isProcessing: Boolean,
     isDownloading: Boolean,
@@ -2975,14 +2941,7 @@ fun EraseToolPanel(
                         valueRange = 0f..30f
                     )
 
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text("Tutup celah: ${magicWandGap.toInt()}", style = MaterialTheme.typography.labelLarge)
-                    Slider(
-                        value = magicWandGap,
-                        onValueChange = { onGapChange?.invoke(it) },
-                        valueRange = 0f..5f,
-                        steps = 4
-                    )
+
                 } else {
                     Text("Kuas: ${brushSize.toInt()} px", style = MaterialTheme.typography.labelLarge)
                     Slider(

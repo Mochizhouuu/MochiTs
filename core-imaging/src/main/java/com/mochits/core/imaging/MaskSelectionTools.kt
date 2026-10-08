@@ -162,88 +162,25 @@ class MaskSelectionTools(
      * Ketuk menumpuk ke seleksi (union); Bersihkan untuk mulai baru.
      * @return hasil flood (ok + jumlah piksel; gagal → UI wajib melapor).
      */
-    fun magicWandSelect(srcBitmap: Bitmap?, point: Offset, tolerance: Float, expandPixels: Int = currentExpandPixels, gapRadius: Int = 0    ): NativeBridge.WandOutcome {
+    fun magicWandSelect(srcBitmap: Bitmap?, point: Offset, sensitivity: Float, expandPixels: Int = currentExpandPixels): NativeBridge.WandOutcome {
         synchronized(maskLock) {
-        invalidateCache()
-        if (srcBitmap == null || srcBitmap.isRecycled) return NativeBridge.WandOutcome(false, 0L)
-        // Reject taps outside the source image using float comparison first.
-        // (Using toInt() directly would truncate -0.5 -> 0 and falsely hit the edge.)
-        if (point.x < 0f || point.y < 0f || point.x >= srcBitmap.width.toFloat() || point.y >= srcBitmap.height.toFloat()) return NativeBridge.WandOutcome(false, 0L)
-        if (maskBitmap.width != srcBitmap.width || maskBitmap.height != srcBitmap.height ||
-            rawMaskBitmap.width != srcBitmap.width || rawMaskBitmap.height != srcBitmap.height) {
-            // Keep mask aligned with source; silently resync instead of writing out of bounds.
-            resetSize(srcBitmap.width, srcBitmap.height)
-            if (rawMaskBitmap.width != srcBitmap.width || rawMaskBitmap.height != srcBitmap.height) return NativeBridge.WandOutcome(false, 0L)
-        }
-        val startX = kotlin.math.floor(point.x).toInt()
-        val startY = kotlin.math.floor(point.y).toInt()
-        // Linearitas slider: seed opaque → rentang RGB (maks 441.673);
-        // seed transparan → sertakan alpha (maks 510.3).
-        val seedAlpha = try {
-            (srcBitmap.getPixel(startX, startY) ushr 24) and 0xFF
-        } catch (_: Exception) {
-            255
-        }
-        val maxDist = if (seedAlpha >= 255) 441.673f else 510.3f
-        // Map UI tolerance scale (0..100) ke jarak Euclidean (sphere).
-        val mappedTolerance = (tolerance.coerceIn(0f, 100f) / 100f) * maxDist
-        currentExpandPixels = expandPixels.coerceIn(0, 30)
-        // Gambar raksasa: flood di komposit 0.5x (maks sisi 2000px) lalu
-        // upscale mask (4x hemat waktu+memori; tepi dikompensasi Expand).
-        val longest = maxOf(srcBitmap.width, srcBitmap.height)
-        if (longest > 2000) {
-            return downscaledWand(srcBitmap, point, mappedTolerance, expandPixels, gapRadius)
-        }
-        // Tiap ketuk menumpuk ke seleksi (union); Bersihkan untuk mulai baru.
-        val ok = NativeBridge.magicWandSelectSafe(srcBitmap, rawMaskBitmap, startX, startY, mappedTolerance, gapRadius)
-        applyExpandInternal()
-        return ok
-        }
-    }
-
-    /**
-     * Flood di bitmap 0.5x lalu upscale hasilnya ke mask penuh.
-     * Toleransi (ruang warna) tak terpengaruh skala; koordinat diskalakan.
-     */
-    private fun downscaledWand(
-        src: Bitmap,
-        point: Offset,
-        mappedTolerance: Float,
-        expandPixels: Int,
-        gapRadius: Int
-    ): NativeBridge.WandOutcome {
-        val scale = 2000f / maxOf(src.width, src.height).toFloat()
-        val sw = (src.width * scale).toInt().coerceAtLeast(1)
-        val sh = (src.height * scale).toInt().coerceAtLeast(1)
-        val smallSrc = try {
-            Bitmap.createScaledBitmap(src, sw, sh, true)
-        } catch (t: Throwable) {
-            return NativeBridge.WandOutcome(false, 0L)
-        }
-        val smallMask = try {
-            Bitmap.createBitmap(sw, sh, Bitmap.Config.ALPHA_8)
-        } catch (t: Throwable) {
-            try { smallSrc.recycle() } catch (_: Exception) {}
-            return NativeBridge.WandOutcome(false, 0L)
-        }
-        try {
-            val sx = kotlin.math.floor(point.x * scale).toInt().coerceIn(0, sw - 1)
-            val sy = kotlin.math.floor(point.y * scale).toInt().coerceIn(0, sh - 1)
-            val smallGap = if (gapRadius > 0) (gapRadius * scale).toInt().coerceAtLeast(1) else 0
-            val res = NativeBridge.magicWandSelectSafe(smallSrc, smallMask, sx, sy, mappedTolerance, smallGap)
-            if (!res.ok) return NativeBridge.WandOutcome(false, 0L)
-            // Tiap ketuk menumpuk (union) seperti jalur penuh.
-            // Upscale nearest (mask keras; tepi dikompensasi Expand).
             invalidateCache()
-            val paint = android.graphics.Paint().apply { isFilterBitmap = false }
-            val canvas = android.graphics.Canvas(rawMaskBitmap)
-            canvas.drawBitmap(smallMask, null, android.graphics.Rect(0, 0, rawMaskBitmap.width, rawMaskBitmap.height), paint)
+            if (srcBitmap == null || srcBitmap.isRecycled) return NativeBridge.WandOutcome(false, 0L)
+            if (point.x < 0f || point.y < 0f || point.x >= srcBitmap.width.toFloat() || point.y >= srcBitmap.height.toFloat()) return NativeBridge.WandOutcome(false, 0L)
+            if (maskBitmap.width != srcBitmap.width || maskBitmap.height != srcBitmap.height ||
+                rawMaskBitmap.width != srcBitmap.width || rawMaskBitmap.height != srcBitmap.height) {
+                resetSize(srcBitmap.width, srcBitmap.height)
+                if (rawMaskBitmap.width != srcBitmap.width || rawMaskBitmap.height != srcBitmap.height) return NativeBridge.WandOutcome(false, 0L)
+            }
+            val startX = kotlin.math.floor(point.x).toInt()
+            val startY = kotlin.math.floor(point.y).toInt()
+
+            currentExpandPixels = expandPixels.coerceIn(0, 30)
+
+            // REPLACE mode: each tap overwrites rawMaskBitmap directly at 100% full scale
+            val ok = NativeBridge.magicWandSelectSafe(srcBitmap, rawMaskBitmap, startX, startY, sensitivity.coerceIn(0f, 100f))
             applyExpandInternal()
-            val approx = (res.selectedCount / (scale * scale)).toLong()
-            return NativeBridge.WandOutcome(true, approx)
-        } finally {
-            try { smallSrc.recycle() } catch (_: Exception) {}
-            try { smallMask.recycle() } catch (_: Exception) {}
+            return ok
         }
     }
 

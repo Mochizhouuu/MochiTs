@@ -120,8 +120,6 @@ class EditorViewModel @Inject constructor(
     val brushSize = MutableStateFlow(40f)
     val magicWandTolerance = MutableStateFlow(32f)
     val magicWandExpand = MutableStateFlow(0f)
-    /** Tutup celah garis (0 = mati, 1..5 px). Berlaku saat ketuk berikutnya. */
-    val magicWandGap = MutableStateFlow(0f)
 
     val isEyedropperActive = MutableStateFlow(false)
     val eyedropperCanvasPt = MutableStateFlow<Offset?>(null)
@@ -1450,9 +1448,6 @@ data class HistoryManifest(
         maskSelectionTools?.applyExpand(clamped.toInt())
     }
 
-    fun setMagicWandGap(gap: Float) {
-        magicWandGap.value = gap.coerceIn(0f, 5f)
-    }
 
     /**
      * Satu ketuk wand utuh: flatten + flood DI DALAM satu lock sehingga
@@ -1462,13 +1457,12 @@ data class HistoryManifest(
     suspend fun runMagicWand(
         point: androidx.compose.ui.geometry.Offset,
         tolerance: Float,
-        expandPixels: Int,
-        gapRadius: Int
+        expandPixels: Int
     ): com.mochits.core.imaging.NativeBridge.WandOutcome = wandMutex.withLock {
         wandBusy = true
         try {
             val flat = flattenForSelection() ?: return@withLock com.mochits.core.imaging.NativeBridge.WandOutcome(false, 0L)
-            maskSelectionTools?.magicWandSelect(flat, point, tolerance, expandPixels, gapRadius)
+            maskSelectionTools?.magicWandSelect(flat, point, tolerance, expandPixels)
                 ?: com.mochits.core.imaging.NativeBridge.WandOutcome(false, 0L)
         } finally {
             wandBusy = false

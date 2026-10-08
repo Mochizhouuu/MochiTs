@@ -24,7 +24,7 @@ object NativeBridge {
     external fun nativeDrawCircle(bitmap: Bitmap, cx: Float, cy: Float, radius: Float, draw: Boolean)
     external fun nativeDrawLine(bitmap: Bitmap, x0: Float, y0: Float, x1: Float, y1: Float, radius: Float, draw: Boolean)
     external fun nativeDrawPolygon(bitmap: Bitmap, pointsX: FloatArray, pointsY: FloatArray, draw: Boolean)
-    external fun nativeMagicWandSelect(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float, gapRadius: Int): Long
+    external fun nativeMagicWandSelect(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, sensitivity: Float): Long
     external fun nativeDilateMask(srcMaskBitmap: Bitmap, dstMaskBitmap: Bitmap, radius: Int)
     external fun nativeClearMask(bitmap: Bitmap)
     external fun nativeInvertMask(bitmap: Bitmap)
@@ -33,7 +33,7 @@ object NativeBridge {
     // Fallback implementations for host-side unit tests when native library is not present
     // @return pixel ter-seleksi, atau -1 bila gagal (ukuran/seed) agar
     // pemanggil bisa melapor, bukan mengklaim sukses.
-    private fun fallbackMagicWandSelect(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float): Long {
+    private fun fallbackMagicWandSelect(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, sensitivity: Float): Long {
         val w = srcBitmap.width
         val h = srcBitmap.height
         if (maskBitmap.width != w || maskBitmap.height != h) return -1L
@@ -42,26 +42,38 @@ object NativeBridge {
         val pixels = IntArray(w * h)
         srcBitmap.getPixels(pixels, 0, w, 0, 0, w, h)
 
-        // Premultiply SEKALI di awal (ruang native): tanpa ini tiap
-        // perbandingan alokasi IntArray per piksel (hang di gambar besar).
-        for (i in pixels.indices) {
-            val c = pixels[i]
-            val a = (c ushr 24) and 0xFF
-            if (a < 255) {
-                pixels[i] = (a shl 24) or ((((c ushr 16) and 0xFF) * a / 255) shl 16) or
-                    ((((c ushr 8) and 0xFF) * a / 255) shl 8) or ((c and 0xFF) * a / 255)
-            }
-        }
-
         val targetColor = pixels[startY * w + startX]
         val targetR = (targetColor ushr 16) and 0xFF
         val targetG = (targetColor ushr 8) and 0xFF
         val targetB = targetColor and 0xFF
-        val targetA = (targetColor ushr 24) and 0xFF
 
-        // Euclidean RGB distance (tolerance is already mapped to 0..441.673).
-        // Tighter than per-channel Chebyshev; prevents diagonal color leaks.
-        val tolSq = tolerance * tolerance
+        fun rgbToLab(r: Int, g: Int, b: Int): FloatArray {
+            var rf = r / 255.0f
+            var gf = g / 255.0f
+            var bf = b / 255.0f
+
+            rf = if (rf > 0.04045f) Math.pow(((rf + 0.055) / 1.055), 2.4).toFloat() else (rf / 12.92f)
+            gf = if (gf > 0.04045f) Math.pow(((gf + 0.055) / 1.055), 2.4).toFloat() else (gf / 12.92f)
+            bf = if (bf > 0.04045f) Math.pow(((bf + 0.055) / 1.055), 2.4).toFloat() else (bf / 12.92f)
+
+            val x = (rf * 0.4124564f + gf * 0.3575761f + bf * 0.1804375f) / 0.95047f
+            val y = (rf * 0.2126729f + gf * 0.7151522f + bf * 0.0721750f) / 1.00000f
+            val z = (rf * 0.0193339f + gf * 0.1191920f + bf * 0.9503041f) / 1.08883f
+
+            fun f(t: Float): Float {
+                return if (t > 0.00885645167f) Math.cbrt(t.toDouble()).toFloat() else (7.787037037f * t + 16.0f / 116.0f)
+            }
+
+            val fx = f(x)
+            val fy = f(y)
+            val fz = f(z)
+
+            return floatArrayOf((116.0f * fy) - 16.0f, 500.0f * (fx - fy), 200.0f * (fy - fz))
+        }
+
+        val targetLab = rgbToLab(targetR, targetG, targetB)
+        val deltaEThresh = 1.0f + (sensitivity.coerceIn(0f, 100f) / 100.0f) * 59.0f
+
         val visited = BooleanArray(w * h)
         val queueInt = IntArray(w * h)
         var head = 0
@@ -74,16 +86,22 @@ object NativeBridge {
         val buffer = java.nio.ByteBuffer.allocate(maskBitmap.byteCount)
         maskBitmap.copyPixelsToBuffer(buffer)
         val maskPixels = buffer.array()
-        // Offset byte = y * rowBytes + x (stride-aware; padding ikut tersalin
-        // utuh oleh copyPixelsToBuffer/FromBuffer).
+
+        // Clear maskPixels for REPLACE behavior
+        java.util.Arrays.fill(maskPixels, 0.toByte())
+
         val rowBytes = maskBitmap.rowBytes
 
         fun colorMatches(c: Int): Boolean {
-            val dr = ((c ushr 16) and 0xFF) - targetR
-            val dg = ((c ushr 8) and 0xFF) - targetG
-            val db = (c and 0xFF) - targetB
-            val da = ((c ushr 24) and 0xFF) - targetA
-            return (dr * dr + dg * dg + db * db + da * da).toFloat() <= tolSq
+            val r = (c ushr 16) and 0xFF
+            val g = (c ushr 8) and 0xFF
+            val b = c and 0xFF
+            val lab = rgbToLab(r, g, b)
+            val dL = lab[0] - targetLab[0]
+            val da = lab[1] - targetLab[1]
+            val db = lab[2] - targetLab[2]
+            val deltaE = Math.sqrt((dL * dL + da * da + db * db).toDouble()).toFloat()
+            return deltaE <= deltaEThresh
         }
 
         while (head < tail) {
@@ -206,22 +224,19 @@ object NativeBridge {
      */
     data class WandOutcome(val ok: Boolean, val selectedCount: Long)
 
-    fun magicWandSelectSafe(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float, gapRadius: Int = 0): WandOutcome {
+    fun magicWandSelectSafe(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, sensitivity: Float): WandOutcome {
         if (isNativeAvailable) {
             try {
-                val res = nativeMagicWandSelect(srcBitmap, maskBitmap, startX, startY, tolerance, gapRadius)
+                val res = nativeMagicWandSelect(srcBitmap, maskBitmap, startX, startY, sensitivity)
                 val status = (res and 0xFFFFFFFFL).toInt()
                 if (status == 0) return WandOutcome(true, res ushr 32)
                 android.util.Log.w("NativeBridge", "wand native status=$status, tanpa fallback sunyi")
-                // Status fatal (format/lock/OOM) atau ukuran/seed salah:
-                // JANGAN fallback diam-diam (hang/OOM ganda), laporkan gagal.
                 return WandOutcome(false, 0L)
             } catch (_: Throwable) {
             }
         }
         return try {
-            // Fallback belum mendukung Tutup celah (terdokumentasi).
-            val count = fallbackMagicWandSelect(srcBitmap, maskBitmap, startX, startY, tolerance)
+            val count = fallbackMagicWandSelect(srcBitmap, maskBitmap, startX, startY, sensitivity)
             if (count >= 0L) WandOutcome(true, count) else WandOutcome(false, 0L)
         } catch (_: Throwable) {
             WandOutcome(false, 0L)

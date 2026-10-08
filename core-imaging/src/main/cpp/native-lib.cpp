@@ -51,183 +51,143 @@ static void drawLineAlpha8(uint8_t* pixels, int width, int height, int stride, f
     float dx = x1 - x0;
     float dy = y1 - y0;
     float len = std::sqrt(dx * dx + dy * dy);
-    if (len == 0.0f) {
+    if (len < 0.001f) {
         drawCircleAlpha8(pixels, width, height, stride, x0, y0, radius, draw);
         return;
     }
 
-    int steps = (int)std::ceil(len);
-    float stepX = dx / steps;
-    float stepY = dy / steps;
-
-    float curX = x0;
-    float curY = y0;
+    int steps = (int)std::ceil(len / std::max(1.0f, radius * 0.5f));
     for (int i = 0; i <= steps; ++i) {
-        drawCircleAlpha8(pixels, width, height, stride, curX, curY, radius, draw);
-        curX += stepX;
-        curY += stepY;
+        float t = (float)i / (float)steps;
+        drawCircleAlpha8(pixels, width, height, stride, x0 + t * dx, y0 + t * dy, radius, draw);
     }
 }
 
-static void fillPolygonAlpha8(uint8_t* pixels, int width, int height, int stride, const std::vector<PointF>& pts, uint8_t val) {
-    if (pts.size() < 3) return;
-
-    int minY = height - 1;
-    int maxY = 0;
-    for (const auto& p : pts) {
-        minY = std::min(minY, std::max(0, (int)std::floor(p.y)));
-        maxY = std::max(maxY, std::min(height - 1, (int)std::ceil(p.y)));
-    }
-
-    int numPts = (int)pts.size();
-
-    for (int y = minY; y <= maxY; ++y) {
-        float scanY = (float)y + 0.5f;
-        std::vector<float> nodeX;
-
-        int j = numPts - 1;
-        for (int i = 0; i < numPts; ++i) {
-            if ((pts[i].y < scanY && pts[j].y >= scanY) || (pts[j].y < scanY && pts[i].y >= scanY)) {
-                float ix = pts[i].x + (scanY - pts[i].y) / (pts[j].y - pts[i].y) * (pts[j].x - pts[i].x);
-                nodeX.push_back(ix);
-            }
-            j = i;
-        }
-
-        std::sort(nodeX.begin(), nodeX.end());
-
-        int rowBase = y * stride;
-        for (size_t k = 0; k < nodeX.size(); k += 2) {
-            if (k + 1 >= nodeX.size()) break;
-            int startX = std::max(0, (int)std::ceil(nodeX[k]));
-            int endX = std::min(width - 1, (int)std::floor(nodeX[k + 1]));
-            for (int x = startX; x <= endX; ++x) {
-                pixels[rowBase + x] = val;
-            }
+static bool pointInPolygon(float x, float y, const PointF* pts, int numPts) {
+    bool inside = false;
+    for (int i = 0, j = numPts - 1; i < numPts; j = i++) {
+        if (((pts[i].y > y) != (pts[j].y > y)) &&
+            (x < (pts[j].x - pts[i].x) * (y - pts[i].y) / (pts[j].y - pts[i].y) + pts[i].x)) {
+            inside = !inside;
         }
     }
+    return inside;
 }
 
 extern "C" {
 
-// Dilatasi lingkaran manual stride-aware (dipakai bila tanpa OpenCV atau
-// bila cv::dilate melempar exception).
-static void dilateMaskHand(uint8_t* srcPtr, uint8_t* dstPtr, int w, int h,
-                           int srcStride, int dstStride, int radius) {
-    for (int y = 0; y < h; ++y) {
-        std::memcpy(dstPtr + y * dstStride, srcPtr + y * srcStride, w);
-    }
-
-    int r2 = radius * radius;
-    for (int y = 0; y < h; ++y) {
-        uint8_t* srcRow = srcPtr + y * srcStride;
-        for (int x = 0; x < w; ++x) {
-            if (srcRow[x] > 0) {
-                int minY = std::max(0, y - radius);
-                int maxY = std::min(h - 1, y + radius);
-                int minX = std::max(0, x - radius);
-                int maxX = std::min(w - 1, x + radius);
-                for (int ny = minY; ny <= maxY; ++ny) {
-                    int dy = ny - y;
-                    int dy2 = dy * dy;
-                    uint8_t* dstRow = dstPtr + ny * dstStride;
-                    for (int nx = minX; nx <= maxX; ++nx) {
-                        int dx = nx - x;
-                        if (dx * dx + dy2 <= r2) {
-                            dstRow[nx] = 255;
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-JNIEXPORT jstring JNICALL
-Java_com_mochits_core_imaging_NativeBridge_nativeGetOpenCVVersion(
-        JNIEnv* env,
-        jobject /* this */) {
-#ifdef HAVE_OPENCV
-    std::string version = CV_VERSION;
-    return env->NewStringUTF(version.c_str());
-#else
-    return env->NewStringUTF("OpenCV Not Loaded");
-#endif
-}
-
 JNIEXPORT void JNICALL
-Java_com_mochits_core_imaging_NativeBridge_nativeDrawCircle(
+Java_com_mochits_core_imaging_NativeBridge_nativeDrawBrushStroke(
         JNIEnv* env,
         jobject /* this */,
-        jobject bitmap,
-        jfloat cx,
-        jfloat cy,
+        jobject maskBitmap,
+        jfloat x0, jfloat y0,
+        jfloat x1, jfloat y1,
         jfloat radius,
         jboolean draw) {
     AndroidBitmapInfo info;
     void* pixels = nullptr;
-    if (AndroidBitmap_getInfo(env, bitmap, &info) < 0 || info.format != ANDROID_BITMAP_FORMAT_A_8) return;
-    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0 || !pixels) return;
 
-    drawCircleAlpha8(static_cast<uint8_t*>(pixels), info.width, info.height, info.stride, cx, cy, radius, draw);
+    if (AndroidBitmap_getInfo(env, maskBitmap, &info) < 0) return;
+    if (info.format != ANDROID_BITMAP_FORMAT_A_8) return;
 
-    AndroidBitmap_unlockPixels(env, bitmap);
-}
-
-JNIEXPORT void JNICALL
-Java_com_mochits_core_imaging_NativeBridge_nativeDrawLine(
-        JNIEnv* env,
-        jobject /* this */,
-        jobject bitmap,
-        jfloat x0,
-        jfloat y0,
-        jfloat x1,
-        jfloat y1,
-        jfloat radius,
-        jboolean draw) {
-    AndroidBitmapInfo info;
-    void* pixels = nullptr;
-    if (AndroidBitmap_getInfo(env, bitmap, &info) < 0 || info.format != ANDROID_BITMAP_FORMAT_A_8) return;
-    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0 || !pixels) return;
+    if (AndroidBitmap_lockPixels(env, maskBitmap, &pixels) < 0 || !pixels) return;
 
     drawLineAlpha8(static_cast<uint8_t*>(pixels), info.width, info.height, info.stride, x0, y0, x1, y1, radius, draw);
 
-    AndroidBitmap_unlockPixels(env, bitmap);
+    AndroidBitmap_unlockPixels(env, maskBitmap);
 }
 
 JNIEXPORT void JNICALL
-Java_com_mochits_core_imaging_NativeBridge_nativeDrawPolygon(
+Java_com_mochits_core_imaging_NativeBridge_nativeApplyLasso(
         JNIEnv* env,
         jobject /* this */,
-        jobject bitmap,
-        jfloatArray pointsX,
-        jfloatArray pointsY,
+        jobject maskBitmap,
+        jfloatArray pointsArray,
         jboolean draw) {
-    if (!pointsX || !pointsY) return;
-    jsize lenX = env->GetArrayLength(pointsX);
-    jsize lenY = env->GetArrayLength(pointsY);
-    if (lenX != lenY || lenX < 3) return;
-
-    jfloat* arrX = env->GetFloatArrayElements(pointsX, nullptr);
-    jfloat* arrY = env->GetFloatArrayElements(pointsY, nullptr);
-    if (!arrX || !arrY) return;
-
-    std::vector<PointF> pts(lenX);
-    for (jsize i = 0; i < lenX; ++i) {
-        pts[i] = {arrX[i], arrY[i]};
-    }
-
-    env->ReleaseFloatArrayElements(pointsX, arrX, JNI_ABORT);
-    env->ReleaseFloatArrayElements(pointsY, arrY, JNI_ABORT);
-
     AndroidBitmapInfo info;
     void* pixels = nullptr;
-    if (AndroidBitmap_getInfo(env, bitmap, &info) < 0 || info.format != ANDROID_BITMAP_FORMAT_A_8) return;
-    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0 || !pixels) return;
 
-    fillPolygonAlpha8(static_cast<uint8_t*>(pixels), info.width, info.height, info.stride, pts, draw ? 255 : 0);
+    if (AndroidBitmap_getInfo(env, maskBitmap, &info) < 0) return;
+    if (info.format != ANDROID_BITMAP_FORMAT_A_8) return;
 
-    AndroidBitmap_unlockPixels(env, bitmap);
+    jsize len = env->GetArrayLength(pointsArray);
+    if (len < 6) return; // Must have at least 3 points (6 floats)
+
+    jfloat* ptsData = env->GetFloatArrayElements(pointsArray, nullptr);
+    if (!ptsData) return;
+
+    int numPts = len / 2;
+    std::vector<PointF> pts(numPts);
+    float minX = (float)info.width, maxX = 0.0f;
+    float minY = (float)info.height, maxY = 0.0f;
+
+    for (int i = 0; i < numPts; ++i) {
+        pts[i].x = ptsData[i * 2];
+        pts[i].y = ptsData[i * 2 + 1];
+        minX = std::min(minX, pts[i].x);
+        maxX = std::max(maxX, pts[i].x);
+        minY = std::min(minY, pts[i].y);
+        maxY = std::max(maxY, pts[i].y);
+    }
+    env->ReleaseFloatArrayElements(pointsArray, ptsData, JNI_ABORT);
+
+    int startX = std::max(0, (int)std::floor(minX));
+    int endX = std::min((int)info.width - 1, (int)std::ceil(maxX));
+    int startY = std::max(0, (int)std::floor(minY));
+    int endY = std::min((int)info.height - 1, (int)std::ceil(maxY));
+
+    if (AndroidBitmap_lockPixels(env, maskBitmap, &pixels) < 0 || !pixels) return;
+
+    uint8_t* maskBytes = static_cast<uint8_t*>(pixels);
+    uint8_t val = draw ? 255 : 0;
+
+    for (int y = startY; y <= endY; ++y) {
+        uint8_t* row = maskBytes + y * info.stride;
+        for (int x = startX; x <= endX; ++x) {
+            if (pointInPolygon((float)x + 0.5f, (float)y + 0.5f, pts.data(), numPts)) {
+                row[x] = val;
+            }
+        }
+    }
+
+    AndroidBitmap_unlockPixels(env, maskBitmap);
+}
+
+// Fallback manual 2D box-dilation (square / Chebyshev distance) on ALPHA_8
+static void dilateMaskHand(
+        const uint8_t* src, uint8_t* dst,
+        int width, int height,
+        int srcStride, int dstStride,
+        int radius) {
+    if (radius <= 0) {
+        for (int y = 0; y < height; ++y) {
+            std::memcpy(dst + (size_t)y * dstStride, src + (size_t)y * srcStride, width);
+        }
+        return;
+    }
+    for (int y = 0; y < height; ++y) {
+        int yMin = std::max(0, y - radius);
+        int yMax = std::min(height - 1, y + radius);
+        uint8_t* drow = dst + (size_t)y * dstStride;
+
+        for (int x = 0; x < width; ++x) {
+            int xMin = std::max(0, x - radius);
+            int xMax = std::min(width - 1, x + radius);
+            uint8_t maxV = 0;
+
+            for (int ny = yMin; ny <= yMax && maxV < 255; ++ny) {
+                const uint8_t* srow = src + (size_t)ny * srcStride;
+                for (int nx = xMin; nx <= xMax; ++nx) {
+                    if (srow[nx] > maxV) {
+                        maxV = srow[nx];
+                        if (maxV == 255) break;
+                    }
+                }
+            }
+            drow[x] = maxV;
+        }
+    }
 }
 
 JNIEXPORT void JNICALL
@@ -244,7 +204,9 @@ Java_com_mochits_core_imaging_NativeBridge_nativeDilateMask(
     if (AndroidBitmap_getInfo(env, srcMaskBitmap, &srcInfo) < 0 || srcInfo.format != ANDROID_BITMAP_FORMAT_A_8) return;
     if (AndroidBitmap_getInfo(env, dstMaskBitmap, &dstInfo) < 0 || dstInfo.format != ANDROID_BITMAP_FORMAT_A_8) return;
 
-    if (srcInfo.width != dstInfo.width || srcInfo.height != dstInfo.height) return;
+    int w = srcInfo.width;
+    int h = srcInfo.height;
+    if (dstInfo.width != w || dstInfo.height != h) return;
 
     if (AndroidBitmap_lockPixels(env, srcMaskBitmap, &srcPixels) < 0 || !srcPixels) return;
     if (AndroidBitmap_lockPixels(env, dstMaskBitmap, &dstPixels) < 0 || !dstPixels) {
@@ -252,30 +214,26 @@ Java_com_mochits_core_imaging_NativeBridge_nativeDilateMask(
         return;
     }
 
-    int w = srcInfo.width;
-    int h = srcInfo.height;
     int srcStride = srcInfo.stride;
     int dstStride = dstInfo.stride;
 
     if (radius <= 0) {
-        uint8_t* srcPtr = static_cast<uint8_t*>(srcPixels);
-        uint8_t* dstPtr = static_cast<uint8_t*>(dstPixels);
         for (int y = 0; y < h; ++y) {
-            std::memcpy(dstPtr + y * dstStride, srcPtr + y * srcStride, w);
+            std::memcpy(
+                static_cast<uint8_t*>(dstPixels) + (size_t)y * dstStride,
+                static_cast<uint8_t*>(srcPixels) + (size_t)y * srcStride,
+                w);
         }
     } else {
 #ifdef HAVE_OPENCV
         bool ocvOk = false;
         try {
-            cv::Mat srcMat(h, w, CV_8UC1, srcPixels, srcStride);
-            cv::Mat dstMat(h, w, CV_8UC1, dstPixels, dstStride);
-
-            int kernelSize = radius * 2 + 1;
-            cv::Mat element = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(kernelSize, kernelSize));
+            cv::Mat srcMat(h, w, CV_8UC1, srcPixels, (size_t)srcStride);
+            cv::Mat dstMat(h, w, CV_8UC1, dstPixels, (size_t)dstStride);
+            int ksize = radius * 2 + 1;
+            cv::Mat element = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(ksize, ksize));
             cv::dilate(srcMat, dstMat, element);
             ocvOk = true;
-        } catch (const cv::Exception& e) {
-            LOGE("dilate OCV gagal, pakai loop tangan: %s", e.what());
         } catch (...) {
             LOGE("dilate OCV gagal (unknown), pakai loop tangan");
         }
@@ -295,6 +253,34 @@ Java_com_mochits_core_imaging_NativeBridge_nativeDilateMask(
     AndroidBitmap_unlockPixels(env, srcMaskBitmap);
 }
 
+// Convert sRGB (0..255) to CIE Lab (L: 0..100, a: -128..127, b: -128..127)
+static void rgbToLab(uint8_t r, uint8_t g, uint8_t b, float& L, float& a_val, float& b_val) {
+    float rf = r / 255.0f;
+    float gf = g / 255.0f;
+    float bf = b / 255.0f;
+
+    rf = (rf > 0.04045f) ? std::pow((rf + 0.055f) / 1.055f, 2.4f) : (rf / 12.92f);
+    gf = (gf > 0.04045f) ? std::pow((gf + 0.055f) / 1.055f, 2.4f) : (gf / 12.92f);
+    bf = (bf > 0.04045f) ? std::pow((bf + 0.055f) / 1.055f, 2.4f) : (bf / 12.92f);
+
+    // D65 reference white
+    float X = (rf * 0.4124564f + gf * 0.3575761f + bf * 0.1804375f) / 0.95047f;
+    float Y = (rf * 0.2126729f + gf * 0.7151522f + bf * 0.0721750f) / 1.00000f;
+    float Z = (rf * 0.0193339f + gf * 0.1191920f + bf * 0.9503041f) / 1.08883f;
+
+    auto f = [](float t) -> float {
+        return (t > 0.00885645167f) ? std::pow(t, 1.0f / 3.0f) : (7.787037037f * t + 16.0f / 116.0f);
+    };
+
+    float fx = f(X);
+    float fy = f(Y);
+    float fz = f(Z);
+
+    L = (116.0f * fy) - 16.0f;
+    a_val = 500.0f * (fx - fy);
+    b_val = 200.0f * (fy - fz);
+}
+
 JNIEXPORT jlong JNICALL
 Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         JNIEnv* env,
@@ -303,11 +289,10 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         jobject maskBitmap,
         jint startX,
         jint startY,
-        jfloat tolerance,
-        jint gapRadius) {
+        jfloat sensitivity) {
     // Status (32 bit bawah): 0 ok, 1 format citra, 2 ukuran mask,
     // 3 seed di luar, 4 kunci piksel gagal, 5 alokasi/proses gagal.
-    // 32 bit atas: jumlah piksel terseleksi (untuk peringatan bocor).
+    // 32 bit atas: jumlah piksel terseleksi.
     AndroidBitmapInfo srcInfo, maskInfo;
     void* srcPixels = nullptr;
     void* maskPixels = nullptr;
@@ -326,9 +311,6 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         return 4;
     }
 
-    // Satu-satunya implementasi flood (kontrak Euclidean ke seed,
-    // FIXED-range, konektivitas 4 — sama di semua backend/build).
-    // Stride-aware: RGBA stride piksel = stride byte / 4; mask 1 byte/px.
     int status = 0;
     size_t floodCount = 0;
     try {
@@ -337,114 +319,156 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         uint32_t* srcBase = static_cast<uint32_t*>(srcPixels);
         uint8_t* maskBase = static_cast<uint8_t*>(maskPixels);
 
-        uint32_t targetColor = srcBase[startY * srcStridePx + startX];
-        // lockPixels memberi PREMULTIPLIED: transparan = (0,0,0,0) sama
-        // dengan hitam pekat bila alpha diabaikan. Bandingkan alpha juga
-        // (Euclidean 4D) agar garis hitam tak bocor ke area transparan.
-        // Fallback JVM menyamakan ruang ini (premultiply ulang).
-        int targetR = (targetColor) & 0xFF;
-        int targetG = (targetColor >> 8) & 0xFF;
-        int targetB = (targetColor >> 16) & 0xFF;
-        int targetA = (targetColor >> 24) & 0xFF;
+        // CLEAR raw mask first for REPLACE behavior (each tap overwrites selection)
+        for (int y = 0; y < height; ++y) {
+            std::memset(maskBase + (size_t)y * maskStride, 0, width);
+        }
 
-        // Euclidean RGB distance (tolerance already mapped to 0..441.673).
-        // Tighter than per-channel Chebyshev; prevents diagonal color leaks outside target.
-        float tolSq = tolerance * tolerance;
+        // Map Sensitivity (0..100) -> CIE Lab deltaE threshold (1.0 .. 60.0)
+        float deltaEThresh = 1.0f + (sensitivity / 100.0f) * 59.0f;
 
-        const size_t wh = (size_t)width * (size_t)height;
-        const int g = gapRadius < 0 ? 0 : (gapRadius > 8 ? 8 : gapRadius);
-        // Eligibility vs seed + penghalang terdilasi (jalur Tutup celah).
-        std::vector<uint8_t> elig;
-        std::vector<uint8_t> barDil;
-        if (g > 0) {
-            elig.assign(wh, 0);
-            for (int y = 0; y < height; ++y) {
-                size_t srcOff = (size_t)y * (size_t)srcStridePx;
-                for (int x = 0; x < width; ++x) {
-                    uint32_t c = srcBase[srcOff + x];
-                    float dr = static_cast<float>(((int)(c & 0xFF)) - targetR);
-                    float dg = static_cast<float>(((int)((c >> 8) & 0xFF)) - targetG);
-                    float db = static_cast<float>(((int)((c >> 16) & 0xFF)) - targetB);
-                    float da = static_cast<float>(((int)((c >> 24) & 0xFF)) - targetA);
-                    if (dr * dr + dg * dg + db * db + da * da <= tolSq) {
-                        elig[(size_t)y * (size_t)width + x] = 255;
+#ifdef HAVE_OPENCV
+        bool ocvSuccess = false;
+        try {
+            cv::Mat rgbaMat(height, width, CV_8UC4, srcPixels, (size_t)srcInfo.stride);
+            cv::Mat bgrMat, labMat;
+            cv::cvtColor(rgbaMat, bgrMat, cv::COLOR_RGBA2BGR);
+            cv::cvtColor(bgrMat, labMat, cv::COLOR_BGR2Lab);
+
+            // Layer 2: Compute Sobel edge barrier
+            cv::Mat grayMat, gradX, gradY, absGradX, absGradY, edgeMat;
+            cv::cvtColor(bgrMat, grayMat, cv::COLOR_BGR2GRAY);
+            cv::Sobel(grayMat, gradX, CV_16S, 1, 0, 3);
+            cv::Sobel(grayMat, gradY, CV_16S, 0, 1, 3);
+            cv::convertScaleAbs(gradX, absGradX);
+            cv::convertScaleAbs(gradY, absGradY);
+            cv::addWeighted(absGradX, 0.5, absGradY, 0.5, 0, edgeMat);
+
+            // Create 1-pixel border mask required by cv::floodFill (size: height+2, width+2)
+            cv::Mat fillMask = cv::Mat::zeros(height + 2, width + 2, CV_8UC1);
+
+            // Mark high contrast edges (gradient > 45) as barrier (=1) in fillMask
+            for (int r = 0; r < height; ++r) {
+                const uint8_t* eRow = edgeMat.ptr<uint8_t>(r);
+                uint8_t* mRow = fillMask.ptr<uint8_t>(r + 1);
+                for (int c = 0; c < width; ++c) {
+                    if (eRow[c] > 45) {
+                        mRow[c + 1] = 1;
                     }
                 }
             }
-            std::vector<uint8_t> bar(wh, 0);
-            barDil.assign(wh, 0);
-            for (size_t i = 0; i < wh; ++i) bar[i] = elig[i] ? 0 : 255;
-            dilateMaskHand(bar.data(), barDil.data(), width, height, width, width, g);
+            // Ensure seed point in fillMask is open (0)
+            fillMask.at<uint8_t>(startY + 1, startX + 1) = 0;
+
+            // OpenCV cv::Lab scaling: L: 0..255 (L*255/100), a: 0..255 (a+128), b: 0..255 (b+128)
+            // Scale deltaE threshold to OpenCV Lab space units (~255/100 = 2.55 scale)
+            double labDiffVal = deltaEThresh * 2.55;
+            cv::Scalar loDiff(labDiffVal, labDiffVal, labDiffVal);
+            cv::Scalar upDiff(labDiffVal, labDiffVal, labDiffVal);
+
+            cv::Rect rect;
+            // FLOODFILL_MASK_ONLY: modifies fillMask by writing 255 to newly filled pixels
+            cv::floodFill(labMat, fillMask, cv::Point(startX, startY), cv::Scalar(0), &rect,
+                          loDiff, upDiff, 4 | (255 << 8) | cv::FLOODFILL_MASK_ONLY);
+
+            // Copy filled mask results from fillMask to output ALPHA_8 maskBitmap
+            for (int r = 0; r < height; ++r) {
+                const uint8_t* mRow = fillMask.ptr<uint8_t>(r + 1);
+                uint8_t* outRow = maskBase + (size_t)r * maskStride;
+                for (int c = 0; c < width; ++c) {
+                    if (mRow[c + 1] == 255) {
+                        outRow[c] = 255;
+                        ++floodCount;
+                    }
+                }
+            }
+            ocvSuccess = true;
+        } catch (...) {
+            LOGE("OpenCV floodFill failed, falling back to manual Lab BFS");
         }
 
-        std::vector<uint8_t> visited((size_t)width * (size_t)height, 0);
-        std::queue<std::pair<int, int>> q;
-        q.push({startX, startY});
-        visited[(size_t)startY * (size_t)width + startX] = 1;
+        if (!ocvSuccess) {
+#endif
+            // Manual C++ BFS fallback with Lab deltaE & Sobel barrier
+            uint32_t seedColor = srcBase[startY * srcStridePx + startX];
+            uint8_t seedR = seedColor & 0xFF;
+            uint8_t seedG = (seedColor >> 8) & 0xFF;
+            uint8_t seedB = (seedColor >> 16) & 0xFF;
 
-        const int dx[4] = {0, 0, -1, 1};
-        const int dy[4] = {-1, 1, 0, 0};
 
-        while (!q.empty()) {
-            auto [cx, cy] = q.front();
-            q.pop();
+            float seedL, seedA, seedB_val;
+            rgbToLab(seedR, seedG, seedB, seedL, seedA, seedB_val);
 
-            maskBase[(size_t)cy * (size_t)maskStride + cx] = 255; // Panggilable: pemanggil mengosongkan dulu (semantik ganti)
-            ++floodCount;
+            // Compute manual Sobel barrier mask
+            const size_t wh = (size_t)width * (size_t)height;
+            std::vector<uint8_t> edgeBar(wh, 0);
+            for (int y = 1; y < height - 1; ++y) {
+                for (int x = 1; x < width - 1; ++x) {
+                    // Gray value approximation
+                    auto getGray = [&](int px, int py) -> int {
+                        uint32_t c = srcBase[(size_t)py * srcStridePx + px];
+                        return (int)(0.299f * (c & 0xFF) + 0.587f * ((c >> 8) & 0xFF) + 0.114f * ((c >> 16) & 0xFF));
+                    };
+                    int gx = -getGray(x-1,y-1) + getGray(x+1,y-1) - 2*getGray(x-1,y) + 2*getGray(x+1,y) - getGray(x-1,y+1) + getGray(x+1,y+1);
+                    int gy = -getGray(x-1,y-1) - 2*getGray(x,y-1) - getGray(x+1,y-1) + getGray(x-1,y+1) + 2*getGray(x,y+1) + getGray(x+1,y+1);
+                    int mag = (std::abs(gx) + std::abs(gy)) / 2;
+                    if (mag > 45) {
+                        edgeBar[(size_t)y * width + x] = 1;
+                    }
+                }
+            }
+            edgeBar[(size_t)startY * width + startX] = 0;
 
-            for (int i = 0; i < 4; ++i) {
-                int nx = cx + dx[i];
-                int ny = cy + dy[i];
+            std::vector<uint8_t> visited(wh, 0);
+            std::queue<std::pair<int, int>> q;
+            q.push({startX, startY});
+            visited[(size_t)startY * width + startX] = 1;
 
-                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                    size_t nIdx = (size_t)ny * (size_t)width + nx;
-                    if (!visited[nIdx]) {
-                        visited[nIdx] = 1;
-                        if (g > 0 && !barDil.empty() && barDil[nIdx]) continue; // penghalang: jangan seberangi
-                        uint32_t c = srcBase[(size_t)ny * (size_t)srcStridePx + nx];
-                        int r = (c) & 0xFF;
-                        int g = (c >> 8) & 0xFF;
-                        int b = (c >> 16) & 0xFF;
-                        int a = (c >> 24) & 0xFF;
+            const int dx[4] = {0, 0, -1, 1};
+            const int dy[4] = {-1, 1, 0, 0};
 
-                        float dr = static_cast<float>(r - targetR);
-                        float dg = static_cast<float>(g - targetG);
-                        float db = static_cast<float>(b - targetB);
-                        float da = static_cast<float>(a - targetA);
-                        float distSq = dr * dr + dg * dg + db * db + da * da;
+            while (!q.empty()) {
+                auto [cx, cy] = q.front();
+                q.pop();
 
-                        if (distSq <= tolSq) {
-                            q.push({nx, ny});
+                maskBase[(size_t)cy * maskStride + cx] = 255;
+                ++floodCount;
+
+                for (int i = 0; i < 4; ++i) {
+                    int nx = cx + dx[i];
+                    int ny = cy + dy[i];
+
+                    if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                        size_t nIdx = (size_t)ny * width + nx;
+                        if (!visited[nIdx]) {
+                            visited[nIdx] = 1;
+                            if (edgeBar[nIdx]) continue; // Stop at edge barrier
+
+                            uint32_t c = srcBase[(size_t)ny * srcStridePx + nx];
+                            uint8_t r = c & 0xFF;
+                            uint8_t g = (c >> 8) & 0xFF;
+                            uint8_t b = (c >> 16) & 0xFF;
+
+                            float curL, curA, curB;
+                            rgbToLab(r, g, b, curL, curA, curB);
+
+                            float dL = curL - seedL;
+                            float da = curA - seedA;
+                            float db = curB - seedB_val;
+                            float deltaE = std::sqrt(dL * dL + da * da + db * db);
+
+                            if (deltaE <= deltaEThresh) {
+                                q.push({nx, ny});
+                            }
                         }
                     }
                 }
             }
+#ifdef HAVE_OPENCV
         }
-        // Tutup celah: dilasi hasil flood sebesar g lalu AND dengan
-        // eligible (mengembalikan area dekat garis + hitung ulang).
-        if (g > 0 && !elig.empty()) {
-            std::vector<uint8_t> floodTmp(wh, 0);
-            for (int y = 0; y < height; ++y) {
-                uint8_t* mrow = maskBase + (size_t)y * (size_t)maskStride;
-                for (int x = 0; x < width; ++x) {
-                    floodTmp[(size_t)y * (size_t)width + x] = mrow[x];
-                }
-            }
-            std::vector<uint8_t> dilTmp(wh, 0);
-            dilateMaskHand(floodTmp.data(), dilTmp.data(), width, height, width, width, g);
-            floodCount = 0;
-            for (int y = 0; y < height; ++y) {
-                uint8_t* mrow = maskBase + (size_t)y * (size_t)maskStride;
-                size_t pOff = (size_t)y * (size_t)width;
-                for (int x = 0; x < width; ++x) {
-                    uint8_t v = (dilTmp[pOff + x] && elig[pOff + x]) ? 255 : 0;
-                    mrow[x] = v;
-                    if (v) ++floodCount;
-                }
-            }
-        }
+#endif
     } catch (...) {
-        LOGE("nativeMagicWandSelect gagal (alloc/proses)");
+        LOGE("nativeMagicWandSelect failed");
         status = 5;
     }
 
@@ -460,122 +484,17 @@ Java_com_mochits_core_imaging_NativeBridge_nativeClearMask(
         jobject bitmap) {
     AndroidBitmapInfo info;
     void* pixels = nullptr;
-    if (AndroidBitmap_getInfo(env, bitmap, &info) < 0 || info.format != ANDROID_BITMAP_FORMAT_A_8) return;
+
+    if (AndroidBitmap_getInfo(env, bitmap, &info) < 0) return;
+    if (info.format != ANDROID_BITMAP_FORMAT_A_8) return;
+
     if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0 || !pixels) return;
 
-    std::memset(pixels, 0, (size_t)info.stride * (size_t)info.height);
-
-    AndroidBitmap_unlockPixels(env, bitmap);
-}
-
-JNIEXPORT void JNICALL
-Java_com_mochits_core_imaging_NativeBridge_nativeInvertMask(
-        JNIEnv* env,
-        jobject /* this */,
-        jobject bitmap) {
-    AndroidBitmapInfo info;
-    void* pixels = nullptr;
-    if (AndroidBitmap_getInfo(env, bitmap, &info) < 0 || info.format != ANDROID_BITMAP_FORMAT_A_8) return;
-    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0 || !pixels) return;
-
-    uint8_t* ptr = static_cast<uint8_t*>(pixels);
     for (int y = 0; y < info.height; ++y) {
-        uint8_t* row = ptr + y * info.stride;
-        for (int x = 0; x < info.width; ++x) {
-            row[x] = 255 - row[x];
-        }
+        std::memset(static_cast<uint8_t*>(pixels) + y * info.stride, 0, info.width);
     }
 
     AndroidBitmap_unlockPixels(env, bitmap);
 }
 
-JNIEXPORT jboolean JNICALL
-Java_com_mochits_core_imaging_NativeBridge_nativeHasMask(
-        JNIEnv* env,
-        jobject /* this */,
-        jobject bitmap) {
-    AndroidBitmapInfo info;
-    void* pixels = nullptr;
-    if (AndroidBitmap_getInfo(env, bitmap, &info) < 0 || info.format != ANDROID_BITMAP_FORMAT_A_8) return JNI_FALSE;
-    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0 || !pixels) return JNI_FALSE;
-
-    uint8_t* ptr = static_cast<uint8_t*>(pixels);
-    bool has = false;
-
-    for (int y = 0; y < info.height && !has; ++y) {
-        uint8_t* row = ptr + y * info.stride;
-        for (int x = 0; x < info.width; ++x) {
-            if (row[x] > 0) {
-                has = true;
-                break;
-            }
-        }
-    }
-
-    AndroidBitmap_unlockPixels(env, bitmap);
-    return has ? JNI_TRUE : JNI_FALSE;
-}
-
-JNIEXPORT jboolean JNICALL
-Java_com_mochits_core_imaging_NativeBridge_nativeInpaintTelea(
-        JNIEnv* env,
-        jobject /* this */,
-        jobject srcBitmap,
-        jobject maskBitmap,
-        jobject dstBitmap,
-        jfloat radius) {
-    AndroidBitmapInfo srcInfo, maskInfo, dstInfo;
-    void* srcPixels = nullptr;
-    void* maskPixels = nullptr;
-    void* dstPixels = nullptr;
-
-    if (AndroidBitmap_getInfo(env, srcBitmap, &srcInfo) < 0 || srcInfo.format != ANDROID_BITMAP_FORMAT_RGBA_8888) return JNI_FALSE;
-    if (AndroidBitmap_getInfo(env, maskBitmap, &maskInfo) < 0 || maskInfo.format != ANDROID_BITMAP_FORMAT_A_8) return JNI_FALSE;
-    if (AndroidBitmap_getInfo(env, dstBitmap, &dstInfo) < 0 || dstInfo.format != ANDROID_BITMAP_FORMAT_RGBA_8888) return JNI_FALSE;
-
-    if (srcInfo.width != dstInfo.width || srcInfo.height != dstInfo.height) return JNI_FALSE;
-    if (srcInfo.width != maskInfo.width || srcInfo.height != maskInfo.height) return JNI_FALSE;
-
-    if (AndroidBitmap_lockPixels(env, srcBitmap, &srcPixels) < 0 || !srcPixels) return JNI_FALSE;
-    if (AndroidBitmap_lockPixels(env, maskBitmap, &maskPixels) < 0 || !maskPixels) {
-        AndroidBitmap_unlockPixels(env, srcBitmap);
-        return JNI_FALSE;
-    }
-    if (AndroidBitmap_lockPixels(env, dstBitmap, &dstPixels) < 0 || !dstPixels) {
-        AndroidBitmap_unlockPixels(env, maskBitmap);
-        AndroidBitmap_unlockPixels(env, srcBitmap);
-        return JNI_FALSE;
-    }
-
-#ifdef HAVE_OPENCV
-    int w = srcInfo.width;
-    int h = srcInfo.height;
-
-    cv::Mat srcMat(h, w, CV_8UC4, srcPixels, srcInfo.stride);
-    cv::Mat bgrMat;
-    cv::cvtColor(srcMat, bgrMat, cv::COLOR_RGBA2BGR);
-
-    cv::Mat maskMat(h, w, CV_8UC1, maskPixels, maskInfo.stride);
-
-    cv::Mat inpaintedBgr;
-    cv::inpaint(bgrMat, maskMat, inpaintedBgr, static_cast<double>(radius), cv::INPAINT_TELEA);
-
-    cv::Mat dstMat(h, w, CV_8UC4, dstPixels, dstInfo.stride);
-    cv::cvtColor(inpaintedBgr, dstMat, cv::COLOR_BGR2RGBA);
-
-    AndroidBitmap_unlockPixels(env, dstBitmap);
-    AndroidBitmap_unlockPixels(env, maskBitmap);
-    AndroidBitmap_unlockPixels(env, srcBitmap);
-    return JNI_TRUE;
-#else
-    // Fallback if compiled without OpenCV (e.g. initial test phase before OpenCV CMake linking)
-    // Laporkan GAGAL (bukan sukses-semu): penyalin buta membuat UI mengira inpaint berhasil.
-    std::memcpy(dstPixels, srcPixels, srcInfo.height * srcInfo.stride);
-    AndroidBitmap_unlockPixels(env, dstBitmap);
-    AndroidBitmap_unlockPixels(env, maskBitmap);
-    AndroidBitmap_unlockPixels(env, srcBitmap);
-    return JNI_FALSE;
-#endif
-}
-
-}
+} // extern "C"
