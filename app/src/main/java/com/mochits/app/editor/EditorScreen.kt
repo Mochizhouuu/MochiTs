@@ -350,9 +350,6 @@ fun EditorScreen(
     val magicWandTolerance by viewModel.magicWandTolerance.collectAsState()
     val magicWandExpand by viewModel.magicWandExpand.collectAsState()
     val magicWandGap by viewModel.magicWandGap.collectAsState()
-    val magicWandIsGlobal by viewModel.magicWandIsGlobal.collectAsState()
-    val magicWandModeState by viewModel.magicWandMode.collectAsState()
-    val magicWandFeather by viewModel.magicWandFeather.collectAsState()
     val isProcessingInpaint by viewModel.isProcessingInpaint.collectAsState()
     val selectedInpaintModel by viewModel.selectedInpaintModel.collectAsState()
     val isDownloadingLaMaModel by viewModel.isDownloadingLaMaModel.collectAsState()
@@ -696,10 +693,6 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         brushSize = brushSize,
                         magicWandTolerance = magicWandTolerance,
                         magicWandExpand = magicWandExpand,
-                        magicWandGap = magicWandGap,
-                        magicWandIsGlobal = magicWandIsGlobal,
-                        magicWandMode = magicWandModeState,
-                        magicWandFeather = magicWandFeather,
                         selectedModel = selectedInpaintModel,
                         isProcessing = isProcessingInpaint || isProcessingMagicWand,
                         isDownloading = isDownloadingLaMaModel,
@@ -716,10 +709,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             viewModel.setMagicWandExpand(it)
                             triggerRedraw++
                         },
+                        magicWandGap = magicWandGap,
                         onGapChange = { viewModel.setMagicWandGap(it) },
-                        onIsGlobalChange = { viewModel.setMagicWandIsGlobal(it) },
-                        onWandModeChange = { viewModel.setMagicWandMode(it) },
-                        onFeatherChange = { viewModel.setMagicWandFeather(it) },
                         onClear = {
                             viewModel.saveUndoSnapshot()
                             viewModel.maskSelectionTools?.clearMask()
@@ -1222,10 +1213,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                                     point = canvasPt,
                                                                     tolerance = startTol,
                                                                     expandPixels = startExp,
-                                                                    gapRadius = magicWandGap.toInt(),
-                                                                    isGlobal = magicWandIsGlobal,
-                                                                    wandMode = magicWandModeState,
-                                                                    featherRadius = magicWandFeather
+                                                                    gapRadius = magicWandGap.toInt()
                                                                 )
                                                                 val src = viewModel.baseBitmap.value
                                                                 if (!wandRes.ok) {
@@ -2799,13 +2787,7 @@ fun EraseToolPanel(
     magicWandTolerance: Float,
     magicWandExpand: Float = 0f,
     magicWandGap: Float = 0f,
-    magicWandIsGlobal: Boolean = false,
-    magicWandMode: Int = 1,
-    magicWandFeather: Float = 0f,
     onGapChange: ((Float) -> Unit)? = null,
-    onIsGlobalChange: ((Boolean) -> Unit)? = null,
-    onWandModeChange: ((Int) -> Unit)? = null,
-    onFeatherChange: ((Float) -> Unit)? = null,
     selectedModel: EditorViewModel.InpaintModel,
     isProcessing: Boolean,
     isDownloading: Boolean,
@@ -2969,32 +2951,6 @@ fun EraseToolPanel(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                     }
-
-                    OptionCycler(
-                        label = "Mode",
-                        options = listOf(0, 1, 2),
-                        selected = magicWandMode,
-                        onSelect = { onWandModeChange?.invoke(it) },
-                        labelOf = {
-                            when (it) {
-                                0 -> "Baru (Replace)"
-                                1 -> "Tambah (Add)"
-                                2 -> "Kurang (Subtract)"
-                                else -> "Tambah"
-                            }
-                        }
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-
-                    OptionCycler(
-                        label = "Cakupan",
-                        options = listOf(false, true),
-                        selected = magicWandIsGlobal,
-                        onSelect = { onIsGlobalChange?.invoke(it) },
-                        labelOf = { if (it) "Global (Seluruh Gambar)" else "Contiguous (Terhubung)" }
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-
                     Text("Toleransi: ${magicWandTolerance.toInt()}%", style = MaterialTheme.typography.labelLarge)
                     Slider(
                         value = magicWandTolerance,
@@ -3026,20 +2982,6 @@ fun EraseToolPanel(
                         onValueChange = { onGapChange?.invoke(it) },
                         valueRange = 0f..5f,
                         steps = 4
-                    )
-
-                    Spacer(modifier = Modifier.height(2.dp))
-                    var localFeatherValue by remember(magicWandFeather) { mutableFloatStateOf(magicWandFeather) }
-                    Text("Kehalusan Tepi (Feather): ${localFeatherValue.toInt()} px", style = MaterialTheme.typography.labelLarge)
-                    Slider(
-                        value = localFeatherValue,
-                        onValueChange = { localFeatherValue = it },
-                        onValueChangeFinished = {
-                            if (localFeatherValue != magicWandFeather) {
-                                onFeatherChange?.invoke(localFeatherValue)
-                            }
-                        },
-                        valueRange = 0f..20f
                     )
                 } else {
                     Text("Kuas: ${brushSize.toInt()} px", style = MaterialTheme.typography.labelLarge)

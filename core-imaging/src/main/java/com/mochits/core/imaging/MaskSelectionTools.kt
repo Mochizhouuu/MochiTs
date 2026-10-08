@@ -162,56 +162,55 @@ class MaskSelectionTools(
      * Ketuk menumpuk ke seleksi (union); Bersihkan untuk mulai baru.
      * @return hasil flood (ok + jumlah piksel; gagal → UI wajib melapor).
      */
-    fun magicWandSelect(
-        srcBitmap: Bitmap?,
-        point: Offset,
-        tolerance: Float,
-        expandPixels: Int = currentExpandPixels,
-        gapRadius: Int = 0,
-        isGlobal: Boolean = false,
-        wandMode: Int = 1,
-        featherRadius: Float = 0f
-    ): NativeBridge.WandOutcome {
+    fun magicWandSelect(srcBitmap: Bitmap?, point: Offset, tolerance: Float, expandPixels: Int = currentExpandPixels, gapRadius: Int = 0    ): NativeBridge.WandOutcome {
         synchronized(maskLock) {
-            invalidateCache()
-            if (srcBitmap == null || srcBitmap.isRecycled) return NativeBridge.WandOutcome(false, 0L)
-            if (point.x < 0f || point.y < 0f || point.x >= srcBitmap.width.toFloat() || point.y >= srcBitmap.height.toFloat()) return NativeBridge.WandOutcome(false, 0L)
-            if (maskBitmap.width != srcBitmap.width || maskBitmap.height != srcBitmap.height ||
-                rawMaskBitmap.width != srcBitmap.width || rawMaskBitmap.height != srcBitmap.height) {
-                resetSize(srcBitmap.width, srcBitmap.height)
-                if (rawMaskBitmap.width != srcBitmap.width || rawMaskBitmap.height != srcBitmap.height) return NativeBridge.WandOutcome(false, 0L)
-            }
-            val startX = kotlin.math.floor(point.x).toInt()
-            val startY = kotlin.math.floor(point.y).toInt()
-            val seedAlpha = try {
-                (srcBitmap.getPixel(startX, startY) ushr 24) and 0xFF
-            } catch (_: Exception) {
-                255
-            }
-            val maxDist = if (seedAlpha >= 255) 441.673f else 510.3f
-            val mappedTolerance = (tolerance.coerceIn(0f, 100f) / 100f) * maxDist
-            currentExpandPixels = expandPixels.coerceIn(0, 30)
-            val longest = maxOf(srcBitmap.width, srcBitmap.height)
-            if (longest > 2000) {
-                return downscaledWand(srcBitmap, point, mappedTolerance, expandPixels, gapRadius, isGlobal, wandMode, featherRadius)
-            }
-            val ok = NativeBridge.magicWandSelectSafe(
-                srcBitmap, rawMaskBitmap, startX, startY, mappedTolerance, gapRadius, isGlobal, wandMode, featherRadius
-            )
-            applyExpandInternal()
-            return ok
+        invalidateCache()
+        if (srcBitmap == null || srcBitmap.isRecycled) return NativeBridge.WandOutcome(false, 0L)
+        // Reject taps outside the source image using float comparison first.
+        // (Using toInt() directly would truncate -0.5 -> 0 and falsely hit the edge.)
+        if (point.x < 0f || point.y < 0f || point.x >= srcBitmap.width.toFloat() || point.y >= srcBitmap.height.toFloat()) return NativeBridge.WandOutcome(false, 0L)
+        if (maskBitmap.width != srcBitmap.width || maskBitmap.height != srcBitmap.height ||
+            rawMaskBitmap.width != srcBitmap.width || rawMaskBitmap.height != srcBitmap.height) {
+            // Keep mask aligned with source; silently resync instead of writing out of bounds.
+            resetSize(srcBitmap.width, srcBitmap.height)
+            if (rawMaskBitmap.width != srcBitmap.width || rawMaskBitmap.height != srcBitmap.height) return NativeBridge.WandOutcome(false, 0L)
+        }
+        val startX = kotlin.math.floor(point.x).toInt()
+        val startY = kotlin.math.floor(point.y).toInt()
+        // Linearitas slider: seed opaque → rentang RGB (maks 441.673);
+        // seed transparan → sertakan alpha (maks 510.3).
+        val seedAlpha = try {
+            (srcBitmap.getPixel(startX, startY) ushr 24) and 0xFF
+        } catch (_: Exception) {
+            255
+        }
+        val maxDist = if (seedAlpha >= 255) 441.673f else 510.3f
+        // Map UI tolerance scale (0..100) ke jarak Euclidean (sphere).
+        val mappedTolerance = (tolerance.coerceIn(0f, 100f) / 100f) * maxDist
+        currentExpandPixels = expandPixels.coerceIn(0, 30)
+        // Gambar raksasa: flood di komposit 0.5x (maks sisi 2000px) lalu
+        // upscale mask (4x hemat waktu+memori; tepi dikompensasi Expand).
+        val longest = maxOf(srcBitmap.width, srcBitmap.height)
+        if (longest > 2000) {
+            return downscaledWand(srcBitmap, point, mappedTolerance, expandPixels, gapRadius)
+        }
+        // Tiap ketuk menumpuk ke seleksi (union); Bersihkan untuk mulai baru.
+        val ok = NativeBridge.magicWandSelectSafe(srcBitmap, rawMaskBitmap, startX, startY, mappedTolerance, gapRadius)
+        applyExpandInternal()
+        return ok
         }
     }
 
+    /**
+     * Flood di bitmap 0.5x lalu upscale hasilnya ke mask penuh.
+     * Toleransi (ruang warna) tak terpengaruh skala; koordinat diskalakan.
+     */
     private fun downscaledWand(
         src: Bitmap,
         point: Offset,
         mappedTolerance: Float,
         expandPixels: Int,
-        gapRadius: Int,
-        isGlobal: Boolean,
-        wandMode: Int,
-        featherRadius: Float
+        gapRadius: Int
     ): NativeBridge.WandOutcome {
         val scale = 2000f / maxOf(src.width, src.height).toFloat()
         val sw = (src.width * scale).toInt().coerceAtLeast(1)
@@ -228,61 +227,20 @@ class MaskSelectionTools(
             return NativeBridge.WandOutcome(false, 0L)
         }
         try {
-            val startSx = kotlin.math.floor(point.x * scale).toInt().coerceIn(0, sw - 1)
-            val startSy = kotlin.math.floor(point.y * scale).toInt().coerceIn(0, sh - 1)
+            val sx = kotlin.math.floor(point.x * scale).toInt().coerceIn(0, sw - 1)
+            val sy = kotlin.math.floor(point.y * scale).toInt().coerceIn(0, sh - 1)
             val smallGap = if (gapRadius > 0) (gapRadius * scale).toInt().coerceAtLeast(1) else 0
-            val res = NativeBridge.magicWandSelectSafe(
-                smallSrc, smallMask, startSx, startSy, mappedTolerance, smallGap, isGlobal, wandMode = 0, featherRadius = featherRadius * scale
-            )
-            if (!res.ok) {
-                System.err.println("downscaledWand: magicWandSelectSafe returned ok=false")
-                return NativeBridge.WandOutcome(false, 0L)
-            }
-
+            val res = NativeBridge.magicWandSelectSafe(smallSrc, smallMask, sx, sy, mappedTolerance, smallGap)
+            if (!res.ok) return NativeBridge.WandOutcome(false, 0L)
+            // Tiap ketuk menumpuk (union) seperti jalur penuh.
+            // Upscale nearest (mask keras; tepi dikompensasi Expand).
             invalidateCache()
-            val smallBuf = java.nio.ByteBuffer.allocate(smallMask.byteCount)
-            smallMask.copyPixelsToBuffer(smallBuf)
-            val smallBytes = smallBuf.array()
-            val smallRowBytes = smallMask.rowBytes
-
-            val rawBuf = java.nio.ByteBuffer.allocate(rawMaskBitmap.byteCount)
-            rawMaskBitmap.copyPixelsToBuffer(rawBuf)
-            val rawBytes = rawBuf.array()
-            val rawRowBytes = rawMaskBitmap.rowBytes
-
-            val rw = rawMaskBitmap.width
-            val rh = rawMaskBitmap.height
-            val invScaleX = sw.toFloat() / rw.toFloat()
-            val invScaleY = sh.toFloat() / rh.toFloat()
-
-            var count = 0L
-            for (y in 0 until rh) {
-                val sy = (y * invScaleY).toInt().coerceIn(0, sh - 1)
-                val sOff = sy * smallRowBytes
-                val rOff = y * rawRowBytes
-                for (x in 0 until rw) {
-                    val sx = (x * invScaleX).toInt().coerceIn(0, sw - 1)
-                    val selV = smallBytes[sOff + sx].toInt() and 0xFF
-                    val curV = rawBytes[rOff + x].toInt() and 0xFF
-                    val newV = when (wandMode) {
-                        0 -> selV // REPLACE
-                        1 -> maxOf(curV, selV) // ADD
-                        2 -> maxOf(0, curV - selV) // SUBTRACT
-                        else -> selV
-                    }
-                    rawBytes[rOff + x] = newV.toByte()
-                    if (newV > 0) count++
-                }
-            }
-
-            val outBuf = java.nio.ByteBuffer.wrap(rawBytes)
-            rawMaskBitmap.copyPixelsFromBuffer(outBuf)
-
+            val paint = android.graphics.Paint().apply { isFilterBitmap = false }
+            val canvas = android.graphics.Canvas(rawMaskBitmap)
+            canvas.drawBitmap(smallMask, null, android.graphics.Rect(0, 0, rawMaskBitmap.width, rawMaskBitmap.height), paint)
             applyExpandInternal()
-            return NativeBridge.WandOutcome(true, count)
-        } catch (t: Throwable) {
-            t.printStackTrace()
-            return NativeBridge.WandOutcome(false, 0L)
+            val approx = (res.selectedCount / (scale * scale)).toLong()
+            return NativeBridge.WandOutcome(true, approx)
         } finally {
             try { smallSrc.recycle() } catch (_: Exception) {}
             try { smallMask.recycle() } catch (_: Exception) {}
