@@ -406,7 +406,6 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
             // dinding, tapi tak pernah melampaui toleransi itu sendiri.
             if (distSq > tolSq) return false;
             if (distSq <= 625.0f) return true;
-            size_t p = (size_t)y * (size_t)width + (size_t)x;
             if (edgeDil[p]) return false;
             return true;
         };
