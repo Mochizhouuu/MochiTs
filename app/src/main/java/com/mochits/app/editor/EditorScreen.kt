@@ -460,6 +460,40 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
     fun refreshMaskState() {
         hasMaskState = viewModel.maskSelectionTools?.hasMask() == true
     }
+    // Ketuk saat sibuk tak dibuang: antrekan terbaru dijalankan setelahnya.
+    var queuedWandTap by remember { mutableStateOf<Offset?>(null) }
+    fun launchWandTap(canvasPt: Offset) {
+        val startTol = magicWandTolerance
+        val startExp = magicWandExpand.toInt()
+        isProcessingMagicWand = true
+        coroutineScope.launch(Dispatchers.Default) {
+            try {
+                viewModel.saveUndoSnapshot()
+                // Flatten + flood dalam satu lock VM (anti recycle tengah jalan).
+                val wandRes = viewModel.runMagicWand(
+                    point = canvasPt,
+                    tolerance = startTol,
+                    expandPixels = startExp
+                )
+                if (!wandRes.ok) {
+                    viewModel.rollbackUndoSnapshot()
+                }
+                withContext(Dispatchers.Main) {
+                    refreshMaskState()
+                    triggerRedraw++
+                }
+            } catch (t: Throwable) {
+                com.mochits.app.util.Logger.e("Magic wand gagal: ${t.message}", t)
+            } finally {
+                isProcessingMagicWand = false
+                val q = queuedWandTap
+                if (q != null) {
+                    queuedWandTap = null
+                    launchWandTap(q)
+                }
+            }
+        }
+    }
 
     // Re-sync the erase status hint whenever the erase panel opens (mask may
     // have changed via undo/redo while another panel was active).
@@ -1199,10 +1233,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                         val releasedChange = changes.find { it.previousPressed && !it.pressed }
                                         if (releasedChange != null) {
                                             if (maskToolMode == MaskToolMode.MAGIC_WAND) {
-                                                if (isMagicWandPending && magicWandMovedDistance <= 15f && magicWandTouchStartPt != null && !isProcessingMagicWand) {
+                                                if (isMagicWandPending && magicWandMovedDistance <= 15f && magicWandTouchStartPt != null) {
                                                     val startPt = magicWandTouchStartPt!!
-                                                    val startTol = magicWandTolerance
-                                                    val startExp = magicWandExpand.toInt()
                                                     val canvasPt = viewModel.canvasState.mapper.screenToCanvas(startPt.x, startPt.y)
                                                     // Ignore taps outside the image instead of pushing a useless
                                                     // undo step / flood-filling from a clamped edge pixel.
@@ -1211,32 +1243,10 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                         canvasPt.x >= 0f && canvasPt.y >= 0f &&
                                                         canvasPt.x < base.width.toFloat() && canvasPt.y < base.height.toFloat()
                                                     if (insideImage) {
-                                                        isProcessingMagicWand = true
-                                                        coroutineScope.launch(Dispatchers.Default) {
-                                                            try {
-                                                                viewModel.saveUndoSnapshot()
-                                                                // Flatten + flood dalam satu lock VM (anti recycle tengah jalan).
-                                                                val wandRes = viewModel.runMagicWand(
-                                                                    point = canvasPt,
-                                                                    tolerance = startTol,
-                                                                    expandPixels = startExp
-                                                                )
-                                                                if (!wandRes.ok) {
-                                                                    viewModel.rollbackUndoSnapshot()
-                                                                }
-                                                                withContext(Dispatchers.Main) {
-                                                                    refreshMaskState()
-                                                                    triggerRedraw++
-                                                                }
-                                                            } catch (t: Throwable) {
-                                                                com.mochits.app.util.Logger.e("Magic wand gagal: ${t.message}", t)
-                                                                viewModel.userMessage.value = com.mochits.app.model.UiMessage(
-                                                                    "Wand gagal (${t.javaClass.simpleName}), coba lagi.",
-                                                                    com.mochits.app.model.UiMessage.Kind.ERROR
-                                                                )
-                                                            } finally {
-                                                                isProcessingMagicWand = false
-                                                            }
+                                                        if (isProcessingMagicWand) {
+                                                            queuedWandTap = canvasPt
+                                                        } else {
+                                                            launchWandTap(canvasPt)
                                                         }
                                                     }
                                                 }
