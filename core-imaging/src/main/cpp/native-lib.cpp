@@ -303,8 +303,7 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         jobject maskBitmap,
         jint startX,
         jint startY,
-        jfloat tolerance,
-        jint gapRadius) {
+        jfloat tolerance) {
     // Status (32 bit bawah): 0 ok, 1 format citra, 2 ukuran mask,
     // 3 seed di luar, 4 kunci piksel gagal, 5 alokasi/proses gagal.
     // 32 bit atas: jumlah piksel terseleksi (untuk peringatan bocor).
@@ -351,96 +350,56 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         // Tighter than per-channel Chebyshev; prevents diagonal color leaks outside target.
         float tolSq = tolerance * tolerance;
 
+        // Span flood ala Paintroid: antrean berisi rentang baris (bukan
+        // piksel) -> memori kecil, tanpa antrean raksasa/OOM. Hasil =
+        // komponen terhubung yang SAMA PERSIS dengan BFS per-piksel.
         const size_t wh = (size_t)width * (size_t)height;
-        const int g = gapRadius < 0 ? 0 : (gapRadius > 8 ? 8 : gapRadius);
-        // Eligibility vs seed + penghalang terdilasi (jalur Tutup celah).
-        std::vector<uint8_t> elig;
-        std::vector<uint8_t> barDil;
-        if (g > 0) {
-            elig.assign(wh, 0);
-            for (int y = 0; y < height; ++y) {
-                size_t srcOff = (size_t)y * (size_t)srcStridePx;
-                for (int x = 0; x < width; ++x) {
-                    uint32_t c = srcBase[srcOff + x];
-                    float dr = static_cast<float>(((int)(c & 0xFF)) - targetR);
-                    float dg = static_cast<float>(((int)((c >> 8) & 0xFF)) - targetG);
-                    float db = static_cast<float>(((int)((c >> 16) & 0xFF)) - targetB);
-                    float da = static_cast<float>(((int)((c >> 24) & 0xFF)) - targetA);
-                    if (dr * dr + dg * dg + db * db + da * da <= tolSq) {
-                        elig[(size_t)y * (size_t)width + x] = 255;
-                    }
-                }
+        struct FloodSpan { int y; int x1; int x2; int dy; };
+        std::vector<uint8_t> filled(wh, 0);
+
+        auto eligibleAt = [&](int x, int y) -> bool {
+            uint32_t c = srcBase[(size_t)y * (size_t)srcStridePx + (size_t)x];
+            float dr = static_cast<float>(((int)(c & 0xFF)) - targetR);
+            float dg = static_cast<float>(((int)((c >> 8) & 0xFF)) - targetG);
+            float db = static_cast<float>(((int)((c >> 16) & 0xFF)) - targetB);
+            float da = static_cast<float>(((int)((c >> 24) & 0xFF)) - targetA);
+            return dr * dr + dg * dg + db * db + da * da <= tolSq;
+        };
+        auto fillRun = [&](int y, int xa, int xb) {
+            uint8_t* mrow = maskBase + (size_t)y * (size_t)maskStride;
+            size_t pOff = (size_t)y * (size_t)width;
+            for (int x = xa; x <= xb; ++x) {
+                filled[pOff + (size_t)x] = 1;
+                mrow[x] = 255;
+                ++floodCount;
             }
-            std::vector<uint8_t> bar(wh, 0);
-            barDil.assign(wh, 0);
-            for (size_t i = 0; i < wh; ++i) bar[i] = elig[i] ? 0 : 255;
-            dilateMaskHand(bar.data(), barDil.data(), width, height, width, width, g);
-        }
+        };
 
-        std::vector<uint8_t> visited((size_t)width * (size_t)height, 0);
-        std::queue<std::pair<int, int>> q;
-        q.push({startX, startY});
-        visited[(size_t)startY * (size_t)width + startX] = 1;
+        int sx1 = startX, sx2 = startX;
+        while (sx1 - 1 >= 0 && eligibleAt(sx1 - 1, startY)) --sx1;
+        while (sx2 + 1 < width && eligibleAt(sx2 + 1, startY)) ++sx2;
+        fillRun(startY, sx1, sx2);
 
-        const int dx[4] = {0, 0, -1, 1};
-        const int dy[4] = {-1, 1, 0, 0};
-
-        while (!q.empty()) {
-            auto [cx, cy] = q.front();
-            q.pop();
-
-            maskBase[(size_t)cy * (size_t)maskStride + cx] = 255; // Panggilable: pemanggil mengosongkan dulu (semantik ganti)
-            ++floodCount;
-
-            for (int i = 0; i < 4; ++i) {
-                int nx = cx + dx[i];
-                int ny = cy + dy[i];
-
-                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                    size_t nIdx = (size_t)ny * (size_t)width + nx;
-                    if (!visited[nIdx]) {
-                        visited[nIdx] = 1;
-                        if (g > 0 && !barDil.empty() && barDil[nIdx]) continue; // penghalang: jangan seberangi
-                        uint32_t c = srcBase[(size_t)ny * (size_t)srcStridePx + nx];
-                        int r = (c) & 0xFF;
-                        int g = (c >> 8) & 0xFF;
-                        int b = (c >> 16) & 0xFF;
-                        int a = (c >> 24) & 0xFF;
-
-                        float dr = static_cast<float>(r - targetR);
-                        float dg = static_cast<float>(g - targetG);
-                        float db = static_cast<float>(b - targetB);
-                        float da = static_cast<float>(a - targetA);
-                        float distSq = dr * dr + dg * dg + db * db + da * da;
-
-                        if (distSq <= tolSq) {
-                            q.push({nx, ny});
-                        }
-                    }
-                }
-            }
-        }
-        // Tutup celah: dilasi hasil flood sebesar g lalu AND dengan
-        // eligible (mengembalikan area dekat garis + hitung ulang).
-        if (g > 0 && !elig.empty()) {
-            std::vector<uint8_t> floodTmp(wh, 0);
-            for (int y = 0; y < height; ++y) {
-                uint8_t* mrow = maskBase + (size_t)y * (size_t)maskStride;
-                for (int x = 0; x < width; ++x) {
-                    floodTmp[(size_t)y * (size_t)width + x] = mrow[x];
-                }
-            }
-            std::vector<uint8_t> dilTmp(wh, 0);
-            dilateMaskHand(floodTmp.data(), dilTmp.data(), width, height, width, width, g);
-            floodCount = 0;
-            for (int y = 0; y < height; ++y) {
-                uint8_t* mrow = maskBase + (size_t)y * (size_t)maskStride;
-                size_t pOff = (size_t)y * (size_t)width;
-                for (int x = 0; x < width; ++x) {
-                    uint8_t v = (dilTmp[pOff + x] && elig[pOff + x]) ? 255 : 0;
-                    mrow[x] = v;
-                    if (v) ++floodCount;
-                }
+        std::vector<FloodSpan> spanStack;
+        spanStack.reserve(256);
+        spanStack.push_back({startY, sx1, sx2, 1});
+        spanStack.push_back({startY, sx1, sx2, -1});
+        while (!spanStack.empty()) {
+            FloodSpan s = spanStack.back();
+            spanStack.pop_back();
+            int ny = s.y + s.dy;
+            if (ny < 0 || ny >= height) continue;
+            size_t nOff = (size_t)ny * (size_t)width;
+            int x = s.x1;
+            while (x <= s.x2) {
+                if (filled[nOff + (size_t)x] || !eligibleAt(x, ny)) { ++x; continue; }
+                int nx1 = x, nx2 = x;
+                while (nx1 - 1 >= 0 && !filled[nOff + (size_t)nx1 - 1] && eligibleAt(nx1 - 1, ny)) --nx1;
+                while (nx2 + 1 < width && !filled[nOff + (size_t)nx2 + 1] && eligibleAt(nx2 + 1, ny)) ++nx2;
+                fillRun(ny, nx1, nx2);
+                spanStack.push_back({ny, nx1, nx2, s.dy});
+                spanStack.push_back({ny, nx1, nx2, -s.dy});
+                x = nx2 + 1;
             }
         }
     } catch (...) {

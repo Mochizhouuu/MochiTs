@@ -162,7 +162,7 @@ class MaskSelectionTools(
      * Ketuk menumpuk ke seleksi (union); Bersihkan untuk mulai baru.
      * @return hasil flood (ok + jumlah piksel; gagal → UI wajib melapor).
      */
-    fun magicWandSelect(srcBitmap: Bitmap?, point: Offset, tolerance: Float, expandPixels: Int = currentExpandPixels, gapRadius: Int = 0    ): NativeBridge.WandOutcome {
+    fun magicWandSelect(srcBitmap: Bitmap?, point: Offset, tolerance: Float, expandPixels: Int = currentExpandPixels): NativeBridge.WandOutcome {
         synchronized(maskLock) {
         invalidateCache()
         if (srcBitmap == null || srcBitmap.isRecycled) return NativeBridge.WandOutcome(false, 0L)
@@ -192,10 +192,10 @@ class MaskSelectionTools(
         // upscale mask (4x hemat waktu+memori; tepi dikompensasi Expand).
         val longest = maxOf(srcBitmap.width, srcBitmap.height)
         if (longest > 2000) {
-            return downscaledWand(srcBitmap, point, mappedTolerance, expandPixels, gapRadius)
+            return downscaledWand(srcBitmap, point, mappedTolerance, expandPixels)
         }
-        // Tiap ketuk menumpuk ke seleksi (union); Bersihkan untuk mulai baru.
-        val ok = NativeBridge.magicWandSelectSafe(srcBitmap, rawMaskBitmap, startX, startY, mappedTolerance, gapRadius)
+        // Ketuk menumpuk ke seleksi (union); Bersihkan untuk mulai baru.
+        val ok = NativeBridge.magicWandSelectSafe(srcBitmap, rawMaskBitmap, startX, startY, mappedTolerance)
         applyExpandInternal()
         return ok
         }
@@ -209,8 +209,7 @@ class MaskSelectionTools(
         src: Bitmap,
         point: Offset,
         mappedTolerance: Float,
-        expandPixels: Int,
-        gapRadius: Int
+        expandPixels: Int
     ): NativeBridge.WandOutcome {
         val scale = 2000f / maxOf(src.width, src.height).toFloat()
         val sw = (src.width * scale).toInt().coerceAtLeast(1)
@@ -229,8 +228,7 @@ class MaskSelectionTools(
         try {
             val sx = kotlin.math.floor(point.x * scale).toInt().coerceIn(0, sw - 1)
             val sy = kotlin.math.floor(point.y * scale).toInt().coerceIn(0, sh - 1)
-            val smallGap = if (gapRadius > 0) (gapRadius * scale).toInt().coerceAtLeast(1) else 0
-            val res = NativeBridge.magicWandSelectSafe(smallSrc, smallMask, sx, sy, mappedTolerance, smallGap)
+            val res = NativeBridge.magicWandSelectSafe(smallSrc, smallMask, sx, sy, mappedTolerance)
             if (!res.ok) return NativeBridge.WandOutcome(false, 0L)
             // Tiap ketuk menumpuk (union) seperti jalur penuh.
             // Upscale nearest (mask keras; tepi dikompensasi Expand).

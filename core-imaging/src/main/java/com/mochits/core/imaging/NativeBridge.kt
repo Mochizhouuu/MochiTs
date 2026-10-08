@@ -24,7 +24,7 @@ object NativeBridge {
     external fun nativeDrawCircle(bitmap: Bitmap, cx: Float, cy: Float, radius: Float, draw: Boolean)
     external fun nativeDrawLine(bitmap: Bitmap, x0: Float, y0: Float, x1: Float, y1: Float, radius: Float, draw: Boolean)
     external fun nativeDrawPolygon(bitmap: Bitmap, pointsX: FloatArray, pointsY: FloatArray, draw: Boolean)
-    external fun nativeMagicWandSelect(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float, gapRadius: Int): Long
+    external fun nativeMagicWandSelect(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float): Long
     external fun nativeDilateMask(srcMaskBitmap: Bitmap, dstMaskBitmap: Bitmap, radius: Int)
     external fun nativeClearMask(bitmap: Bitmap)
     external fun nativeInvertMask(bitmap: Bitmap)
@@ -62,14 +62,54 @@ object NativeBridge {
         // Euclidean RGB distance (tolerance is already mapped to 0..441.673).
         // Tighter than per-channel Chebyshev; prevents diagonal color leaks.
         val tolSq = tolerance * tolerance
-        val visited = BooleanArray(w * h)
-        val queueInt = IntArray(w * h)
-        var head = 0
-        var tail = 0
+        // Span flood ala Paintroid: antrean berisi rentang baris (bukan
+        // piksel) -> hasil komponen terhubung SAMA, memori kecil.
+        val filled = BooleanArray(w * h)
         var selectedCount = 0L
 
-        queueInt[tail++] = startY * w + startX
-        visited[startY * w + startX] = true
+        fun matchAt(x: Int, y: Int): Boolean = colorMatches(pixels[y * w + x])
+
+        fun fillRun(y: Int, xa: Int, xb: Int) {
+            val off = y * w
+            val mb = y * rowBytes
+            for (x in xa..xb) {
+                filled[off + x] = true
+                maskPixels[mb + x] = 0xFF.toByte()
+                selectedCount++
+            }
+        }
+
+        var sx1 = startX
+        var sx2 = startX
+        while (sx1 - 1 >= 0 && matchAt(sx1 - 1, startY)) sx1--
+        while (sx2 + 1 < w && matchAt(sx2 + 1, startY)) sx2++
+        fillRun(startY, sx1, sx2)
+
+        data class Span(val y: Int, val x1: Int, val x2: Int, val dy: Int)
+        val stack = ArrayDeque<Span>()
+        stack.addLast(Span(startY, sx1, sx2, 1))
+        stack.addLast(Span(startY, sx1, sx2, -1))
+        while (stack.isNotEmpty()) {
+            val s = stack.removeLast()
+            val ny = s.y + s.dy
+            if (ny < 0 || ny >= h) continue
+            val nOff = ny * w
+            var x = s.x1
+            while (x <= s.x2) {
+                if (filled[nOff + x] || !matchAt(x, ny)) {
+                    x++
+                    continue
+                }
+                var nx1 = x
+                var nx2 = x
+                while (nx1 - 1 >= 0 && !filled[nOff + nx1 - 1] && matchAt(nx1 - 1, ny)) nx1--
+                while (nx2 + 1 < w && !filled[nOff + nx2 + 1] && matchAt(nx2 + 1, ny)) nx2++
+                fillRun(ny, nx1, nx2)
+                stack.addLast(Span(ny, nx1, nx2, s.dy))
+                stack.addLast(Span(ny, nx1, nx2, -s.dy))
+                x = nx2 + 1
+            }
+        }
 
         val buffer = java.nio.ByteBuffer.allocate(maskBitmap.byteCount)
         maskBitmap.copyPixelsToBuffer(buffer)
@@ -84,52 +124,6 @@ object NativeBridge {
             val db = (c and 0xFF) - targetB
             val da = ((c ushr 24) and 0xFF) - targetA
             return (dr * dr + dg * dg + db * db + da * da).toFloat() <= tolSq
-        }
-
-        while (head < tail) {
-            val idx = queueInt[head++]
-            val cx = idx % w
-            val cy = idx / w
-
-            maskPixels[cy * rowBytes + cx] = 0xFF.toByte()
-            selectedCount++
-
-            if (cy > 0) {
-                val nIdx = idx - w
-                if (!visited[nIdx]) {
-                    visited[nIdx] = true
-                    if (colorMatches(pixels[nIdx])) {
-                        queueInt[tail++] = nIdx
-                    }
-                }
-            }
-            if (cy < h - 1) {
-                val nIdx = idx + w
-                if (!visited[nIdx]) {
-                    visited[nIdx] = true
-                    if (colorMatches(pixels[nIdx])) {
-                        queueInt[tail++] = nIdx
-                    }
-                }
-            }
-            if (cx > 0) {
-                val nIdx = idx - 1
-                if (!visited[nIdx]) {
-                    visited[nIdx] = true
-                    if (colorMatches(pixels[nIdx])) {
-                        queueInt[tail++] = nIdx
-                    }
-                }
-            }
-            if (cx < w - 1) {
-                val nIdx = idx + 1
-                if (!visited[nIdx]) {
-                    visited[nIdx] = true
-                    if (colorMatches(pixels[nIdx])) {
-                        queueInt[tail++] = nIdx
-                    }
-                }
-            }
         }
 
         val outBuffer = java.nio.ByteBuffer.wrap(maskPixels)
@@ -206,10 +200,10 @@ object NativeBridge {
      */
     data class WandOutcome(val ok: Boolean, val selectedCount: Long)
 
-    fun magicWandSelectSafe(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float, gapRadius: Int = 0): WandOutcome {
+    fun magicWandSelectSafe(srcBitmap: Bitmap, maskBitmap: Bitmap, startX: Int, startY: Int, tolerance: Float): WandOutcome {
         if (isNativeAvailable) {
             try {
-                val res = nativeMagicWandSelect(srcBitmap, maskBitmap, startX, startY, tolerance, gapRadius)
+                val res = nativeMagicWandSelect(srcBitmap, maskBitmap, startX, startY, tolerance)
                 val status = (res and 0xFFFFFFFFL).toInt()
                 if (status == 0) return WandOutcome(true, res ushr 32)
                 android.util.Log.w("NativeBridge", "wand native status=$status, tanpa fallback sunyi")

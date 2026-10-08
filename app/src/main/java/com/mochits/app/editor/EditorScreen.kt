@@ -349,7 +349,6 @@ fun EditorScreen(
     val brushSize by viewModel.brushSize.collectAsState()
     val magicWandTolerance by viewModel.magicWandTolerance.collectAsState()
     val magicWandExpand by viewModel.magicWandExpand.collectAsState()
-    val magicWandGap by viewModel.magicWandGap.collectAsState()
     val isProcessingInpaint by viewModel.isProcessingInpaint.collectAsState()
     val selectedInpaintModel by viewModel.selectedInpaintModel.collectAsState()
     val isDownloadingLaMaModel by viewModel.isDownloadingLaMaModel.collectAsState()
@@ -719,8 +718,6 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             viewModel.setMagicWandExpand(it)
                             triggerRedraw++
                         },
-                        magicWandGap = magicWandGap,
-                        onGapChange = { viewModel.setMagicWandGap(it) },
                         onClear = {
                             viewModel.saveUndoSnapshot()
                             viewModel.maskSelectionTools?.clearMask()
@@ -1222,15 +1219,10 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                                 val wandRes = viewModel.runMagicWand(
                                                                     point = canvasPt,
                                                                     tolerance = startTol,
-                                                                    expandPixels = startExp,
-                                                                    gapRadius = magicWandGap.toInt()
+                                                                    expandPixels = startExp
                                                                 )
                                                                 if (!wandRes.ok) {
                                                                     viewModel.rollbackUndoSnapshot()
-                                                                    viewModel.userMessage.value = com.mochits.app.model.UiMessage(
-                                                                        "Wand gagal (seleksi tidak jalan).",
-                                                                        com.mochits.app.model.UiMessage.Kind.ERROR
-                                                                    )
                                                                 }
                                                                 withContext(Dispatchers.Main) {
                                                                     refreshMaskState()
@@ -2782,8 +2774,6 @@ fun EraseToolPanel(
     brushSize: Float,
     magicWandTolerance: Float,
     magicWandExpand: Float = 0f,
-    magicWandGap: Float = 0f,
-    onGapChange: ((Float) -> Unit)? = null,
     selectedModel: EditorViewModel.InpaintModel,
     isProcessing: Boolean,
     isDownloading: Boolean,
