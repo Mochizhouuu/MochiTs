@@ -104,10 +104,11 @@ object NativeBridge {
             val db = (c and 0xFF) - targetB
             val da = ((c ushr 24) and 0xFF) - targetA
             val distSq = (dr * dr + dg * dg + db * db + da * da).toFloat()
-            // Pita ketat: warna ≈ seed selalu lolos dinding.
+            // Pita ketat dibatasi toleransi (lihat native).
+            if (distSq > tolSq) return false
             if (distSq <= 625f) return true
             if (edgeDil[y * w + x]) return false
-            return distSq <= tolSq
+            return true
         }
 
         fun fillRun(y: Int, xa: Int, xb: Int) {

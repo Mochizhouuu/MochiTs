@@ -402,11 +402,13 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
             float db = static_cast<float>(((int)((c >> 16) & 0xFF)) - targetB);
             float da = static_cast<float>(((int)((c >> 24) & 0xFF)) - targetA);
             float distSq = dr * dr + dg * dg + db * db + da * da;
-            // Pita ketat: warna ≈ seed selalu lolos dinding (garis tipis /
-            // titik kecil utuh walau tiap pikselnya menempel tepi).
+            // Pita ketat dibatasi toleransi: warna ≈ seed selalu lolos
+            // dinding, tapi tak pernah melampaui toleransi itu sendiri.
+            if (distSq > tolSq) return false;
             if (distSq <= 625.0f) return true;
+            size_t p = (size_t)y * (size_t)width + (size_t)x;
             if (edgeDil[p]) return false;
-            return distSq <= tolSq;
+            return true;
         };
         auto fillRun = [&](int y, int xa, int xb) {
             uint8_t* mrow = maskBase + (size_t)y * (size_t)maskStride;
