@@ -2,6 +2,10 @@ package com.mochits.core.imaging
 
 import android.graphics.Bitmap
 import androidx.compose.ui.geometry.Offset
+import com.mochits.core.imaging.selection.SelectionCombiner
+import com.mochits.core.imaging.selection.SelectionEngine
+import com.mochits.core.imaging.selection.SelectionMask
+import com.mochits.core.imaging.selection.WandRequest
 
 class MaskSelectionTools(
     w: Int,
@@ -177,27 +181,26 @@ class MaskSelectionTools(
         }
         val startX = kotlin.math.floor(point.x).toInt()
         val startY = kotlin.math.floor(point.y).toInt()
-        // Linearitas slider: seed opaque → rentang RGB (maks 441.673);
-        // seed transparan → sertakan alpha (maks 510.3).
-        val seedAlpha = try {
-            (srcBitmap.getPixel(startX, startY) ushr 24) and 0xFF
-        } catch (_: Exception) {
-            255
-        }
-        val maxDist = if (seedAlpha >= 255) 441.673f else 510.3f
-        // Map UI tolerance scale (0..100) ke jarak Euclidean (sphere).
-        val mappedTolerance = (tolerance.coerceIn(0f, 100f) / 100f) * maxDist
         currentExpandPixels = expandPixels.coerceIn(0, 30)
         // Gambar raksasa: flood di komposit 0.5x (maks sisi 2000px) lalu
         // upscale mask (4x hemat waktu+memori; tepi dikompensasi Expand).
         val longest = maxOf(srcBitmap.width, srcBitmap.height)
         if (longest > 2000) {
-            return downscaledWand(srcBitmap, point, mappedTolerance, expandPixels)
+            return downscaledWand(srcBitmap, point, tolerance, expandPixels)
         }
-        // Ketuk menumpuk ke seleksi (union); Bersihkan untuk mulai baru.
-        val ok = NativeBridge.magicWandSelectSafe(srcBitmap, rawMaskBitmap, startX, startY, mappedTolerance)
+        // Mesin seleksi: mask eksplisit, lalu union eksplisit via combiner.
+        val res = SelectionEngine.select(
+            srcBitmap,
+            WandRequest(startX, startY, tolerance)
+        )
+        if (!res.success || res.mask == null) return NativeBridge.WandOutcome(false, 0L)
+        val w = srcBitmap.width
+        val h = srcBitmap.height
+        val cur = SelectionMask(w, h, SelectionEngine.readPacked(rawMaskBitmap, w, h))
+        val merged = SelectionCombiner.add(cur, res.mask)
+        SelectionEngine.writePacked(rawMaskBitmap, merged.pixels)
         applyExpandInternal()
-        return ok
+        return NativeBridge.WandOutcome(true, res.selectedPixels)
         }
     }
 
@@ -208,9 +211,18 @@ class MaskSelectionTools(
     private fun downscaledWand(
         src: Bitmap,
         point: Offset,
-        mappedTolerance: Float,
+        tolerance: Float,
         expandPixels: Int
     ): NativeBridge.WandOutcome {
+        val sx0 = kotlin.math.floor(point.x).toInt().coerceIn(0, src.width - 1)
+        val sy0 = kotlin.math.floor(point.y).toInt().coerceIn(0, src.height - 1)
+        val seedAlpha = try {
+            (src.getPixel(sx0, sy0) ushr 24) and 0xFF
+        } catch (_: Exception) {
+            255
+        }
+        val maxDist = if (seedAlpha >= 255) 441.673f else 510.3f
+        val mappedTolerance = (tolerance.coerceIn(0f, 100f) / 100f) * maxDist
         val scale = 2000f / maxOf(src.width, src.height).toFloat()
         val sw = (src.width * scale).toInt().coerceAtLeast(1)
         val sh = (src.height * scale).toInt().coerceAtLeast(1)
