@@ -227,7 +227,9 @@ class MaskSelectionTools(
         val sw = (src.width * scale).toInt().coerceAtLeast(1)
         val sh = (src.height * scale).toInt().coerceAtLeast(1)
         val smallSrc = try {
-            Bitmap.createScaledBitmap(src, sw, sh, true)
+            // Nearest (filter=false): warna piksel TEPAT seperti aslinya.
+            // Bilinear menghaluskan tepi -> seed campuran -> seleksi ngawur.
+            Bitmap.createScaledBitmap(src, sw, sh, false)
         } catch (t: Throwable) {
             return NativeBridge.WandOutcome(false, 0L)
         }
