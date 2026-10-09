@@ -279,8 +279,7 @@ class MaskSelectionToolsTest {
     }
 
     @Test
-    fun magicWand_gappedOutline_doesNotLeakOutside() {
-        // Kotak outline hitam 10..19 dengan celah 1px di atas (x=15,y=10
+    fun magicWand_gappedOutline_doesNotLeakOutside() {        // Kotak outline hitam 10..19 dengan celah 1px di atas (x=15,y=10
         // dibiarkan abu-abu 220 = jembatan AA). Dalam putih, luar abu-abu
         // 220. Toleransi 60: tanpa penahan tepi, flood keluar lewat celah.
         val tools = MaskSelectionTools(30, 30)
@@ -304,6 +303,27 @@ class MaskSelectionToolsTest {
         tools.magicWandSelect(srcBitmap, Offset(15f, 15f), tolerance = 60f)
 
         assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 15)))
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(5, 5)))
+    }
+
+    @Test
+    fun magicWand_blackLineNetwork_doesNotFloodGlobally() {
+        // Garis hitam vertikal x=15 (y 0..29) di atas putih. Ketuk tengah
+        // garis dengan toleransi 32: tanpa budget, seluruh jaringan hitam
+        // (dist 0, lolos dinding) terseleksi; dengan budget kedalaman 3,
+        // hanya sekitar titik yang terseleksi.
+        val tools = MaskSelectionTools(30, 30)
+        val srcBitmap = Bitmap.createBitmap(30, 30, Bitmap.Config.ARGB_8888)
+        srcBitmap.eraseColor(Color.WHITE)
+        for (y in 0 until 30) {
+            srcBitmap.setPixel(15, y, Color.BLACK)
+        }
+
+        tools.magicWandSelect(srcBitmap, Offset(15f, 5f), tolerance = 32f)
+
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 5)))
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 7)))
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(15, 20)))
         assertEquals(0, getAlpha(tools.maskBitmap.getPixel(5, 5)))
     }
 }

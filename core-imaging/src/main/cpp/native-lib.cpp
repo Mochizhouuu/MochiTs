@@ -391,10 +391,12 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
                 }
             }
         }
-        struct FloodSpan { int y; int x1; int x2; int dy; };
+        struct FloodSpan { int y; int x1; int x2; int dy; int depth; };
         std::vector<uint8_t> filled(wh, 0);
 
-        auto eligibleAt = [&](int x, int y) -> bool {
+        // Budget kedalaman pita ketat: lolos dinding hanya dalam 3 langkah
+        // baris dari seed (titik/garis tipis utuh; jaringan global terhenti).
+        auto eligibleAt = [&](int x, int y, int depth) -> bool {
             size_t p = (size_t)y * (size_t)width + (size_t)x;
             uint32_t c = srcBase[(size_t)y * (size_t)srcStridePx + (size_t)x];
             float dr = static_cast<float>(((int)(c & 0xFF)) - targetR);
@@ -405,7 +407,7 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
             // Pita ketat dibatasi toleransi: warna ≈ seed selalu lolos
             // dinding, tapi tak pernah melampaui toleransi itu sendiri.
             if (distSq > tolSq) return false;
-            if (distSq <= 625.0f) return true;
+            if (distSq <= 625.0f) return depth < 3;
             if (edgeDil[p]) return false;
             return true;
         };
@@ -420,29 +422,30 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
         };
 
         int sx1 = startX, sx2 = startX;
-        while (sx1 - 1 >= 0 && eligibleAt(sx1 - 1, startY)) --sx1;
-        while (sx2 + 1 < width && eligibleAt(sx2 + 1, startY)) ++sx2;
+        while (sx1 - 1 >= 0 && eligibleAt(sx1 - 1, startY, 0)) --sx1;
+        while (sx2 + 1 < width && eligibleAt(sx2 + 1, startY, 0)) ++sx2;
         fillRun(startY, sx1, sx2);
 
         std::vector<FloodSpan> spanStack;
         spanStack.reserve(256);
-        spanStack.push_back({startY, sx1, sx2, 1});
-        spanStack.push_back({startY, sx1, sx2, -1});
+        spanStack.push_back({startY, sx1, sx2, 1, 0});
+        spanStack.push_back({startY, sx1, sx2, -1, 0});
         while (!spanStack.empty()) {
             FloodSpan s = spanStack.back();
             spanStack.pop_back();
             int ny = s.y + s.dy;
             if (ny < 0 || ny >= height) continue;
+            const int cd = s.depth + 1;
             size_t nOff = (size_t)ny * (size_t)width;
             int x = s.x1;
             while (x <= s.x2) {
-                if (filled[nOff + (size_t)x] || !eligibleAt(x, ny)) { ++x; continue; }
+                if (filled[nOff + (size_t)x] || !eligibleAt(x, ny, cd)) { ++x; continue; }
                 int nx1 = x, nx2 = x;
-                while (nx1 - 1 >= 0 && !filled[nOff + (size_t)nx1 - 1] && eligibleAt(nx1 - 1, ny)) --nx1;
-                while (nx2 + 1 < width && !filled[nOff + (size_t)nx2 + 1] && eligibleAt(nx2 + 1, ny)) ++nx2;
+                while (nx1 - 1 >= 0 && !filled[nOff + (size_t)nx1 - 1] && eligibleAt(nx1 - 1, ny, cd)) --nx1;
+                while (nx2 + 1 < width && !filled[nOff + (size_t)nx2 + 1] && eligibleAt(nx2 + 1, ny, cd)) ++nx2;
                 fillRun(ny, nx1, nx2);
-                spanStack.push_back({ny, nx1, nx2, s.dy});
-                spanStack.push_back({ny, nx1, nx2, -s.dy});
+                spanStack.push_back({ny, nx1, nx2, s.dy, cd});
+                spanStack.push_back({ny, nx1, nx2, -s.dy, cd});
                 x = nx2 + 1;
             }
         }

@@ -97,16 +97,16 @@ object NativeBridge {
             }
         }
 
-        fun matchAt(x: Int, y: Int): Boolean {
+        fun matchAt(x: Int, y: Int, depth: Int): Boolean {
             val c = pixels[y * w + x]
             val dr = ((c ushr 16) and 0xFF) - targetR
             val dg = ((c ushr 8) and 0xFF) - targetG
             val db = (c and 0xFF) - targetB
             val da = ((c ushr 24) and 0xFF) - targetA
             val distSq = (dr * dr + dg * dg + db * db + da * da).toFloat()
-            // Pita ketat dibatasi toleransi (lihat native).
+            // Pita ketat dibatasi toleransi + budget kedalaman 3 (native).
             if (distSq > tolSq) return false
-            if (distSq <= 625f) return true
+            if (distSq <= 625f) return depth < 3
             if (edgeDil[y * w + x]) return false
             return true
         }
@@ -123,32 +123,33 @@ object NativeBridge {
 
         var sx1 = startX
         var sx2 = startX
-        while (sx1 - 1 >= 0 && matchAt(sx1 - 1, startY)) sx1--
-        while (sx2 + 1 < w && matchAt(sx2 + 1, startY)) sx2++
+        while (sx1 - 1 >= 0 && matchAt(sx1 - 1, startY, 0)) sx1--
+        while (sx2 + 1 < w && matchAt(sx2 + 1, startY, 0)) sx2++
         fillRun(startY, sx1, sx2)
 
-        data class Span(val y: Int, val x1: Int, val x2: Int, val dy: Int)
+        data class Span(val y: Int, val x1: Int, val x2: Int, val dy: Int, val depth: Int)
         val stack = ArrayDeque<Span>()
-        stack.addLast(Span(startY, sx1, sx2, 1))
-        stack.addLast(Span(startY, sx1, sx2, -1))
+        stack.addLast(Span(startY, sx1, sx2, 1, 0))
+        stack.addLast(Span(startY, sx1, sx2, -1, 0))
         while (stack.isNotEmpty()) {
             val s = stack.removeLast()
             val ny = s.y + s.dy
             if (ny < 0 || ny >= h) continue
+            val cd = s.depth + 1
             val nOff = ny * w
             var x = s.x1
             while (x <= s.x2) {
-                if (filled[nOff + x] || !matchAt(x, ny)) {
+                if (filled[nOff + x] || !matchAt(x, ny, cd)) {
                     x++
                     continue
                 }
                 var nx1 = x
                 var nx2 = x
-                while (nx1 - 1 >= 0 && !filled[nOff + nx1 - 1] && matchAt(nx1 - 1, ny)) nx1--
-                while (nx2 + 1 < w && !filled[nOff + nx2 + 1] && matchAt(nx2 + 1, ny)) nx2++
+                while (nx1 - 1 >= 0 && !filled[nOff + nx1 - 1] && matchAt(nx1 - 1, ny, cd)) nx1--
+                while (nx2 + 1 < w && !filled[nOff + nx2 + 1] && matchAt(nx2 + 1, ny, cd)) nx2++
                 fillRun(ny, nx1, nx2)
-                stack.addLast(Span(ny, nx1, nx2, s.dy))
-                stack.addLast(Span(ny, nx1, nx2, -s.dy))
+                stack.addLast(Span(ny, nx1, nx2, s.dy, cd))
+                stack.addLast(Span(ny, nx1, nx2, -s.dy, cd))
                 x = nx2 + 1
             }
         }
