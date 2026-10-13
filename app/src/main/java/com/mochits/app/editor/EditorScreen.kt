@@ -461,8 +461,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
     fun refreshMaskState() {
         hasMaskState = viewModel.maskSelectionTools?.hasMask() == true
     }
-    // Ketuk saat sibuk tak dibuang: antrekan terbaru dijalankan setelahnya.
-    var queuedWandTap by remember { mutableStateOf<Offset?>(null) }
+    // Ketuk saat sibuk dibuang (seperti dulu): antrean tap basi justru
+    // menimbulkan seleksi basi di titik lama setelah undo/geser.
     fun launchWandTap(canvasPt: Offset) {
         val startTol = magicWandTolerance
         val startExp = magicWandExpand.toInt()
@@ -485,14 +485,9 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                 }
             } catch (t: Throwable) {
                 com.mochits.app.util.Logger.e("Magic wand gagal: ${t.message}", t)
-            } finally {
-                isProcessingMagicWand = false
-                val q = queuedWandTap
-                if (q != null) {
-                    queuedWandTap = null
-                    launchWandTap(q)
-                }
-            }
+                                                            } finally {
+                                                                isProcessingMagicWand = false
+                                                            }
         }
     }
 
@@ -1235,7 +1230,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                         val releasedChange = changes.find { it.previousPressed && !it.pressed }
                                         if (releasedChange != null) {
                                             if (maskToolMode == MaskToolMode.MAGIC_WAND) {
-                                                if (isMagicWandPending && magicWandMovedDistance <= 15f && magicWandTouchStartPt != null) {
+                                                if (isMagicWandPending && magicWandMovedDistance <= 15f && magicWandTouchStartPt != null && !isProcessingMagicWand) {
                                                     val startPt = magicWandTouchStartPt!!
                                                     val canvasPt = viewModel.canvasState.mapper.screenToCanvas(startPt.x, startPt.y)
                                                     // Ignore taps outside the image instead of pushing a useless
@@ -1245,11 +1240,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                         canvasPt.x >= 0f && canvasPt.y >= 0f &&
                                                         canvasPt.x < base.width.toFloat() && canvasPt.y < base.height.toFloat()
                                                     if (insideImage) {
-                                                        if (isProcessingMagicWand) {
-                                                            queuedWandTap = canvasPt
-                                                        } else {
-                                                            launchWandTap(canvasPt)
-                                                        }
+                                                        launchWandTap(canvasPt)
                                                     }
                                                 }
                                                 isMagicWandPending = false
