@@ -120,6 +120,8 @@ class EditorViewModel @Inject constructor(
     val brushSize = MutableStateFlow(40f)
     val magicWandTolerance = MutableStateFlow(32f)
     val magicWandExpand = MutableStateFlow(0f)
+    /** Warna seed ketuk wand terakhir (diagnostik pemetaan, null = belum ada). */
+    val lastWandSeed = MutableStateFlow<Int?>(null)
 
     val isEyedropperActive = MutableStateFlow(false)
     val eyedropperCanvasPt = MutableStateFlow<Offset?>(null)
@@ -1461,6 +1463,14 @@ data class HistoryManifest(
         wandBusy = true
         try {
             val flat = flattenForSelection() ?: return@withLock com.mochits.core.imaging.NativeBridge.WandOutcome(false, 0L)
+            // Catat warna seed aktual (diagnostik: cocokkan dengan titik ketuk).
+            lastWandSeed.value = try {
+                val sx = point.x.toInt().coerceIn(0, flat.width - 1)
+                val sy = point.y.toInt().coerceIn(0, flat.height - 1)
+                flat.getPixel(sx, sy)
+            } catch (_: Exception) {
+                null
+            }
             maskSelectionTools?.magicWandSelect(flat, point, tolerance, expandPixels)
                 ?: com.mochits.core.imaging.NativeBridge.WandOutcome(false, 0L)
         } finally {

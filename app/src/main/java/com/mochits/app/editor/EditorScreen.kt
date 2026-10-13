@@ -349,6 +349,7 @@ fun EditorScreen(
     val brushSize by viewModel.brushSize.collectAsState()
     val magicWandTolerance by viewModel.magicWandTolerance.collectAsState()
     val magicWandExpand by viewModel.magicWandExpand.collectAsState()
+    val wandSeedColor by viewModel.lastWandSeed.collectAsState()
     val isProcessingInpaint by viewModel.isProcessingInpaint.collectAsState()
     val selectedInpaintModel by viewModel.selectedInpaintModel.collectAsState()
     val isDownloadingLaMaModel by viewModel.isDownloadingLaMaModel.collectAsState()
@@ -752,6 +753,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             viewModel.setMagicWandExpand(it)
                             triggerRedraw++
                         },
+                        seedColor = wandSeedColor,
                         onClear = {
                             viewModel.saveUndoSnapshot()
                             viewModel.maskSelectionTools?.clearMask()
@@ -2784,6 +2786,7 @@ fun EraseToolPanel(
     brushSize: Float,
     magicWandTolerance: Float,
     magicWandExpand: Float = 0f,
+    seedColor: Int? = null,
     selectedModel: EditorViewModel.InpaintModel,
     isProcessing: Boolean,
     isDownloading: Boolean,
@@ -2948,6 +2951,26 @@ fun EraseToolPanel(
                         Spacer(modifier = Modifier.height(2.dp))
                     }
                     Text("Toleransi: ${magicWandTolerance.toInt()}%", style = MaterialTheme.typography.labelLarge)
+                    if (seedColor != null) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .background(
+                                        color = Color(seedColor),
+                                        shape = CircleShape
+                                    )
+                            )
+                            Text(
+                                text = String.format("#%08X", seedColor),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                     Slider(
                         value = magicWandTolerance,
                         onValueChange = onToleranceChange,
