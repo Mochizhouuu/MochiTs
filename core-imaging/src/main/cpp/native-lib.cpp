@@ -404,11 +404,11 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
             float db = static_cast<float>(((int)((c >> 16) & 0xFF)) - targetB);
             float da = static_cast<float>(((int)((c >> 24) & 0xFF)) - targetA);
             float distSq = dr * dr + dg * dg + db * db + da * da;
-            // Pita ketat dibatasi toleransi: warna ≈ seed selalu lolos
-            // dinding, tapi tak pernah melampaui toleransi itu sendiri.
+            // Urutan PENTING: non-dinding tak terbatas (area luas utuh);
+            // dinding hanya lolos pita ketat dalam budget 3 (titik/garis).
             if (distSq > tolSq) return false;
-            if (distSq <= 625.0f) return depth < 3;
-            if (edgeDil[p]) return false;
+            size_t p = (size_t)y * (size_t)width + (size_t)x;
+            if (edgeDil[p]) return distSq <= 625.0f && depth < 3;
             return true;
         };
         auto fillRun = [&](int y, int xa, int xb) {

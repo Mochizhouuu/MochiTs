@@ -104,10 +104,10 @@ object NativeBridge {
             val db = (c and 0xFF) - targetB
             val da = ((c ushr 24) and 0xFF) - targetA
             val distSq = (dr * dr + dg * dg + db * db + da * da).toFloat()
-            // Pita ketat dibatasi toleransi + budget kedalaman 3 (native).
+            // Urutan PENTING: non-dinding tak terbatas; dinding hanya
+            // lolos pita ketat dalam budget 3.
             if (distSq > tolSq) return false
-            if (distSq <= 625f) return depth < 3
-            if (edgeDil[y * w + x]) return false
+            if (edgeDil[y * w + x]) return distSq <= 625f && depth < 3
             return true
         }
 
