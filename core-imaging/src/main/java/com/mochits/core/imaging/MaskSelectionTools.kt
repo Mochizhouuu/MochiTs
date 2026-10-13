@@ -49,6 +49,35 @@ class MaskSelectionTools(
                 Bitmap.createBitmap(safeW, safeH, Bitmap.Config.ALPHA_8)
             }
         }
+
+        /** Versi murni min-filter (tanpa Bitmap) agar bisa di-unit-test. */
+        fun minLumDownscalePixels(srcPx: IntArray, srcW: Int, srcH: Int, sw: Int, sh: Int): IntArray {
+            fun lum(c: Int): Int =
+                (((c ushr 16) and 0xFF) * 77 + (((c ushr 8) and 0xFF) * 150) + ((c and 0xFF) * 29)) shr 8
+            val dstPx = IntArray(sw * sh)
+            for (dy in 0 until sh) {
+                val y0 = (dy * srcH) / sh
+                val y1 = ((dy + 1) * srcH) / sh
+                for (dx in 0 until sw) {
+                    val x0 = (dx * srcW) / sw
+                    val x1 = ((dx + 1) * srcW) / sw
+                    var best = srcPx[y0 * srcW + x0]
+                    var bestLum = lum(best)
+                    for (yy in y0 until y1) {
+                        for (xx in x0 until x1) {
+                            val c = srcPx[yy * srcW + xx]
+                            val l = lum(c)
+                            if (l < bestLum) {
+                                bestLum = l
+                                best = c
+                            }
+                        }
+                    }
+                    dstPx[dy * sw + dx] = best
+                }
+            }
+            return dstPx
+        }
     }
 
     val currentLassoPoints = mutableListOf<Offset>()
@@ -205,6 +234,22 @@ class MaskSelectionTools(
     }
 
     /**
+     * Kecilkan bitmap dengan minimum luminance per blok: garis tinta tidak
+     * pernah hilang (malah sedikit menebal = seleksi konservatif), seed
+     * tetap warna asli. Untuk flood seleksi, bukan untuk pajangan.
+     */
+    private fun downscaleMinLum(src: Bitmap, sw: Int, sh: Int): Bitmap {
+        val srcW = src.width
+        val srcH = src.height
+        val srcPx = IntArray(srcW * srcH)
+        src.getPixels(srcPx, 0, srcW, 0, 0, srcW, srcH)
+        val dstPx = minLumDownscalePixels(srcPx, srcW, srcH, sw, sh)
+        val out = Bitmap.createBitmap(sw, sh, Bitmap.Config.ARGB_8888)
+        out.setPixels(dstPx, 0, sw, 0, 0, sw, sh)
+        return out
+    }
+
+    /**
      * Flood di bitmap 0.5x lalu upscale hasilnya ke mask penuh.
      * Toleransi (ruang warna) tak terpengaruh skala; koordinat diskalakan.
      */
@@ -227,9 +272,11 @@ class MaskSelectionTools(
         val sw = (src.width * scale).toInt().coerceAtLeast(1)
         val sh = (src.height * scale).toInt().coerceAtLeast(1)
         val smallSrc = try {
-            // Nearest (filter=false): warna piksel TEPAT seperti aslinya.
-            // Bilinear menghaluskan tepi -> seed campuran -> seleksi ngawur.
-            Bitmap.createScaledBitmap(src, sw, sh, false)
+            // Min-filter (bukan nearest/bilinear): piksel TERGELAP tiap blok
+            // dipertahankan agar outline tipis tak putus saat dikecilkan.
+            // Nearest bisa menghilangkan garis 1-2px (aliasing dropout) dan
+            // bilinear menghaluskan seed tepi; keduanya membocorkan flood.
+            downscaleMinLum(src, sw, sh)
         } catch (t: Throwable) {
             return NativeBridge.WandOutcome(false, 0L)
         }

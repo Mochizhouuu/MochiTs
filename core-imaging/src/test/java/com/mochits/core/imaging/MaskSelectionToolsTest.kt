@@ -306,7 +306,7 @@ class MaskSelectionToolsTest {
         assertEquals(0, getAlpha(tools.maskBitmap.getPixel(5, 5)))
     }
 
-    @Test
+        @Test
     fun magicWand_blackLineNetwork_doesNotFloodGlobally() {        // Garis hitam vertikal x=15 (y 0..29) di atas putih. Ketuk tengah
         // garis dengan toleransi 32: tanpa budget, seluruh jaringan hitam
         // (dist 0, lolos dinding) terseleksi; dengan budget kedalaman 3,
@@ -380,5 +380,23 @@ class MaskSelectionToolsTest {
         assertEquals(255, getAlpha(tools.maskBitmap.getPixel(20, 20)))
         assertEquals(255, getAlpha(tools.maskBitmap.getPixel(10, 20)))
         assertEquals(0, getAlpha(tools.maskBitmap.getPixel(5, 5)))
+    }
+
+    @Test
+    fun minLumDownscale_preservesThinInkLines() {
+        // Garis hitam 1px vertikal di x=1 pada 4x4 putih -> kecilkan ke 2x2:
+        // kolom garis harus tetap mengandung hitam (nearest/bilinear bisa
+        // menghilangkannya).
+        val white = Color.WHITE
+        val srcPx = IntArray(16) { white }
+        for (y in 0 until 4) {
+            srcPx[y * 4 + 1] = Color.BLACK
+        }
+        val dst = MaskSelectionTools.minLumDownscalePixels(srcPx, 4, 4, 2, 2)
+        // Kolom 0 (mencakup x=0,1) harus hitam; kolom 1 (x=2,3) tetap putih.
+        assertEquals(Color.BLACK, dst[0])
+        assertEquals(Color.BLACK, dst[2])
+        assertEquals(white, dst[1])
+        assertEquals(white, dst[3])
     }
 }
