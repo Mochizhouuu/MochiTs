@@ -307,8 +307,7 @@ class MaskSelectionToolsTest {
     }
 
     @Test
-    fun magicWand_blackLineNetwork_doesNotFloodGlobally() {
-        // Garis hitam vertikal x=15 (y 0..29) di atas putih. Ketuk tengah
+    fun magicWand_blackLineNetwork_doesNotFloodGlobally() {        // Garis hitam vertikal x=15 (y 0..29) di atas putih. Ketuk tengah
         // garis dengan toleransi 32: tanpa budget, seluruh jaringan hitam
         // (dist 0, lolos dinding) terseleksi; dengan budget kedalaman 3,
         // hanya sekitar titik yang terseleksi.
@@ -324,6 +323,62 @@ class MaskSelectionToolsTest {
         assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 5)))
         assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 7)))
         assertEquals(0, getAlpha(tools.maskBitmap.getPixel(15, 20)))
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(5, 5)))
+    }
+
+    @Test
+    fun magicWand_largeUniformArea_fullySelected() {
+        // Area putih luas 30x100 tanpa tepi di dalam: tap tengah harus
+        // menjangkau ujung atas-bawah (bukan berhenti beberapa baris).
+        val tools = MaskSelectionTools(30, 100)
+        val srcBitmap = Bitmap.createBitmap(30, 100, Bitmap.Config.ARGB_8888)
+        srcBitmap.eraseColor(Color.WHITE)
+
+        tools.magicWandSelect(srcBitmap, Offset(15f, 50f), tolerance = 10f)
+
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 50)))
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 5)))
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 95)))
+    }
+
+    @Test
+    fun magicWand_closedWhiteBox_fillsInterior() {
+        // Kotak outline hitam 10..89 di kanvas 100x100 putih: tap tengah
+        // harus memenuhi interior sampai sudut dalam.
+        val tools = MaskSelectionTools(100, 100)
+        val srcBitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
+        srcBitmap.eraseColor(Color.WHITE)
+        for (x in 10..89) {
+            srcBitmap.setPixel(x, 10, Color.BLACK)
+            srcBitmap.setPixel(x, 89, Color.BLACK)
+        }
+        for (y in 10..89) {
+            srcBitmap.setPixel(10, y, Color.BLACK)
+            srcBitmap.setPixel(89, y, Color.BLACK)
+        }
+
+        tools.magicWandSelect(srcBitmap, Offset(50f, 50f), tolerance = 10f)
+
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(50, 50)))
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(15, 15)))
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(80, 80)))
+        assertEquals(0, getAlpha(tools.maskBitmap.getPixel(5, 5)))
+    }
+
+    @Test
+    fun magicWand_transparentCanvas_blackLineSelectable() {
+        // Kanvas transparan: garis hitam harus terseleksi, transparan tidak.
+        val tools = MaskSelectionTools(40, 40)
+        val srcBitmap = Bitmap.createBitmap(40, 40, Bitmap.Config.ARGB_8888)
+        srcBitmap.eraseColor(Color.TRANSPARENT)
+        for (x in 5..34) {
+            srcBitmap.setPixel(x, 20, Color.BLACK)
+        }
+
+        tools.magicWandSelect(srcBitmap, Offset(20f, 20f), tolerance = 10f)
+
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(20, 20)))
+        assertEquals(255, getAlpha(tools.maskBitmap.getPixel(10, 20)))
         assertEquals(0, getAlpha(tools.maskBitmap.getPixel(5, 5)))
     }
 }
