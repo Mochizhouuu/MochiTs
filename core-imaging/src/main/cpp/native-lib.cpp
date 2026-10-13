@@ -407,7 +407,6 @@ Java_com_mochits_core_imaging_NativeBridge_nativeMagicWandSelect(
             // Urutan PENTING: non-dinding tak terbatas (area luas utuh);
             // dinding hanya lolos pita ketat dalam budget 3 (titik/garis).
             if (distSq > tolSq) return false;
-            size_t p = (size_t)y * (size_t)width + (size_t)x;
             if (edgeDil[p]) return distSq <= 625.0f && depth < 3;
             return true;
         };
