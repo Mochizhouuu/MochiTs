@@ -463,6 +463,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
     }
     // Ketuk saat sibuk dibuang (seperti dulu): antrean tap basi justru
     // menimbulkan seleksi basi di titik lama setelah undo/geser.
+    // Ketuk wand yang antre: titik + epoch mask saat antre.
+    var queuedWandTap by remember { mutableStateOf<Pair<Offset, Long>?>(null) }
     fun launchWandTap(canvasPt: Offset) {
         val startTol = magicWandTolerance
         val startExp = magicWandExpand.toInt()
@@ -497,9 +499,6 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
             }
         }
     }
-    // Ketuk wand yang antre: titik + epoch mask saat antre.
-    var queuedWandTap by remember { mutableStateOf<Pair<Offset, Long>?>(null) }
-
     // Re-sync the erase status hint whenever the erase panel opens (mask may
     // have changed via undo/redo while another panel was active).
     // Pindah panel membatalkan tap wand yang antre.
