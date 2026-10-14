@@ -513,6 +513,9 @@ data class HistoryManifest(
 
     private val undoStack = ArrayDeque<HistorySnapshot>()
     private val redoStack = ArrayDeque<HistorySnapshot>()
+    /** Naik tiap undo/redo/rollback: tap wand antre sebelum itu basi. */
+    var maskEpoch = 0L
+        private set
 
     val canUndo = MutableStateFlow(false)
     val canRedo = MutableStateFlow(false)
@@ -647,6 +650,7 @@ data class HistoryManifest(
     }
 
     fun rollbackUndoSnapshot() {
+        maskEpoch++
         val snapshot = synchronized(undoStack) {
             if (undoStack.isNotEmpty()) undoStack.removeLast() else null
         }
@@ -657,6 +661,7 @@ data class HistoryManifest(
     }
 
     fun undo() {
+        maskEpoch++
         val previousState = synchronized(undoStack) {
             if (undoStack.isEmpty()) return
             undoStack.removeLast()
@@ -679,6 +684,7 @@ data class HistoryManifest(
     }
 
     fun redo() {
+        maskEpoch++
         val nextState = synchronized(undoStack) {
             if (redoStack.isEmpty()) return
             redoStack.removeLast()

@@ -485,15 +485,26 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                 }
             } catch (t: Throwable) {
                 com.mochits.app.util.Logger.e("Magic wand gagal: ${t.message}", t)
-                                                            } finally {
-                                                                isProcessingMagicWand = false
-                                                            }
+            } finally {
+                isProcessingMagicWand = false
+                // Tap yang antre saat sibuk dijalankan bila mask belum
+                // berubah (undo/redo/pindah panel membatalkannya).
+                val q = queuedWandTap
+                queuedWandTap = null
+                if (q != null && q.second == viewModel.maskEpoch) {
+                    launchWandTap(q.first)
+                }
+            }
         }
     }
+    // Ketuk wand yang antre: titik + epoch mask saat antre.
+    var queuedWandTap by remember { mutableStateOf<Pair<Offset, Long>?>(null) }
 
     // Re-sync the erase status hint whenever the erase panel opens (mask may
     // have changed via undo/redo while another panel was active).
+    // Pindah panel membatalkan tap wand yang antre.
     LaunchedEffect(activePanel) {
+        queuedWandTap = null
         if (activePanel == EditorPanel.ERASE || activePanel == EditorPanel.MASK || activePanel == EditorPanel.INPAINT) {
             refreshMaskState()
         }
@@ -1240,7 +1251,11 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                         canvasPt.x >= 0f && canvasPt.y >= 0f &&
                                                         canvasPt.x < base.width.toFloat() && canvasPt.y < base.height.toFloat()
                                                     if (insideImage) {
-                                                        launchWandTap(canvasPt)
+                                                        if (isProcessingMagicWand) {
+                                                            queuedWandTap = canvasPt to viewModel.maskEpoch
+                                                        } else {
+                                                            launchWandTap(canvasPt)
+                                                        }
                                                     }
                                                 }
                                                 isMagicWandPending = false
