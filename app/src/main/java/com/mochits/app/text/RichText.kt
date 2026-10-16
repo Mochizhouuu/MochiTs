@@ -72,7 +72,9 @@ fun splitToRuns(text: String, spans: List<TextSpanStyle>): List<StyledRun> {
 
 /**
  * Tempel patch gaya ke rentang [start, end): potong span lama yang
- * bertabrakan, gabung yang bersebelahan dan identik.
+ * bertabrakan, gabung yang bersebelahan dan identik. Field null pada patch
+ * MEWARISI field span lama yang tertimpa (bukan menghapusnya), sehingga
+ * warna + ukuran bisa ditumpuk bertahap.
  */
 fun applySpanPatch(
     spans: List<TextSpanStyle>,
@@ -87,31 +89,46 @@ fun applySpanPatch(
     val a = start.coerceIn(0, textLength)
     val b = end.coerceIn(0, textLength)
     if (b <= a) return normalizeSpans(spans, textLength)
+    val norm = normalizeSpans(spans, textLength)
     val kept = ArrayList<TextSpanStyle>()
-    for (s in normalizeSpans(spans, textLength)) {
+    // Sisi kiri/kanan span lama yang tersisa (di luar [a, b)).
+    for (s in norm) {
         if (s.end <= a || s.start >= b) {
             kept.add(s)
             continue
         }
-        // Sisi kiri yang tersisa.
         if (s.start < a) {
             kept.add(s.copy(end = a))
         }
-        // Sisi kanan yang tersisa.
         if (s.end > b) {
             kept.add(s.copy(start = b))
         }
     }
-    kept.add(
-        TextSpanStyle(
-            start = a,
-            end = b,
-            fontName = fontName,
-            fontStyle = fontStyle,
-            fontSize = fontSize,
-            textColor = textColor
+    // Isi [a, b) per sub-segmen: tiap bagian mewarisi span lama yang
+    // menutupinya, ditimpa field patch yang non-null.
+    val overlapping = norm.filter { it.start < b && it.end > a }
+    val cuts = sortedSetOf(a, b)
+    for (s in overlapping) {
+        cuts.add(s.start.coerceIn(a, b))
+        cuts.add(s.end.coerceIn(a, b))
+    }
+    val pts = cuts.toList()
+    for (i in 0 until pts.size - 1) {
+        val sa = pts[i]
+        val sb = pts[i + 1]
+        if (sb <= sa) continue
+        val old = overlapping.firstOrNull { it.start <= sa && it.end >= sb }
+        kept.add(
+            TextSpanStyle(
+                start = sa,
+                end = sb,
+                fontName = fontName ?: old?.fontName,
+                fontStyle = fontStyle ?: old?.fontStyle,
+                fontSize = fontSize ?: old?.fontSize,
+                textColor = textColor ?: old?.textColor
+            )
         )
-    )
+    }
     // Gabung tetangga yang identik agar daftar tetap ringkas.
     val sorted = kept.sortedWith(compareBy({ it.start }, { it.end }))
     val merged = ArrayList<TextSpanStyle>()

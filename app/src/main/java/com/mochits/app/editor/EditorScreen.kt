@@ -800,7 +800,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         autoFocus = shouldFocusTextField,
                         onFocused = { shouldFocusTextField = false },
                         allFonts = allFonts,
-                        onApplySpan = { s, e, fn, fst, fs, tc -> viewModel.applySpanStyle(s, e, fn, fst, fs, tc) },
+                        onApplySpan = { s, e, fn, fst, fs, tc, saveUndo -> viewModel.applySpanStyle(s, e, fn, fst, fs, tc, saveUndo) },
                         onClearSpan = { s, e -> viewModel.clearSpanStyle(s, e) },
                         isCollapsed = EditorPanel.TEXT in collapsedPanels,
                         onToggleCollapse = { togglePanelCollapse(EditorPanel.TEXT) }
@@ -3047,7 +3047,7 @@ fun TextToolPanel(
     // Rich text fase 1: daftar font untuk toolbar kata.
     allFonts: List<FontItem> = emptyList(),
     // Terapkan gaya kata [s, e): null = ikut layer. Wire ke applySpanStyle.
-    onApplySpan: ((Int, Int, String?, String?, Float?, Int?) -> Unit)? = null,
+    onApplySpan: ((Int, Int, String?, String?, Float?, Int?, Boolean) -> Unit)? = null,
     // Hapus gaya kata [s, e). Wire ke clearSpanStyle.
     onClearSpan: ((Int, Int) -> Unit)? = null,
     isCollapsed: Boolean = false,
@@ -3222,9 +3222,17 @@ fun TextToolPanel(
                             }
                         }
                         Text(
-                            text = remember(layerNow.text, layerNow.richSpans, layerNow.style) {
+                            text = remember(layerNow.text, layerNow.richSpans, layerNow.style, s, e) {
+                                val full = layerNow.text
+                                val to = e.coerceAtMost(full.length)
+                                val sub = if (to > s) full.substring(s, to) else ""
+                                val clipped = layerNow.richSpans.mapNotNull { sp ->
+                                    val a = maxOf(sp.start, s) - s
+                                    val b = minOf(sp.end, to) - s
+                                    if (b <= a) null else sp.copy(start = a, end = b)
+                                }
                                 buildAnnotatedString {
-                                    for (run in splitToRuns(layerNow.text, layerNow.richSpans)) {
+                                    for (run in splitToRuns(sub, clipped)) {
                                         val rStyle = layerNow.style
                                         withStyle(
                                             SpanStyle(
@@ -3261,18 +3269,26 @@ fun TextToolPanel(
                                 AndroidColor.RED to "Merah",
                                 0xFFFFA500.toInt() to "Oranye",
                                 AndroidColor.YELLOW to "Kuning",
+                                0xFF808000.toInt() to "Olive",
                                 AndroidColor.GREEN to "Hijau",
+                                0xFF00FF00.toInt() to "Lime",
+                                0xFF008080.toInt() to "Teal",
                                 AndroidColor.CYAN to "Cyan",
+                                0xFF000080.toInt() to "Navy",
                                 AndroidColor.BLUE to "Biru",
                                 0xFF800080.toInt() to "Ungu",
-                                AndroidColor.GRAY to "Abu"
+                                0xFFFFC0CB.toInt() to "Pink",
+                                0xFF800000.toInt() to "Marun",
+                                0xFFA52A2A.toInt() to "Coklat",
+                                AndroidColor.GRAY to "Abu",
+                                0xFFC0C0C0.toInt() to "Silver"
                             )
                             for ((c, desc) in presets) {
                                 val sel = effColor == c
                                 Surface(
                                     onClick = {
                                         bankSpanSnapshot()
-                                        onApplySpan?.invoke(s, e, null, null, null, c)
+                                        onApplySpan?.invoke(s, e, null, null, null, c, false)
                                     },
                                     shape = CircleShape,
                                     color = Color(c),
@@ -3294,7 +3310,7 @@ fun TextToolPanel(
                                 selected = effShown,
                                 onSelect = { picked ->
                                     bankSpanSnapshot()
-                                    onApplySpan?.invoke(s, e, picked, null, null, null)
+                                    onApplySpan?.invoke(s, e, picked, null, null, null, false)
                                 },
                                 labelOf = { it }
                             )
@@ -3306,7 +3322,7 @@ fun TextToolPanel(
                             IconButton(
                                 onClick = {
                                     bankSpanSnapshot()
-                                    onApplySpan?.invoke(s, e, null, null, (effFontSize - 2f).coerceAtLeast(10f), null)
+                                    onApplySpan?.invoke(s, e, null, null, (effFontSize - 2f).coerceAtLeast(10f), null, false)
                                 },
                                 modifier = Modifier.size(32.dp)
                             ) {
@@ -3320,7 +3336,7 @@ fun TextToolPanel(
                             IconButton(
                                 onClick = {
                                     bankSpanSnapshot()
-                                    onApplySpan?.invoke(s, e, null, null, (effFontSize + 2f).coerceAtMost(300f), null)
+                                    onApplySpan?.invoke(s, e, null, null, (effFontSize + 2f).coerceAtMost(300f), null, false)
                                 },
                                 modifier = Modifier.size(32.dp)
                             ) {
@@ -3337,7 +3353,7 @@ fun TextToolPanel(
                                         "Italic" -> "BoldItalic"
                                         else -> "Bold"
                                     }
-                                    onApplySpan?.invoke(s, e, null, next, null, null)
+                                    onApplySpan?.invoke(s, e, null, next, null, null, false)
                                 },
                                 label = { Text("B", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)) }
                             )
@@ -3351,7 +3367,7 @@ fun TextToolPanel(
                                         "Bold" -> "BoldItalic"
                                         else -> "Italic"
                                     }
-                                    onApplySpan?.invoke(s, e, null, next, null, null)
+                                    onApplySpan?.invoke(s, e, null, next, null, null, false)
                                 },
                                 label = { Text("I", style = MaterialTheme.typography.labelLarge.copy(fontStyle = FontStyle.Italic)) }
                             )

@@ -47,6 +47,20 @@ class RichTextTest {
     }
 
     @Test
+    fun applySpanPatch_mergesFieldsAcrossTaps() {
+        // Ketuk 1: warnai [0,10). Ketuk 2: besarkan [4,8) -> warna ikut.
+        val afterColor = applySpanPatch(emptyList(), 12, 0, 10, textColor = 1)
+        val afterSize = applySpanPatch(afterColor, 12, 4, 8, fontSize = 60f)
+        val mid = afterSize.firstOrNull { it.start <= 5 && it.end >= 6 }
+        assertEquals(1, mid?.textColor)
+        assertEquals(60f, mid?.fontSize)
+        // Sisi luar tak tersentuh ukuran.
+        val left = afterSize.firstOrNull { it.start == 0 }
+        assertEquals(1, left?.textColor)
+        assertEquals(null, left?.fontSize)
+    }
+
+    @Test
     fun clearSpanRange_restoresBase() {
         val old = listOf(TextSpanStyle(0, 10, textColor = 1))
         val out = clearSpanRange(old, 12, 3, 7)
