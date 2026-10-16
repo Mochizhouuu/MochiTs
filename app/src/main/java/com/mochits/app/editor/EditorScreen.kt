@@ -802,7 +802,6 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         allFonts = allFonts,
                         onApplySpan = { s, e, fn, fst, fs, tc, saveUndo -> viewModel.applySpanStyle(s, e, fn, fst, fs, tc, saveUndo) },
                         onClearSpan = { s, e -> viewModel.clearSpanStyle(s, e) },
-                        favoriteFontKeys = favoriteFontKeys,
                         isCollapsed = EditorPanel.TEXT in collapsedPanels,
                         onToggleCollapse = { togglePanelCollapse(EditorPanel.TEXT) }
                     )
@@ -3047,9 +3046,6 @@ fun TextToolPanel(
     onRequestAutosave: (() -> Unit)? = null,
     // Rich text fase 1: daftar font untuk toolbar kata.
     allFonts: List<FontItem> = emptyList(),
-    // Kunci favorit (bintang di panel Font): bila ada, tap hanya
-    // memutar favorit agar ramping; tahan-lama tetap semua.
-    favoriteFontKeys: Set<String> = emptySet(),
     // Terapkan gaya kata [s, e): null = ikut layer. Wire ke applySpanStyle.
     onApplySpan: ((Int, Int, String?, String?, Float?, Int?, Boolean) -> Unit)? = null,
     // Hapus gaya kata [s, e). Wire ke clearSpanStyle.
@@ -3306,20 +3302,86 @@ fun TextToolPanel(
                             }
                         }
                         if (allFonts.isNotEmpty()) {
-                            val favs = allFonts.filter { favoriteFontKeys.contains(it.fontNameKey) }
-                            val quickFonts = if (favs.isNotEmpty()) favs else allFonts
-                            val fontNames = quickFonts.map { it.name }.distinct()
-                            val effShown = if (fontNames.contains(effFontName)) effFontName else fontNames.firstOrNull().orEmpty()
-                            OptionCycler(
-                                label = if (favs.isNotEmpty()) "Font kata ★" else "Font kata",
-                                options = fontNames,
-                                selected = effShown,
-                                onSelect = { picked ->
-                                    bankSpanSnapshot()
-                                    onApplySpan?.invoke(s, e, picked, null, null, null, false)
-                                },
-                                labelOf = { it }
-                            )
+                            var fontPickerOpen by remember(snappedRange) { mutableStateOf(false) }
+                            var fontSearch by remember(snappedRange) { mutableStateOf("") }
+                            val fontNames = allFonts.map { it.name }.distinct()
+                            val fontShown = if (fontNames.contains(effFontName)) effFontName else fontNames.firstOrNull().orEmpty()
+                            Surface(
+                                onClick = { fontPickerOpen = !fontPickerOpen },
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                                color = MaterialTheme.colorScheme.surface,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Font kata: $fontShown",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 1
+                                    )
+                                    Icon(
+                                        if (fontPickerOpen) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            if (fontPickerOpen) {
+                                val filtered = remember(allFonts, fontSearch) {
+                                    if (fontSearch.isBlank()) {
+                                        allFonts
+                                    } else {
+                                        allFonts.filter { it.name.contains(fontSearch, ignoreCase = true) }
+                                    }
+                                }.take(12)
+                                OutlinedTextField(
+                                    value = fontSearch,
+                                    onValueChange = { fontSearch = it },
+                                    placeholder = { Text("Cari font...") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    for (f in filtered) {
+                                        val isSel = f.name == fontShown
+                                        Surface(
+                                            onClick = {
+                                                bankSpanSnapshot()
+                                                onApplySpan?.invoke(s, e, f.name, null, null, null, false)
+                                                fontPickerOpen = false
+                                            },
+                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                                            color = if (isSel) {
+                                                MaterialTheme.colorScheme.primaryContainer
+                                            } else {
+                                                MaterialTheme.colorScheme.surface
+                                            },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                if (isSel) {
+                                                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                }
+                                                Text(
+                                                    text = f.name,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    maxLines = 1,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
