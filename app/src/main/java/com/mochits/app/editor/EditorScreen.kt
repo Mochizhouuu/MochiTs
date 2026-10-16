@@ -15,6 +15,14 @@ import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.sp
+import com.mochits.app.text.snapToWords
+import com.mochits.app.text.splitToRuns
 import androidx.compose.ui.text.style.TextOverflow
 import com.mochits.app.font.FontItem
 import android.graphics.BitmapFactory
@@ -791,6 +799,9 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onCapitalizationTransform = { transformType -> viewModel.applyCapitalizationTransform(transformType) },
                         autoFocus = shouldFocusTextField,
                         onFocused = { shouldFocusTextField = false },
+                        allFonts = allFonts,
+                        onApplySpan = { s, e, fn, fst, fs, tc -> viewModel.applySpanStyle(s, e, fn, fst, fs, tc) },
+                        onClearSpan = { s, e -> viewModel.clearSpanStyle(s, e) },
                         isCollapsed = EditorPanel.TEXT in collapsedPanels,
                         onToggleCollapse = { togglePanelCollapse(EditorPanel.TEXT) }
                     )
@@ -3033,20 +3044,31 @@ fun TextToolPanel(
     // Called on every keystroke; wire to a throttled autoSave() so typed text
     // is durable without creating undo steps.
     onRequestAutosave: (() -> Unit)? = null,
+    // Rich text fase 1: daftar font untuk toolbar kata.
+    allFonts: List<FontItem> = emptyList(),
+    // Terapkan gaya kata [s, e): null = ikut layer. Wire ke applySpanStyle.
+    onApplySpan: ((Int, Int, String?, String?, Float?, Int?) -> Unit)? = null,
+    // Hapus gaya kata [s, e). Wire ke clearSpanStyle.
+    onClearSpan: ((Int, Int) -> Unit)? = null,
     isCollapsed: Boolean = false,
     onToggleCollapse: () -> Unit = {}
 ) {
-    var textInput by remember { mutableStateOf(selectedLayer?.text ?: "") }
+    var fieldValue by remember {
+        mutableStateOf(TextFieldValue(selectedLayer?.text ?: ""))
+    }
     val focusRequester = remember { FocusRequester() }
     // Tracks which layer already banked its session snapshot. Reset on external
     // changes (undo, layer switch) so the next keystroke snapshots again.
     var editSnapshotLayerId by remember { mutableStateOf<String?>(null) }
+    // Kunci sesi snapshot span (satu undo per ganti seleksi kata).
+    var spanSnapshotKey by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(selectedLayer?.id, selectedLayer?.text) {
         val incoming = selectedLayer?.text ?: ""
-        if (incoming != textInput) {
-            textInput = incoming
+        if (incoming != fieldValue.text) {
+            fieldValue = TextFieldValue(incoming)
             editSnapshotLayerId = null
+            spanSnapshotKey = null
         }
     }
 
@@ -3116,9 +3138,10 @@ fun TextToolPanel(
             if (!isCollapsed) {
             SectionCard(title = "Content") {
             OutlinedTextField(
-                value = textInput,
-                onValueChange = { newText ->
-                    textInput = newText
+                value = fieldValue,
+                onValueChange = { fv ->
+                    fieldValue = fv
+                    val newText = fv.text
                     if (selectedLayer != null) {
                         if (editSnapshotLayerId != selectedLayer.id) {
                             editSnapshotLayerId = selectedLayer.id
@@ -3135,18 +3158,219 @@ fun TextToolPanel(
                     .fillMaxWidth()
                     .focusRequester(focusRequester)
             )
+            // Toolbar gaya kata (fase 1 rich text): muncul saat ada blok seleksi.
+            val snappedRange = remember(fieldValue, selectedLayer?.id, selectedLayer?.text) {
+                if (selectedLayer == null || fieldValue.selection.collapsed) {
+                    null
+                } else {
+                    snapToWords(fieldValue.text, fieldValue.selection.start, fieldValue.selection.end)
+                }
+            }
+            LaunchedEffect(snappedRange, selectedLayer?.id) {
+                spanSnapshotKey = null
+            }
+            if (snappedRange != null && selectedLayer != null) {
+                val s = snappedRange.first
+                val e = snappedRange.last + 1
+                val layerNow = selectedLayer
+                val spanHere = layerNow.richSpans.firstOrNull { s in it.start until it.end }
+                val effFontName = spanHere?.fontName ?: layerNow.style.fontName
+                val effFontStyle = spanHere?.fontStyle ?: layerNow.style.fontStyle
+                val effFontSize = spanHere?.fontSize ?: layerNow.style.fontSize
+                val effColor = spanHere?.textColor ?: layerNow.style.textColor
+                val sessionKey = "${layerNow.id}:$s-$e"
+                fun bankSpanSnapshot() {
+                    if (spanSnapshotKey != sessionKey) {
+                        spanSnapshotKey = sessionKey
+                        onEditStart?.invoke()
+                    }
+                }
+                val kataLabel = try {
+                    layerNow.text.substring(s, e.coerceAtMost(layerNow.text.length)).take(24)
+                } catch (_: Exception) {
+                    ""
+                }
+                Surface(
+                    tonalElevation = 2.dp,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Kata: $kataLabel",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(
+                                onClick = {
+                                    bankSpanSnapshot()
+                                    onClearSpan?.invoke(s, e)
+                                },
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                            ) {
+                                Text("Reset", style = MaterialTheme.typography.labelLarge)
+                            }
+                        }
+                        Text(
+                            text = remember(layerNow.text, layerNow.richSpans, layerNow.style) {
+                                buildAnnotatedString {
+                                    for (run in splitToRuns(layerNow.text, layerNow.richSpans)) {
+                                        val rStyle = layerNow.style
+                                        withStyle(
+                                            SpanStyle(
+                                                color = Color(run.textColor ?: rStyle.textColor),
+                                                fontSize = (run.fontSize ?: rStyle.fontSize).sp,
+                                                fontWeight = when (run.fontStyle ?: rStyle.fontStyle) {
+                                                    "Bold", "BoldItalic" -> FontWeight.Bold
+                                                    else -> FontWeight.Normal
+                                                },
+                                                fontStyle = when (run.fontStyle ?: rStyle.fontStyle) {
+                                                    "Italic", "BoldItalic" -> FontStyle.Italic
+                                                    else -> FontStyle.Normal
+                                                }
+                                            )
+                                        ) {
+                                            append(run.text)
+                                        }
+                                    }
+                                }
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 2
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val presets = listOf(
+                                AndroidColor.BLACK to "Hitam",
+                                AndroidColor.WHITE to "Putih",
+                                AndroidColor.RED to "Merah",
+                                0xFFFFA500.toInt() to "Oranye",
+                                AndroidColor.YELLOW to "Kuning",
+                                AndroidColor.GREEN to "Hijau",
+                                AndroidColor.CYAN to "Cyan",
+                                AndroidColor.BLUE to "Biru",
+                                0xFF800080.toInt() to "Ungu",
+                                AndroidColor.GRAY to "Abu"
+                            )
+                            for ((c, desc) in presets) {
+                                val sel = effColor == c
+                                Surface(
+                                    onClick = {
+                                        bankSpanSnapshot()
+                                        onApplySpan?.invoke(s, e, null, null, null, c)
+                                    },
+                                    shape = CircleShape,
+                                    color = Color(c),
+                                    border = if (sel) {
+                                        BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                                    } else {
+                                        BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {}
+                            }
+                        }
+                        if (allFonts.isNotEmpty()) {
+                            val fontNames = allFonts.map { it.name }.distinct()
+                            val effShown = if (fontNames.contains(effFontName)) effFontName else fontNames.firstOrNull().orEmpty()
+                            OptionCycler(
+                                label = "Font kata",
+                                options = fontNames,
+                                selected = effShown,
+                                onSelect = { picked ->
+                                    bankSpanSnapshot()
+                                    onApplySpan?.invoke(s, e, picked, null, null, null)
+                                },
+                                labelOf = { it }
+                            )
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    bankSpanSnapshot()
+                                    onApplySpan?.invoke(s, e, null, null, (effFontSize - 2f).coerceAtLeast(10f), null)
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.Remove, contentDescription = "Kecilkan")
+                            }
+                            Text(
+                                text = "${effFontSize.toInt()}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.widthIn(min = 28.dp)
+                            )
+                            IconButton(
+                                onClick = {
+                                    bankSpanSnapshot()
+                                    onApplySpan?.invoke(s, e, null, null, (effFontSize + 2f).coerceAtMost(300f), null)
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = "Besarkan")
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                            FilterChip(
+                                selected = effFontStyle == "Bold" || effFontStyle == "BoldItalic",
+                                onClick = {
+                                    bankSpanSnapshot()
+                                    val next = when (effFontStyle) {
+                                        "Bold" -> "Regular"
+                                        "BoldItalic" -> "Italic"
+                                        "Italic" -> "BoldItalic"
+                                        else -> "Bold"
+                                    }
+                                    onApplySpan?.invoke(s, e, null, next, null, null)
+                                },
+                                label = { Text("B", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)) }
+                            )
+                            FilterChip(
+                                selected = effFontStyle == "Italic" || effFontStyle == "BoldItalic",
+                                onClick = {
+                                    bankSpanSnapshot()
+                                    val next = when (effFontStyle) {
+                                        "Italic" -> "Regular"
+                                        "BoldItalic" -> "Bold"
+                                        "Bold" -> "BoldItalic"
+                                        else -> "Italic"
+                                    }
+                                    onApplySpan?.invoke(s, e, null, next, null, null)
+                                },
+                                label = { Text("I", style = MaterialTheme.typography.labelLarge.copy(fontStyle = FontStyle.Italic)) }
+                            )
+                        }
+                    }
+                }
+            }
             Button(
                 onClick = {
-                    if (textInput.isNotBlank()) {
+                    if (fieldValue.text.isNotBlank()) {
                         if (selectedLayer != null) {
-                            onUpdateTextContent?.invoke(textInput)
+                            onUpdateTextContent?.invoke(fieldValue.text)
                         } else {
-                            onAddText(textInput, pendingShape)
-                            textInput = ""
+                            onAddText(fieldValue.text, pendingShape)
+                            fieldValue = TextFieldValue("")
                         }
                     }
                 },
-                enabled = textInput.isNotBlank(),
+                enabled = fieldValue.text.isNotBlank(),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(

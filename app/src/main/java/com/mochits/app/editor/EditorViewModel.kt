@@ -295,7 +295,12 @@ class EditorViewModel @Inject constructor(
             }
             layers.value = layers.value.map { layer ->
                 if (layer.id == selectedId && layer is Layer.TextLayer) {
-                    growBoxToFit(layer.copy(text = newText))
+                    growBoxToFit(
+                        layer.copy(
+                            text = newText,
+                            richSpans = com.mochits.app.text.shiftSpansOnEdit(layer.text, layer.richSpans, newText)
+                        )
+                    )
                 } else {
                     layer
                 }
@@ -303,6 +308,59 @@ class EditorViewModel @Inject constructor(
             if (saveUndo) {
                 autoSave()
             }
+        }
+    }
+
+    /**
+     * Tempel gaya ke kata pada rentang [start, end) (fase 1 rich text).
+     * null = ikut gaya layer (tak diubah).
+     */
+    fun applySpanStyle(
+        start: Int,
+        end: Int,
+        fontName: String? = null,
+        fontStyle: String? = null,
+        fontSize: Float? = null,
+        textColor: Int? = null,
+        saveUndo: Boolean = true
+    ) {
+        val selectedId = selectedLayerId.value ?: return
+        if (saveUndo) {
+            saveUndoSnapshot()
+        }
+        layers.value = layers.value.map { layer ->
+            if (layer.id == selectedId && layer is Layer.TextLayer) {
+                val spans = com.mochits.app.text.applySpanPatch(
+                    layer.richSpans, layer.text.length, start, end,
+                    fontName = fontName, fontStyle = fontStyle,
+                    fontSize = fontSize, textColor = textColor
+                )
+                growBoxToFit(layer.copy(richSpans = spans))
+            } else {
+                layer
+            }
+        }
+        if (saveUndo) {
+            autoSave()
+        }
+    }
+
+    /** Hapus gaya kata pada rentang (kembali ikut layer). */
+    fun clearSpanStyle(start: Int, end: Int, saveUndo: Boolean = true) {
+        val selectedId = selectedLayerId.value ?: return
+        if (saveUndo) {
+            saveUndoSnapshot()
+        }
+        layers.value = layers.value.map { layer ->
+            if (layer.id == selectedId && layer is Layer.TextLayer) {
+                val spans = com.mochits.app.text.clearSpanRange(layer.richSpans, layer.text.length, start, end)
+                growBoxToFit(layer.copy(richSpans = spans))
+            } else {
+                layer
+            }
+        }
+        if (saveUndo) {
+            autoSave()
         }
     }
 
