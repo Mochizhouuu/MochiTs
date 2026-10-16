@@ -65,6 +65,19 @@ data class TextStylePreset(
     val isBuiltIn: Boolean = false
 )
 
+/**
+ * Gaya per kata dalam satu layer teks (rich text fase 1: warna, font,
+ * gaya font, ukuran). null = ikut gaya layer. start inklusif, end eksklusif.
+ */
+data class TextSpanStyle(
+    val start: Int,
+    val end: Int,
+    val fontName: String? = null,
+    val fontStyle: String? = null,
+    val fontSize: Float? = null,
+    val textColor: Int? = null
+)
+
 data class TextStyleConfig(
     val fontName: String = "Default",
     val fontStyle: String = "Regular", // "Regular", "Bold", "Italic", "BoldItalic"
@@ -173,6 +186,8 @@ sealed class Layer(
         override val isLocked: Boolean = false,
         val text: String,
         val style: TextStyleConfig = TextStyleConfig(),
+        // Rich text per kata (fase 1). Kosong = seluruh teks ikut style.
+        val richSpans: List<TextSpanStyle> = emptyList(),
         val textContainerShape: TextContainerShape = TextContainerShape.BOX,
         val boxWidth: Float? = null,
         val boxHeight: Float? = null,

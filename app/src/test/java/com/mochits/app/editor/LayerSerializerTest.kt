@@ -297,4 +297,56 @@ class LayerSerializerTest {
         assertEquals(1f, layer.contrast, 0.001f)
         assertEquals(0f, layer.motionBlurRadius, 0.001f)
     }
+
+    @Test
+    fun testSerializeAndDeserializeWithRichSpans() {
+        val textLayer = Layer.TextLayer(
+            id = "rich_1",
+            name = "Rich",
+            text = "halo dunia",
+            style = TextStyleConfig(fontSize = 36f),
+            richSpans = listOf(
+                com.mochits.app.model.TextSpanStyle(5, 10, fontSize = 60f, textColor = Color.RED)
+            )
+        )
+
+        val json = serializer.serialize(listOf(textLayer))
+        val deserialized = serializer.deserialize(json)
+
+        assertEquals(1, deserialized.size)
+        val layer = deserialized[0] as Layer.TextLayer
+        assertEquals(1, layer.richSpans.size)
+        assertEquals(5, layer.richSpans[0].start)
+        assertEquals(10, layer.richSpans[0].end)
+        assertEquals(60f, layer.richSpans[0].fontSize)
+        assertEquals(Color.RED, layer.richSpans[0].textColor)
+    }
+
+    @Test
+    fun testDeserializeLegacyJsonWithoutRichSpans() {
+        val legacyJson = """
+            [
+              {
+                "id": "legacy_rich",
+                "type": "TEXT",
+                "name": "Legacy",
+                "x": 0.0,
+                "y": 0.0,
+                "rotation": 0.0,
+                "scaleX": 1.0,
+                "scaleY": 1.0,
+                "opacity": 1.0,
+                "isVisible": true,
+                "isLocked": false,
+                "text": "halo",
+                "style": null
+              }
+            ]
+        """.trimIndent()
+
+        val deserialized = serializer.deserialize(legacyJson)
+        assertEquals(1, deserialized.size)
+        val layer = deserialized[0] as Layer.TextLayer
+        assertTrue(layer.richSpans.isEmpty())
+    }
 }

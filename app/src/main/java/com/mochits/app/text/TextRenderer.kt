@@ -14,14 +14,29 @@ import kotlin.math.abs
 import com.mochits.app.model.Layer
 import com.mochits.app.model.TextAlignment
 import com.mochits.app.model.TextContainerShape
+import com.mochits.app.model.TextSpanStyle
 import com.mochits.app.model.TextStyleConfig
 import kotlin.math.ceil
 import kotlin.math.sqrt
 
+data class RenderedRun(
+    val text: String,
+    val width: Float,
+    /** Offset dari kiri layer (konvensi sama dengan RenderedLine.xOffset). */
+    val xOffset: Float,
+    val fontSize: Float,
+    val fontName: String,
+    val fontStyle: String,
+    /** null = ikut warna layer. */
+    val textColor: Int? = null
+)
+
 data class RenderedLine(
     val text: String,
     val width: Float,
-    val xOffset: Float
+    val xOffset: Float,
+    /** Run-run gaya pembentuk baris (fase 1 rich text). */
+    val runs: List<RenderedRun> = emptyList()
 )
 
 data class TextLayoutResult(
@@ -41,7 +56,19 @@ private data class TextLayoutKey(
     val shape: TextContainerShape,
     val boxWidthHalfPx: Int?,
     val boxHeightHalfPx: Int?,
-    val alignment: TextAlignment
+    val alignment: TextAlignment,
+    val baseStyle: TextStyleConfig,
+    val spans: List<com.mochits.app.model.TextSpanStyle>
+)
+
+/** Token terukur bergaya untuk layout rich-text (internal). */
+private data class StyledTok(
+    val t: String,
+    val w: Float,
+    val fs: Float,
+    val fn: String,
+    val fst: String,
+    val tc: Int?
 )
 
 private object SyllableSplitter {
@@ -191,6 +218,10 @@ class TextRenderer(private val context: Context) {
     private val reusableGlowPaint = Paint()
     private val reusableShadowPaint = Paint()
     private val reusableStrokePaint = Paint()
+    /** Khusus ukur token rich-text (paint pemanggil tak boleh diubah layout). */
+    private val reusableMeasurePaint = Paint()
+    /** Fill per-run rich-text (dikonfigurasi ulang tiap run). */
+    private val reusableRunPaint = Paint()
 
     /**
      * Complete rewrite of text layout and reflow logic from scratch.
@@ -203,7 +234,9 @@ class TextRenderer(private val context: Context) {
         shape: TextContainerShape = TextContainerShape.BOX,
         boxWidth: Float? = null,
         boxHeight: Float? = null,
-        alignment: TextAlignment = TextAlignment.CENTER
+        alignment: TextAlignment = TextAlignment.CENTER,
+        baseStyle: TextStyleConfig = TextStyleConfig(),
+        spans: List<com.mochits.app.model.TextSpanStyle> = emptyList()
     ): TextLayoutResult {
         val key = TextLayoutKey(
             text = text,
@@ -212,14 +245,16 @@ class TextRenderer(private val context: Context) {
             shape = shape,
             boxWidthHalfPx = boxWidth?.let { kotlin.math.round(it * 2f).toInt() },
             boxHeightHalfPx = boxHeight?.let { kotlin.math.round(it * 2f).toInt() },
-            alignment = alignment
+            alignment = alignment,
+            baseStyle = baseStyle,
+            spans = spans
         )
 
         synchronized(layoutCache) {
             layoutCache[key]?.let { return it }
         }
 
-        val result = computeLayoutText(text, paint, shape, boxWidth, boxHeight, alignment)
+        val result = computeLayoutText(text, paint, shape, boxWidth, boxHeight, alignment, baseStyle, spans)
 
         synchronized(layoutCache) {
             layoutCache[key] = result
@@ -234,33 +269,117 @@ class TextRenderer(private val context: Context) {
         shape: TextContainerShape,
         boxWidth: Float?,
         boxHeight: Float?,
-        alignment: TextAlignment
+        alignment: TextAlignment,
+        baseStyle: TextStyleConfig,
+        spans: List<TextSpanStyle>
     ): TextLayoutResult {
         val fontMetrics = paint.fontMetrics
-        val lineHeight = (fontMetrics.bottom - fontMetrics.top).coerceAtLeast(10f)
+        var lineHeight = (fontMetrics.bottom - fontMetrics.top).coerceAtLeast(10f)
+
+        // Ukur token dengan paint khusus (paint pemanggil milik draw).
+        fun measureTok(tokText: String, fs: Float, fn: String, fst: String): Float {
+            if (tokText.isEmpty()) return 0f
+            reusableMeasurePaint.apply {
+                reset()
+                isAntiAlias = true
+                textSize = fs
+                typeface = getTypeface(fn, fst)
+            }
+            return reusableMeasurePaint.measureText(tokText)
+        }
+        // Run gaya untuk satu paragraf (offset global -> lokal).
+        fun runsForPara(para: String, paraStart: Int): List<StyledRun> {
+            if (para.isEmpty()) return emptyList()
+            val clipped = spans.mapNotNull { s ->
+                val a = maxOf(s.start, paraStart) - paraStart
+                val b = minOf(s.end, paraStart + para.length) - paraStart
+                if (b <= a) null else s.copy(start = a, end = b)
+            }
+            return splitToRuns(para, clipped)
+        }
+        // Tokenize + ukur tiap token dengan gayanya sendiri.
+        fun styledTokensOf(para: String, paraStart: Int): MutableList<StyledTok> {
+            val out = ArrayList<StyledTok>()
+            if (para.isEmpty()) {
+                out.add(StyledTok("", 0f, baseStyle.fontSize, baseStyle.fontName, baseStyle.fontStyle, null))
+                return out
+            }
+            for (run in runsForPara(para, paraStart)) {
+                val fs = run.fontSize ?: baseStyle.fontSize
+                val fn = run.fontName ?: baseStyle.fontName
+                val fst = run.fontStyle ?: baseStyle.fontStyle
+                for (tok in tokenizeParagraph(run.text)) {
+                    out.add(StyledTok(tok, measureTok(tok, fs, fn, fst), fs, fn, fst, run.textColor))
+                }
+            }
+            return out
+        }
+        // Tinggi baris = maksimum semua gaya yang dipakai.
+        run {
+            val seen = HashSet<Triple<Float, String, String>>()
+            for (run in splitToRuns(text, spans)) {
+                val key = Triple(
+                    run.fontSize ?: baseStyle.fontSize,
+                    run.fontName ?: baseStyle.fontName,
+                    run.fontStyle ?: baseStyle.fontStyle
+                )
+                if (seen.add(key)) {
+                    reusableMeasurePaint.apply {
+                        reset()
+                        isAntiAlias = true
+                        textSize = key.first
+                        typeface = getTypeface(key.second, key.third)
+                    }
+                    val fm = reusableMeasurePaint.fontMetrics
+                    lineHeight = maxOf(lineHeight, (fm.bottom - fm.top).coerceAtLeast(10f))
+                }
+            }
+        }
 
         // Fast path for unconstrained BOX text
         if (boxWidth == null && shape == TextContainerShape.BOX) {
-            val rawLines = if (text.isEmpty()) listOf("") else text.split("\n")
-            val lineWidths = rawLines.map { line ->
-                paint.measureText(if (line.isEmpty()) " " else line)
+            val rawParas = if (text.isEmpty()) listOf("" to 0) else run {
+                var off = 0
+                text.split("\n").map { p ->
+                    val r = p to off
+                    off += p.length + 1
+                    r
+                }
             }
-            val maxW = lineWidths.maxOfOrNull { it }?.coerceAtLeast(20f) ?: 20f
-            val lines = rawLines.zip(lineWidths).map { (line, w) ->
+            // Pass 1: lebar maksimum.
+            var maxW = 20f
+            val paraToks = rawParas.map { (para, paraStart) ->
+                val toks = styledTokensOf(para, paraStart)
+                val w = toks.sumOf { it.w.toDouble() }.toFloat()
+                if (w > maxW) maxW = w
+                toks
+            }
+            // Pass 2: susun runs setelah maxW diketahui.
+            val finalLines = ArrayList<RenderedLine>(rawParas.size)
+            for (i in rawParas.indices) {
+                val (para, _) = rawParas[i]
+                val toks = paraToks[i]
+                val w = toks.sumOf { it.w.toDouble() }.toFloat()
                 val xOff = when (alignment) {
                     TextAlignment.LEFT -> 0f
                     TextAlignment.CENTER -> (maxW - w) / 2f
                     TextAlignment.RIGHT -> maxW - w
                 }
-                RenderedLine(text = line, width = w, xOffset = xOff)
+                var cum = 0f
+                val runs = toks.map { t ->
+                    val r = RenderedRun(t.t, t.w, xOff + cum, t.fs, t.fn, t.fst, t.tc)
+                    cum += t.w
+                    r
+                }
+                finalLines.add(RenderedLine(text = para, width = w, xOffset = xOff, runs = runs))
             }
-            val totalH = (lines.size * lineHeight).coerceAtLeast(lineHeight)
+            val totalH = (finalLines.size * lineHeight).coerceAtLeast(lineHeight)
             val finalH = boxHeight ?: totalH
             val topOffset = if (boxHeight != null) ((finalH - totalH) / 2f).coerceAtLeast(0f) else 0f
-            val nonEmptyLines = lines.filter { it.text.isNotEmpty() }
+            val nonEmptyLines = finalLines.filter { it.text.isNotEmpty() }
             val minX = if (nonEmptyLines.isEmpty()) 0f else (nonEmptyLines.minOfOrNull { it.xOffset } ?: 0f)
             val maxX = if (nonEmptyLines.isEmpty()) maxW else (nonEmptyLines.maxOfOrNull { it.xOffset + it.width }?.coerceAtLeast(minX + 20f) ?: maxW)
-            return TextLayoutResult(lines, maxW, finalH, lineHeight, minX, maxX, topOffset)
+            return TextLayoutResult(finalLines, maxW, finalH, lineHeight, minX, maxX, topOffset)
         }
 
         // Determine container dimensions
@@ -269,9 +388,18 @@ class TextRenderer(private val context: Context) {
         // Fast non-recursive estimation of container height for OVAL
         val effectiveBoxHeight: Float? = if (shape == TextContainerShape.OVAL) {
             var estimatedLinesCount = 0
-            val rawParas = if (text.isEmpty()) listOf("") else text.split("\n")
-            for (p in rawParas) {
-                val w = paint.measureText(if (p.isEmpty()) " " else p)
+            var estOff = 0
+            val estParas = if (text.isEmpty()) listOf("" to 0) else text.split("\n").map { p ->
+                val r = p to estOff
+                estOff += p.length + 1
+                r
+            }
+            for ((p, pStart) in estParas) {
+                val w = if (p.isEmpty()) {
+                    measureTok(" ", baseStyle.fontSize, baseStyle.fontName, baseStyle.fontStyle)
+                } else {
+                    styledTokensOf(p, pStart).sumOf { it.w.toDouble() }.toFloat()
+                }
                 estimatedLinesCount += (w / (targetW * 0.7f)).toInt() + 1
             }
             if (boxHeight == null) {
@@ -321,48 +449,86 @@ class TextRenderer(private val context: Context) {
             }
 
             val lines = mutableListOf<RenderedLine>()
-            val paragraphs = if (text.isEmpty()) listOf("") else text.split("\n")
+            var paraOff = 0
+            val paragraphs = if (text.isEmpty()) {
+                listOf("" to 0)
+            } else {
+                text.split("\n").map { p ->
+                    val r = p to paraOff
+                    paraOff += p.length + 1
+                    r
+                }
+            }
             var currentLineIdx = 0
 
-            for (para in paragraphs) {
+            // Commit baris dari token bergaya (potong spasi trailing).
+            fun commitToks(toks: List<StyledTok>): RenderedLine {
+                var end = toks.size
+                var w = toks.sumOf { it.w.toDouble() }.toFloat()
+                while (end > 0 && toks[end - 1].t.trim().isEmpty()) {
+                    end--
+                    w -= toks[end].w
+                }
+                val kept = toks.subList(0, end)
+                val lineStr = kept.joinToString("") { it.t }
+                val xOff = calculateLineXOffset(currentLineIdx, w)
+                var cum = 0f
+                val runs = kept.map { t ->
+                    val r = RenderedRun(t.t, t.w, xOff + cum, t.fs, t.fn, t.fst, t.tc)
+                    cum += t.w
+                    r
+                }
+                currentLineIdx++
+                return RenderedLine(lineStr, w, xOff, runs)
+            }
+            // Satu baris dari satu token (hasil hyphenation/penggal).
+            fun commitSingle(tokText: String, fs: Float, fn: String, fst: String, tc: Int?): RenderedLine {
+                val w = measureTok(tokText, fs, fn, fst)
+                return commitToks(listOf(StyledTok(tokText, w, fs, fn, fst, tc)))
+            }
+
+            for ((para, paraStart) in paragraphs) {
                 if (para.isEmpty()) {
                     val xOff = calculateLineXOffset(currentLineIdx, 0f)
-                    lines.add(RenderedLine("", 0f, xOff))
+                    lines.add(
+                        RenderedLine(
+                            "", 0f, xOff,
+                            listOf(RenderedRun("", 0f, xOff, baseStyle.fontSize, baseStyle.fontName, baseStyle.fontStyle, null))
+                        )
+                    )
                     currentLineIdx++
                     continue
                 }
 
-                val tokens = tokenizeParagraph(para).toMutableList()
-                var currentLineStr = ""
+                val tokens = styledTokensOf(para, paraStart).toMutableList()
+                val currentLineToks = ArrayList<StyledTok>()
+                var currentLineW = 0f
                 var tokenIdx = 0
 
                 while (tokenIdx < tokens.size) {
                     val token = tokens[tokenIdx]
                     val availW = getAvailableWidth(currentLineIdx)
 
-                    if (currentLineStr.isEmpty() && token.trim().isEmpty()) {
+                    if (currentLineToks.isEmpty() && token.t.trim().isEmpty()) {
                         tokenIdx++
                         continue
                     }
 
-                    val candidate = currentLineStr + token
-                    val candidateW = paint.measureText(candidate)
+                    val candidateW = currentLineW + token.w
 
                     if (candidateW <= availW) {
-                        currentLineStr = candidate
+                        currentLineToks.add(token)
+                        currentLineW = candidateW
                         tokenIdx++
                     } else {
-                        if (currentLineStr.isNotEmpty()) {
-                            val lineStr = currentLineStr.trimEnd()
-                            val lineW = paint.measureText(if (lineStr.isEmpty()) " " else lineStr)
-                            val xOff = calculateLineXOffset(currentLineIdx, lineW)
-                            lines.add(RenderedLine(lineStr, lineW, xOff))
-                            currentLineIdx++
-                            currentLineStr = ""
+                        if (currentLineToks.isNotEmpty()) {
+                            lines.add(commitToks(currentLineToks))
+                            currentLineToks.clear()
+                            currentLineW = 0f
                         } else {
-                            val cleanToken = token.trim()
+                            val cleanToken = token.t.trim()
                             if (shape == TextContainerShape.OVAL && effectiveBoxHeight != null) {
-                                val tokenW = paint.measureText(cleanToken)
+                                val tokenW = measureTok(cleanToken, token.fs, token.fn, token.fst)
                                 val yRelativeToTop = computedTopOffset + (currentLineIdx + 0.5f) * lineHeight
                                 if (yRelativeToTop < ovalB && tokenW <= targetW * 0.95f && availW < tokenW) {
                                     currentLineIdx++
@@ -374,7 +540,7 @@ class TextRenderer(private val context: Context) {
                             var bestSyllableCount = 0
                             for (k in (syllables.size - 1) downTo 1) {
                                 val part1Candidate = syllables.take(k).joinToString("") + "-"
-                                if (paint.measureText(part1Candidate) <= availW) {
+                                if (measureTok(part1Candidate, token.fs, token.fn, token.fst) <= availW) {
                                     bestSyllableCount = k
                                     break
                                 }
@@ -383,16 +549,17 @@ class TextRenderer(private val context: Context) {
                             if (bestSyllableCount > 0) {
                                 val part1 = syllables.take(bestSyllableCount).joinToString("") + "-"
                                 val remaining = syllables.drop(bestSyllableCount).joinToString("")
-                                val lineW = paint.measureText(part1)
-                                val xOff = calculateLineXOffset(currentLineIdx, lineW)
-                                lines.add(RenderedLine(part1, lineW, xOff))
-                                currentLineIdx++
-                                tokens[tokenIdx] = remaining
+                                lines.add(commitSingle(part1, token.fs, token.fn, token.fst, token.tc))
+                                tokens[tokenIdx] = StyledTok(
+                                    remaining,
+                                    measureTok(remaining, token.fs, token.fn, token.fst),
+                                    token.fs, token.fn, token.fst, token.tc
+                                )
                             } else {
                                 var splitIdx = 0
                                 for (c in 2..(cleanToken.length - 2)) {
                                     val sub = cleanToken.substring(0, c) + "-"
-                                    if (paint.measureText(sub) <= availW) {
+                                    if (measureTok(sub, token.fs, token.fn, token.fst) <= availW) {
                                         splitIdx = c
                                     } else {
                                         break
@@ -402,20 +569,22 @@ class TextRenderer(private val context: Context) {
                                 if (splitIdx >= 2) {
                                     val part1 = cleanToken.substring(0, splitIdx) + "-"
                                     val remaining = cleanToken.substring(splitIdx)
-                                    val lineW = paint.measureText(part1)
-                                    val xOff = calculateLineXOffset(currentLineIdx, lineW)
-                                    lines.add(RenderedLine(part1, lineW, xOff))
-                                    currentLineIdx++
-                                    tokens[tokenIdx] = remaining
+                                    lines.add(commitSingle(part1, token.fs, token.fn, token.fst, token.tc))
+                                    tokens[tokenIdx] = StyledTok(
+                                        remaining,
+                                        measureTok(remaining, token.fs, token.fn, token.fst),
+                                        token.fs, token.fn, token.fst, token.tc
+                                    )
                                 } else {
                                     val part1 = cleanToken.substring(0, 1)
                                     val remaining = cleanToken.substring(1)
-                                    val lineW = paint.measureText(part1)
-                                    val xOff = calculateLineXOffset(currentLineIdx, lineW)
-                                    lines.add(RenderedLine(part1, lineW, xOff))
-                                    currentLineIdx++
+                                    lines.add(commitSingle(part1, token.fs, token.fn, token.fst, token.tc))
                                     if (remaining.isNotEmpty()) {
-                                        tokens[tokenIdx] = remaining
+                                        tokens[tokenIdx] = StyledTok(
+                                            remaining,
+                                            measureTok(remaining, token.fs, token.fn, token.fst),
+                                            token.fs, token.fn, token.fst, token.tc
+                                        )
                                     } else {
                                         tokenIdx++
                                     }
@@ -425,12 +594,8 @@ class TextRenderer(private val context: Context) {
                     }
                 }
 
-                if (currentLineStr.isNotEmpty()) {
-                    val lineStr = currentLineStr.trimEnd()
-                    val lineW = paint.measureText(if (lineStr.isEmpty()) " " else lineStr)
-                    val xOff = calculateLineXOffset(currentLineIdx, lineW)
-                    lines.add(RenderedLine(lineStr, lineW, xOff))
-                    currentLineIdx++
+                if (currentLineToks.isNotEmpty()) {
+                    lines.add(commitToks(currentLineToks))
                 }
             }
 
@@ -439,11 +604,22 @@ class TextRenderer(private val context: Context) {
 
         // Pass 1: Build lines with estimated topOffset to discover lines count and center text vertically
         val initialTopOffsetForOval: Float = if (shape == TextContainerShape.OVAL && effectiveBoxHeight != null) {
-            val rawParas = if (text.isEmpty()) listOf("") else text.split("\n")
+            val rawParas = if (text.isEmpty()) listOf("" to 0) else run {
+                var off = 0
+                text.split("\n").map { p ->
+                    val r = p to off
+                    off += p.length + 1
+                    r
+                }
+            }
             var estLinesCount = 0
             val estAvailW = (targetW * 0.8f).coerceAtLeast(20f)
-            for (p in rawParas) {
-                val w = paint.measureText(if (p.isEmpty()) " " else p)
+            for ((p, pStart) in rawParas) {
+                val w = if (p.isEmpty()) {
+                    measureTok(" ", baseStyle.fontSize, baseStyle.fontName, baseStyle.fontStyle)
+                } else {
+                    styledTokensOf(p, pStart).sumOf { it.w.toDouble() }.toFloat()
+                }
                 estLinesCount += (w / estAvailW).toInt() + 1
             }
             val estTextH = estLinesCount.coerceAtLeast(1) * lineHeight
@@ -507,7 +683,8 @@ class TextRenderer(private val context: Context) {
             y = layer.y,
             shape = layer.textContainerShape,
             boxWidth = layer.boxWidth,
-            boxHeight = layer.boxHeight
+            boxHeight = layer.boxHeight,
+            spans = layer.richSpans
         )
     }
 
@@ -519,7 +696,8 @@ class TextRenderer(private val context: Context) {
         y: Float = 0f,
         shape: TextContainerShape = TextContainerShape.BOX,
         boxWidth: Float? = null,
-        boxHeight: Float? = null
+        boxHeight: Float? = null,
+        spans: List<com.mochits.app.model.TextSpanStyle> = emptyList()
     ) {
         if (text.isEmpty()) return
 
@@ -535,10 +713,9 @@ class TextRenderer(private val context: Context) {
             typeface = getTypeface(style.fontName, style.fontStyle)
         }
 
-        val layoutResult = layoutText(text, paint, shape, boxWidth, boxHeight, style.alignment)
-        val fontMetrics = paint.fontMetrics
+        val layoutResult = layoutText(text, paint, shape, boxWidth, boxHeight, style.alignment, style, spans)
 
-        if (style.isGradientEnabled) {
+        val gradient: android.graphics.Shader? = if (style.isGradientEnabled) {
             val gradX = x + layoutResult.minX
             val gradW = (layoutResult.maxX - layoutResult.minX).coerceAtLeast(10f)
             val gradY = y + layoutResult.topOffset
@@ -553,13 +730,13 @@ class TextRenderer(private val context: Context) {
                 positions[i] = stop.position.coerceIn(0f, 1f)
             }
 
-            paint.shader = android.graphics.LinearGradient(
+            android.graphics.LinearGradient(
                 x0, y0, x1, y1,
                 colors,
                 positions,
                 android.graphics.Shader.TileMode.CLAMP
             )
-        }
+        } else null
 
         // Glow via shadow-layer bawaan (hasil visual yang sudah dikenal).
         val glowPaint = if (style.glowColor != Color.TRANSPARENT && style.glowRadius > 0f) {
@@ -593,16 +770,16 @@ class TextRenderer(private val context: Context) {
         if (style.motionBlurRadius > 0f) {
             // Objeknya sendiri yang blur (tanpa salinan tajam di atasnya,
             // kalau tidak terbaca sebagai drop shadow).
-            val smearKey = "$text|${style.hashCode()}|$shape|$boxWidth|$boxHeight"
+            val smearKey = "$text|${style.hashCode()}|$shape|$boxWidth|$boxHeight|${spans.hashCode()}"
             drawMotionBlurSmear(
                 canvas, x, y, layoutResult, style,
-                paint, glowPaint, shadowPaint, strokePaint, smearKey
+                paint, glowPaint, shadowPaint, strokePaint, smearKey, gradient
             )
         } else {
             drawTextRuns(
                 canvas, layoutResult.lines, x, y,
-                layoutResult.topOffset, layoutResult.lineHeight, fontMetrics,
-                paint, glowPaint, shadowPaint, strokePaint
+                layoutResult.topOffset, layoutResult.lineHeight, style, gradient,
+                glowPaint, shadowPaint, strokePaint
             )
         }
     }
@@ -614,21 +791,32 @@ class TextRenderer(private val context: Context) {
         y: Float,
         topOffset: Float,
         lineHeight: Float,
-        fontMetrics: Paint.FontMetrics,
-        paint: Paint,
+        baseStyle: TextStyleConfig,
+        gradient: android.graphics.Shader?,
         glowPaint: Paint?,
         shadowPaint: Paint?,
         strokePaint: Paint?
     ) {
         lines.forEachIndexed { i, line ->
-            if (line.text.isNotEmpty()) {
-                val lineX = x + line.xOffset
-                val baselineY = y + topOffset + (i * lineHeight) - fontMetrics.top
+            for (run in line.runs) {
+                if (run.text.isEmpty()) continue
+                val rp = reusableRunPaint.apply {
+                    reset()
+                    isAntiAlias = true
+                    textSize = run.fontSize
+                    typeface = getTypeface(run.fontName, run.fontStyle)
+                    color = run.textColor ?: baseStyle.textColor
+                    alpha = (baseStyle.textOpacity * 255).toInt().coerceIn(0, 255)
+                    if (gradient != null) shader = gradient
+                }
+                val fm = rp.fontMetrics
+                val rx = x + run.xOffset
+                val baselineY = y + topOffset + (i * lineHeight) - fm.top
 
-                glowPaint?.let { canvas.drawText(line.text, lineX, baselineY, it) }
-                shadowPaint?.let { canvas.drawText(line.text, lineX, baselineY, it) }
-                strokePaint?.let { canvas.drawText(line.text, lineX, baselineY, it) }
-                canvas.drawText(line.text, lineX, baselineY, paint)
+                glowPaint?.let { canvas.drawText(run.text, rx, baselineY, it) }
+                shadowPaint?.let { canvas.drawText(run.text, rx, baselineY, it) }
+                strokePaint?.let { canvas.drawText(run.text, rx, baselineY, it) }
+                canvas.drawText(run.text, rx, baselineY, rp)
             }
         }
     }
@@ -661,7 +849,8 @@ class TextRenderer(private val context: Context) {
         val textSize: Float,
         val fontName: String,
         val fontStyle: String,
-        val shape: TextContainerShape
+        val shape: TextContainerShape,
+        val spans: List<com.mochits.app.model.TextSpanStyle> = emptyList()
     )
 
     /** Cache ukur kata/suku kata (pure function; hemat CPU tiap tick slider/ketikan). */
@@ -682,7 +871,8 @@ class TextRenderer(private val context: Context) {
         val style: TextStyleConfig,
         val shape: TextContainerShape,
         val boxW: Float?,
-        val boxH: Float?
+        val boxH: Float?,
+        val spans: List<com.mochits.app.model.TextSpanStyle> = emptyList()
     )
 
     private data class FlatEntry(var bitmap: Bitmap, var origin: Offset)
@@ -714,7 +904,8 @@ class TextRenderer(private val context: Context) {
         glowPaint: Paint?,
         shadowPaint: Paint?,
         strokePaint: Paint?,
-        cacheKey: String
+        cacheKey: String,
+        gradient: android.graphics.Shader? = null
     ) {
         val radius = style.motionBlurRadius
         if (radius <= 0f) return
@@ -757,7 +948,7 @@ class TextRenderer(private val context: Context) {
         drawTextRuns(
             off, layoutResult.lines, x, y,
             layoutResult.topOffset, layoutResult.lineHeight,
-            paint.fontMetrics, paint, glowPaint, shadowPaint, strokePaint
+            style, gradient, glowPaint, shadowPaint, strokePaint
         )
 
         val px = IntArray(ww * hh)
@@ -794,7 +985,8 @@ class TextRenderer(private val context: Context) {
             style = layer.style,
             shape = layer.textContainerShape,
             boxW = layer.boxWidth,
-            boxH = layer.boxHeight
+            boxH = layer.boxHeight,
+            spans = layer.richSpans
         )
         flatCache[key]?.let { e ->
             if (!e.bitmap.isRecycled && e.bitmap.width == w && e.bitmap.height == h) {
@@ -847,7 +1039,8 @@ class TextRenderer(private val context: Context) {
             y = layer.y,
             shape = layer.textContainerShape,
             boxWidth = layer.boxWidth,
-            boxHeight = layer.boxHeight
+            boxHeight = layer.boxHeight,
+            spans = layer.richSpans
         )
     }
 
@@ -858,7 +1051,8 @@ class TextRenderer(private val context: Context) {
         y: Float,
         shape: TextContainerShape = TextContainerShape.BOX,
         boxWidth: Float? = null,
-        boxHeight: Float? = null
+        boxHeight: Float? = null,
+        spans: List<com.mochits.app.model.TextSpanStyle> = emptyList()
     ): RectF {
         val paint = reusableLayoutPaint.apply {
             reset()
@@ -866,7 +1060,7 @@ class TextRenderer(private val context: Context) {
             textSize = style.fontSize
             typeface = getTypeface(style.fontName, style.fontStyle)
         }
-        val layoutResult = layoutText(text, paint, shape, boxWidth, boxHeight, style.alignment)
+        val layoutResult = layoutText(text, paint, shape, boxWidth, boxHeight, style.alignment, style, spans)
 
         val left = if (boxWidth != null) x else x + layoutResult.minX
         val right = if (boxWidth != null) x + boxWidth else x + layoutResult.maxX
@@ -960,7 +1154,8 @@ class TextRenderer(private val context: Context) {
             text = layer.text,
             style = layer.style,
             shape = layer.textContainerShape,
-            boxWidth = layer.boxWidth
+            boxWidth = layer.boxWidth,
+            spans = layer.richSpans
         )
     }
 
@@ -968,7 +1163,8 @@ class TextRenderer(private val context: Context) {
         text: String,
         style: TextStyleConfig,
         shape: TextContainerShape = TextContainerShape.BOX,
-        boxWidth: Float? = null
+        boxWidth: Float? = null,
+        spans: List<com.mochits.app.model.TextSpanStyle> = emptyList()
     ): Float {
         if (text.isEmpty()) return 20f
         val paint = reusableLayoutPaint.apply {
@@ -977,7 +1173,7 @@ class TextRenderer(private val context: Context) {
             textSize = style.fontSize
             typeface = getTypeface(style.fontName, style.fontStyle)
         }
-        val layoutResult = layoutText(text, paint, shape, boxWidth, boxHeight = null, style.alignment)
+        val layoutResult = layoutText(text, paint, shape, boxWidth, boxHeight = null, style.alignment, style, spans)
         val reqHeight = layoutResult.lines.size * layoutResult.lineHeight
         return reqHeight.coerceAtLeast(if (shape == TextContainerShape.OVAL) 30f else 20f)
     }
@@ -986,14 +1182,16 @@ class TextRenderer(private val context: Context) {
         return getMinBoxWidth(
             text = layer.text,
             style = layer.style,
-            shape = layer.textContainerShape
+            shape = layer.textContainerShape,
+            spans = layer.richSpans
         )
     }
 
     fun getMinBoxWidth(
         text: String,
         style: TextStyleConfig,
-        shape: TextContainerShape = TextContainerShape.BOX
+        shape: TextContainerShape = TextContainerShape.BOX,
+        spans: List<com.mochits.app.model.TextSpanStyle> = emptyList()
     ): Float {
         if (text.isEmpty()) return 30f
         val key = MinBoxWidthKey(
@@ -1001,24 +1199,38 @@ class TextRenderer(private val context: Context) {
             textSize = style.fontSize,
             fontName = style.fontName.trim().lowercase(),
             fontStyle = style.fontStyle.trim().lowercase(),
-            shape = shape
+            shape = shape,
+            spans = spans
         )
         synchronized(minBoxWidthCache) {
             minBoxWidthCache[key]?.let { return it }
         }
-        val paint = reusableLayoutPaint.apply {
-            reset()
-            isAntiAlias = true
-            textSize = style.fontSize
-            typeface = getTypeface(style.fontName, style.fontStyle)
+        // Ukur tiap kata dengan gaya efektifnya (fase 1 rich text).
+        val runs = splitToRuns(text, spans)
+        // Pecah per kata sambil mempertahankan gaya.
+        data class WordBit(val w: String, val fs: Float, val fn: String, val fst: String)
+        val bits = ArrayList<WordBit>()
+        for (run in runs) {
+            val fs = run.fontSize ?: style.fontSize
+            val fn = run.fontName ?: style.fontName
+            val fst = run.fontStyle ?: style.fontStyle
+            for (word in run.text.split(Regex("\\s+"))) {
+                if (word.isEmpty()) continue
+                bits.add(WordBit(word, fs, fn, fst))
+            }
         }
+        val paint = reusableLayoutPaint
         var maxChunkW = 0f
-        val words = text.split(Regex("\\s+"))
-        for (word in words) {
-            if (word.isEmpty()) continue
-            val wordW = paint.measureText(word)
+        for (b in bits) {
+            paint.apply {
+                reset()
+                isAntiAlias = true
+                textSize = b.fs
+                typeface = getTypeface(b.fn, b.fst)
+            }
+            val wordW = paint.measureText(b.w)
             if (wordW > maxChunkW) maxChunkW = wordW
-            val syllables = SyllableSplitter.getSyllables(word)
+            val syllables = SyllableSplitter.getSyllables(b.w)
             for (syl in syllables) {
                 val sylW = paint.measureText("$syl-")
                 if (sylW > maxChunkW) maxChunkW = sylW

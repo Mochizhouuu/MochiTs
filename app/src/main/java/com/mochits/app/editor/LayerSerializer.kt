@@ -43,7 +43,9 @@ data class LayerJsonDto(
     // Quad perspektif (nullable agar JSON lama tetap terbaca).
     val perspQuad: List<Float>? = null,
     // Grid warp mesh 4x4 (nullable agar JSON lama tetap terbaca).
-    val meshGrid: List<Float>? = null
+    val meshGrid: List<Float>? = null,
+    // Rich text per kata (nullable agar JSON lama tetap terbaca).
+    val richSpans: List<com.mochits.app.model.TextSpanStyle>? = null
 )
 
 class LayerSerializer {
@@ -70,7 +72,8 @@ class LayerSerializer {
                     boxWidth = layer.boxWidth,
                     boxHeight = layer.boxHeight,
                     perspQuad = layer.perspQuad,
-                    meshGrid = layer.meshGrid
+                    meshGrid = layer.meshGrid,
+                    richSpans = layer.richSpans.takeIf { it.isNotEmpty() }
                 )
                 is Layer.ImageLayer -> LayerJsonDto(
                     id = layer.id,
@@ -153,7 +156,19 @@ class LayerSerializer {
             boxWidth = dto.boxWidth?.takeIf { it.isFinite() && it > 0f },
             boxHeight = dto.boxHeight?.takeIf { it.isFinite() && it > 0f },
             perspQuad = dto.perspQuad?.takeIf { it.size == 8 && it.all { v -> v.isFinite() } },
-            meshGrid = dto.meshGrid?.takeIf { it.size == 32 && it.all { v -> v.isFinite() } }
+            meshGrid = dto.meshGrid?.takeIf { it.size == 32 && it.all { v -> v.isFinite() } },
+            richSpans = dto.richSpans
+                ?.mapNotNull { s ->
+                    val a = s.start.coerceAtLeast(0)
+                    val b = s.end.coerceAtLeast(0)
+                    if (b <= a) null else s.copy(
+                        start = a,
+                        end = b,
+                        fontSize = s.fontSize?.takeIf { it.isFinite() && it > 0f }
+                    )
+                }
+                ?.takeIf { it.isNotEmpty() }
+                ?: emptyList()
         )
     }
 
