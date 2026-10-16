@@ -802,6 +802,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         allFonts = allFonts,
                         onApplySpan = { s, e, fn, fst, fs, tc, saveUndo -> viewModel.applySpanStyle(s, e, fn, fst, fs, tc, saveUndo) },
                         onClearSpan = { s, e -> viewModel.clearSpanStyle(s, e) },
+                        favoriteFontKeys = favoriteFontKeys,
                         isCollapsed = EditorPanel.TEXT in collapsedPanels,
                         onToggleCollapse = { togglePanelCollapse(EditorPanel.TEXT) }
                     )
@@ -3046,6 +3047,9 @@ fun TextToolPanel(
     onRequestAutosave: (() -> Unit)? = null,
     // Rich text fase 1: daftar font untuk toolbar kata.
     allFonts: List<FontItem> = emptyList(),
+    // Kunci favorit (bintang di panel Font): bila ada, tap hanya
+    // memutar favorit agar ramping; tahan-lama tetap semua.
+    favoriteFontKeys: Set<String> = emptySet(),
     // Terapkan gaya kata [s, e): null = ikut layer. Wire ke applySpanStyle.
     onApplySpan: ((Int, Int, String?, String?, Float?, Int?, Boolean) -> Unit)? = null,
     // Hapus gaya kata [s, e). Wire ke clearSpanStyle.
@@ -3302,10 +3306,12 @@ fun TextToolPanel(
                             }
                         }
                         if (allFonts.isNotEmpty()) {
-                            val fontNames = allFonts.map { it.name }.distinct()
+                            val favs = allFonts.filter { favoriteFontKeys.contains(it.fontNameKey) }
+                            val quickFonts = if (favs.isNotEmpty()) favs else allFonts
+                            val fontNames = quickFonts.map { it.name }.distinct()
                             val effShown = if (fontNames.contains(effFontName)) effFontName else fontNames.firstOrNull().orEmpty()
                             OptionCycler(
-                                label = "Font kata",
+                                label = if (favs.isNotEmpty()) "Font kata ★" else "Font kata",
                                 options = fontNames,
                                 selected = effShown,
                                 onSelect = { picked ->
