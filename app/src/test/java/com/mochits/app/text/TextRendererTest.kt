@@ -617,4 +617,45 @@ class TextRendererTest {
             inkOutside > 20 && halo > 20 && maxAOutside > 40
         )
     }
+
+    @Test
+    fun testOvalBoundsContainText_whenStoredBoxShorterThanGeometry() {
+        val style = TextStyleConfig(fontSize = 100f, alignment = TextAlignment.CENTER)
+        val text = "Kalimat panjang untuk menguji oval yang membungkus beberapa baris teks dan tidak boleh keluar"
+        val boxW = 500f
+        val storedH = 80f
+
+        val layout = textRenderer.layoutText(
+            text, Paint().apply { textSize = 100f },
+            TextContainerShape.OVAL, boxW, storedH, TextAlignment.CENTER, style
+        )
+        val bounds = textRenderer.getTextBounds(text, style, 0f, 0f, TextContainerShape.OVAL, boxW, storedH)
+
+        assertEquals("Bounds mengikuti geometri oval", layout.containerHeight, bounds.height(), 0.5f)
+        assertTrue(
+            "Semua baris harus berada di dalam bounds (topOffset=${layout.topOffset}, lines=${layout.lines.size}, lh=${layout.lineHeight}, h=${bounds.height()})",
+            layout.topOffset + layout.lines.size * layout.lineHeight <= bounds.height() + 0.5f
+        )
+    }
+
+    @Test
+    fun testGetMinBoxHeightOval_growFitsAfterEnlarge() {
+        val style = TextStyleConfig(fontSize = 100f, alignment = TextAlignment.CENTER)
+        val text = "Kalimat panjang untuk menguji oval yang membungkus beberapa baris teks dan tidak boleh keluar"
+        val boxW = 500f
+        val storedH = 80f
+
+        val minH = textRenderer.getMinBoxHeight(text, style, TextContainerShape.OVAL, boxW, storedH)
+        assertTrue("Harus membesar dari kondisi sempit ($minH)", minH > storedH)
+
+        val after = textRenderer.layoutText(
+            text, Paint().apply { textSize = 100f },
+            TextContainerShape.OVAL, boxW, minH, TextAlignment.CENTER, style
+        )
+        assertTrue(
+            "Setelah grow, teks harus muat (topOffset=${after.topOffset}, lines=${after.lines.size})",
+            after.topOffset + after.lines.size * after.lineHeight <= minH + 0.5f
+        )
+        assertTrue("Geometri oval tidak melebihi hasil grow", after.containerHeight <= minH + 0.5f)
+    }
 }

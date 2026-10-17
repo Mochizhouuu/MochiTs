@@ -3303,7 +3303,6 @@ fun TextToolPanel(
                         }
                         if (allFonts.isNotEmpty()) {
                             var fontPickerOpen by remember(snappedRange) { mutableStateOf(false) }
-                            var fontSearch by remember(snappedRange) { mutableStateOf("") }
                             val fontNames = allFonts.map { it.name }.distinct()
                             val fontShown = if (fontNames.contains(effFontName)) effFontName else fontNames.firstOrNull().orEmpty()
                             Surface(
@@ -3332,22 +3331,16 @@ fun TextToolPanel(
                                 }
                             }
                             if (fontPickerOpen) {
-                                val filtered = remember(allFonts, fontSearch) {
-                                    if (fontSearch.isBlank()) {
-                                        allFonts
-                                    } else {
-                                        allFonts.filter { it.name.contains(fontSearch, ignoreCase = true) }
-                                    }
-                                }.take(12)
-                                OutlinedTextField(
-                                    value = fontSearch,
-                                    onValueChange = { fontSearch = it },
-                                    placeholder = { Text("Cari font...") },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    for (f in filtered) {
+                                // Daftar langsung, ramping, bisa di-scroll —
+                                // tanpa kolom cari (tidak perlu satu layar).
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 168.dp)
+                                        .verticalScroll(rememberScrollState())
+                                ) {
+                                    for (f in allFonts) {
                                         val isSel = f.name == fontShown
                                         Surface(
                                             onClick = {

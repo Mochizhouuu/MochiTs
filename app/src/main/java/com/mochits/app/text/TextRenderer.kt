@@ -627,32 +627,54 @@ class TextRenderer(private val context: Context) {
         } else {
             0f
         }
+        var usedTopOffset = initialTopOffsetForOval
         val pass1Lines = buildLinesForOffset(initialTopOffsetForOval)
 
         val lines = if (shape == TextContainerShape.OVAL && effectiveBoxHeight != null) {
             val totalTextH1 = pass1Lines.size * lineHeight
             val topOffset1 = ((effectiveBoxHeight - totalTextH1) / 2f).coerceAtLeast(0f)
             if (topOffset1 > 0f) {
+                usedTopOffset = topOffset1
                 val pass2Lines = buildLinesForOffset(topOffset1)
                 val totalTextH2 = pass2Lines.size * lineHeight
                 val topOffset2 = ((effectiveBoxHeight - totalTextH2) / 2f).coerceAtLeast(0f)
                 if (kotlin.math.abs(topOffset2 - topOffset1) > 1f) {
+                    usedTopOffset = topOffset2
                     buildLinesForOffset(topOffset2)
                 } else {
                     pass2Lines
                 }
             } else {
+                usedTopOffset = 0f
                 pass1Lines
             }
         } else {
+            usedTopOffset = 0f
             pass1Lines
         }
 
         val totalTextHeight = lines.size * lineHeight
-        val finalContainerW = boxWidth ?: (lines.maxOfOrNull { it.width }?.coerceAtLeast(20f) ?: 20f)
-        val finalContainerH = boxHeight ?: totalTextHeight.coerceAtLeast(lineHeight)
+        val finalContainerW = if (shape == TextContainerShape.OVAL) {
+            // Geometri oval = targetW (sama dgn perhitungan lebar per baris),
+            // bukan lebar teks — outline & hit-box ikut geometri asli.
+            targetW
+        } else {
+            boxWidth ?: (lines.maxOfOrNull { it.width }?.coerceAtLeast(20f) ?: 20f)
+        }
+        // OVAL: kontainer = tinggi geometri yang benar-benar dipakai saat
+        // membungkus baris, dan offset gambar = offset pembungkusan. Dengan
+        // ini teks tak pernah keluar outline walau boxHeight tersimpan lebih
+        // kecil (sumber "kalimat nembus").
+        val ovalGeometryH = if (shape == TextContainerShape.OVAL && effectiveBoxHeight != null) {
+            maxOf(effectiveBoxHeight, usedTopOffset + totalTextHeight)
+        } else null
+        val finalContainerH = ovalGeometryH
+            ?: boxHeight
+            ?: totalTextHeight.coerceAtLeast(lineHeight)
 
-        val topOffset = if (boxHeight != null) {
+        val topOffset = if (ovalGeometryH != null) {
+            usedTopOffset
+        } else if (boxHeight != null) {
             ((finalContainerH - totalTextHeight) / 2f).coerceAtLeast(0f)
         } else 0f
 
@@ -1062,6 +1084,12 @@ class TextRenderer(private val context: Context) {
         }
         val layoutResult = layoutText(text, paint, shape, boxWidth, boxHeight, style.alignment, style, spans)
 
+        // OVAL: bounds = geometri oval asli (targetW x effectiveHeight) supaya
+        // outline/pegangan selalu menutup semua baris yang digambar.
+        if (shape == TextContainerShape.OVAL) {
+            return RectF(x, y, x + layoutResult.containerWidth, y + layoutResult.containerHeight)
+        }
+
         val left = if (boxWidth != null) x else x + layoutResult.minX
         val right = if (boxWidth != null) x + boxWidth else x + layoutResult.maxX
 
@@ -1155,6 +1183,7 @@ class TextRenderer(private val context: Context) {
             style = layer.style,
             shape = layer.textContainerShape,
             boxWidth = layer.boxWidth,
+            boxHeight = layer.boxHeight,
             spans = layer.richSpans
         )
     }
@@ -1164,6 +1193,7 @@ class TextRenderer(private val context: Context) {
         style: TextStyleConfig,
         shape: TextContainerShape = TextContainerShape.BOX,
         boxWidth: Float? = null,
+        boxHeight: Float? = null,
         spans: List<com.mochits.app.model.TextSpanStyle> = emptyList()
     ): Float {
         if (text.isEmpty()) return 20f
@@ -1172,6 +1202,22 @@ class TextRenderer(private val context: Context) {
             isAntiAlias = true
             textSize = style.fontSize
             typeface = getTypeface(style.fontName, style.fontStyle)
+        }
+        if (shape == TextContainerShape.OVAL && boxWidth != null) {
+            // Fixpoint: besarkan tinggi geometri sampai teks benar-benar muat
+            // (lebar per baris oval menyempit di tepi atas/bawah, jadi 1x ukur
+            // tidak cukup). Konvergen karena lebar tepi ikut membesar.
+            var h = (boxHeight ?: 40f).coerceAtLeast(40f)
+            repeat(6) {
+                val res = layoutText(text, paint, shape, boxWidth, h, style.alignment, style, spans)
+                val needed = maxOf(
+                    res.topOffset + res.lines.size * res.lineHeight,
+                    res.containerHeight
+                )
+                if (needed <= h + 0.5f) return h.coerceAtLeast(30f)
+                h = needed
+            }
+            return h.coerceAtLeast(30f)
         }
         val layoutResult = layoutText(text, paint, shape, boxWidth, boxHeight = null, style.alignment, style, spans)
         val reqHeight = layoutResult.lines.size * layoutResult.lineHeight
