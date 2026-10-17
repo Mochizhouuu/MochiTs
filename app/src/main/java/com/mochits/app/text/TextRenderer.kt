@@ -820,6 +820,23 @@ class TextRenderer(private val context: Context) {
         strokePaint: Paint?
     ) {
         lines.forEachIndexed { i, line ->
+            // Baseline bersama per baris (ascent terbesar di baris itu).
+            // Sebelumnya tiap run pakai fontMetrics sendiri → kata yang
+            // diperbesar rata-atas & tumbuh ke bawah, bukan sebaris.
+            var lineAscent = 0f
+            for (run in line.runs) {
+                if (run.text.isEmpty()) continue
+                val mp = reusableMeasurePaint.apply {
+                    reset()
+                    isAntiAlias = true
+                    textSize = run.fontSize
+                    typeface = getTypeface(run.fontName, run.fontStyle)
+                }
+                val ascent = -mp.fontMetrics.top
+                if (ascent > lineAscent) lineAscent = ascent
+            }
+            if (lineAscent <= 0f) return@forEachIndexed
+
             for (run in line.runs) {
                 if (run.text.isEmpty()) continue
                 val rp = reusableRunPaint.apply {
@@ -831,13 +848,26 @@ class TextRenderer(private val context: Context) {
                     alpha = (baseStyle.textOpacity * 255).toInt().coerceIn(0, 255)
                     if (gradient != null) shader = gradient
                 }
-                val fm = rp.fontMetrics
                 val rx = x + run.xOffset
-                val baselineY = y + topOffset + (i * lineHeight) - fm.top
+                val baselineY = y + topOffset + (i * lineHeight) + lineAscent
 
-                glowPaint?.let { canvas.drawText(run.text, rx, baselineY, it) }
-                shadowPaint?.let { canvas.drawText(run.text, rx, baselineY, it) }
-                strokePaint?.let { canvas.drawText(run.text, rx, baselineY, it) }
+                // Efek ikut ukuran/font run (bukan base) — kata besar
+                // jangan dapat stroke/glow seukuran font layer.
+                glowPaint?.let {
+                    it.textSize = run.fontSize
+                    it.typeface = rp.typeface
+                    canvas.drawText(run.text, rx, baselineY, it)
+                }
+                shadowPaint?.let {
+                    it.textSize = run.fontSize
+                    it.typeface = rp.typeface
+                    canvas.drawText(run.text, rx, baselineY, it)
+                }
+                strokePaint?.let {
+                    it.textSize = run.fontSize
+                    it.typeface = rp.typeface
+                    canvas.drawText(run.text, rx, baselineY, it)
+                }
                 canvas.drawText(run.text, rx, baselineY, rp)
             }
         }

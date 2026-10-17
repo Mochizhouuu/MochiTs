@@ -658,4 +658,67 @@ class TextRendererTest {
         )
         assertTrue("Geometri oval tidak melebihi hasil grow", after.containerHeight <= minH + 0.5f)
     }
+
+    @Test
+    fun testSpanEnlarge_sharesBaselineWithNeighbors() {
+        val bmp = android.graphics.Bitmap.createBitmap(600, 300, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bmp)
+        val style = TextStyleConfig(
+            fontSize = 40f,
+            textColor = android.graphics.Color.BLACK,
+            alignment = TextAlignment.LEFT
+        )
+        val layer = Layer.TextLayer(
+            id = "span1",
+            name = "Text",
+            x = 20f,
+            y = 20f,
+            text = "aaa bbb",
+            style = style,
+            textContainerShape = TextContainerShape.BOX,
+            richSpans = listOf(com.mochits.app.model.TextSpanStyle(start = 4, end = 7, fontSize = 80f))
+        )
+        textRenderer.drawStyledText(canvas, layer)
+
+        // Region tiap kata dari run hasil layout (xOffset presisi).
+        val spans = listOf(com.mochits.app.model.TextSpanStyle(start = 4, end = 7, fontSize = 80f))
+        val layout = textRenderer.layoutText(
+            "aaa bbb", Paint().apply { textSize = 40f },
+            TextContainerShape.BOX, null, null, TextAlignment.LEFT, style, spans
+        )
+        val line = layout.lines.first()
+        val runSmall = line.runs.first { it.fontSize == 40f }
+        val runBig = line.runs.first { it.fontSize == 80f }
+        val smallX0 = (20f + runSmall.xOffset).toInt().coerceAtLeast(0)
+        val smallX1 = (20f + runSmall.xOffset + runSmall.width).toInt().coerceAtMost(599)
+        val bigX0 = (20f + runBig.xOffset).toInt().coerceAtLeast(0)
+        val bigX1 = (20f + runBig.xOffset + runBig.width).toInt().coerceAtMost(599)
+
+        fun inkYRange(x0: Int, x1: Int): Pair<Int, Int> {
+            var minY = 300
+            var maxY = -1
+            for (cx in x0..x1) {
+                for (cy in 0 until 300) {
+                    if (bmp.getPixel(cx, cy) != 0) {
+                        if (cy < minY) minY = cy
+                        if (cy > maxY) maxY = cy
+                    }
+                }
+            }
+            return minY to maxY
+        }
+        val (smallTop, smallBottom) = inkYRange(smallX0, smallX1)
+        val (bigTop, bigBottom) = inkYRange(bigX0, bigX1)
+        assertTrue("Kedua kata harus punya tinta (small=$smallTop-$smallBottom, big=$bigTop-$bigBottom)",
+            smallBottom >= 0 && bigBottom >= 0)
+
+        assertTrue(
+            "Kata besar harus naik lebih tinggi (smallTop=$smallTop, bigTop=$bigTop)",
+            bigTop < smallTop - 10
+        )
+        assertTrue(
+            "Baseline harus sebaris: dasar kata kecil & besar hampir sama (small=$smallBottom, big=$bigBottom)",
+            kotlin.math.abs(smallBottom - bigBottom) <= 5
+        )
+    }
 }
