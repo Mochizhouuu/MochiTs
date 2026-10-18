@@ -2861,7 +2861,9 @@ data class HistoryManifest(
     fun setScriptLine(line: Int) {
         val q = scriptQueue.value ?: return
         val projId = project.value?.id ?: return
-        val l = line.coerceIn(0, (q.lineCount - 1).coerceAtLeast(0))
+        // lineIdx itu relatif per-halaman, jadi clamp ke jumlah baris halaman ini.
+        val pageSize = q.pages.getOrNull(q.pageIdx)?.entries?.size ?: 0
+        val l = line.coerceIn(0, (pageSize - 1).coerceAtLeast(0))
         scriptQueue.value = q.copy(lineIdx = l)
         saveScriptPosition(projId, q.uriString, q.pageIdx, l)
     }

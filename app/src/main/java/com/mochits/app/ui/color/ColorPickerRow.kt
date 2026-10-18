@@ -2,7 +2,6 @@ package com.mochits.app.ui.color
 
 import android.graphics.Color as AndroidColor
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -17,8 +16,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Colorize
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -92,31 +89,33 @@ fun ColorPickerRow(
         }
     }
 
-    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 1. Eyedropper Button
             IconButton(
                 onClick = onEyedropperClick,
                 modifier = Modifier
-                    .size(32.dp)
+                    .size(30.dp)
                     .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape)
             ) {
                 Icon(
                     imageVector = Icons.Default.Colorize,
                     contentDescription = "Eyedropper Sample Warna",
                     tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             }
 
-            // 2. Custom Color Toggle (lingkaran berisi warna terpilih)
+            // 2. Custom Color Toggle (lingkaran berisi warna terpilih).
+            // Membuka panel kustom + hex. Ukuran dijaga kecil biar toolbar
+            // tidak makan tempat.
             Box(
                 modifier = Modifier
-                    .size(38.dp)
+                    .size(36.dp)
                     .background(Color(selectedColor), CircleShape)
                     .border(
                         width = if (expanded) 2.5.dp else 1.dp,
@@ -130,21 +129,21 @@ fun ColorPickerRow(
                     imageVector = Icons.Default.Palette,
                     contentDescription = "Warna custom",
                     tint = if (ColorUtils.isLightColor(selectedColor)) Color.Black else Color.White,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             }
 
             // 3. Preset Colors Row (scrollable + target sentuh lega untuk jari)
             LazyRow(
                 modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 items(presetColors) { c ->
                     val isSelected = !expanded && (selectedColor and 0x00FFFFFF) == (c and 0x00FFFFFF)
                     Box(
                         modifier = Modifier
-                            .size(38.dp)
+                            .size(34.dp)
                             .background(Color(c), CircleShape)
                             .border(
                                 width = if (isSelected) 2.5.dp else 1.dp,
@@ -159,44 +158,11 @@ fun ColorPickerRow(
                                 imageVector = Icons.Default.Check,
                                 contentDescription = null,
                                 tint = if (ColorUtils.isLightColor(c)) Color.Black else Color.White,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }
                 }
-            }
-        }
-
-        // Baris akses cepat: swatch + kode hex warna saat ini + buka panel
-        // kustom (biar tak tersembunyi di balik ikon palet saja).
-        Surface(
-            onClick = { expanded = !expanded },
-            shape = RoundedCornerShape(10.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                CheckerSwatch(color = selectedColor, size = 20.dp)
-                Text(
-                    text = "Warna kustom & Hex",
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    text = ColorUtils.colorToHex(selectedColor, includeAlpha = (selectedColor ushr 24) < 255),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Icon(
-                    imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
             }
         }
 
@@ -207,27 +173,10 @@ fun ColorPickerRow(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
                 Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // 0. Header: pratinjau warna + kode hex live.
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        CheckerSwatch(color = currentColor, size = 34.dp)
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Warna Kustom", style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                text = ColorUtils.colorToHex(currentColor, includeAlpha = alpha < 1f || hexInput.length > 7),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
                     // 1. Saturation-Value 2D Palette Box (+ loupe saat drag:
                     // jari menutupi titik sentuh, jadi area sekitar pointer
                     // ditampilkan diperbesar + crosshair di titik pas).
@@ -235,7 +184,7 @@ fun ColorPickerRow(
                     BoxWithConstraints(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(200.dp)
+                            .height(170.dp)
                             .background(Color.Black, RoundedCornerShape(8.dp))
                             .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
                             .clip(RoundedCornerShape(8.dp))
@@ -393,7 +342,7 @@ fun ColorPickerRow(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        CheckerSwatch(color = currentColor, size = 44.dp)
+                        CheckerSwatch(color = currentColor, size = 40.dp)
 
                         OutlinedTextField(
                             value = hexInput,
@@ -410,14 +359,10 @@ fun ColorPickerRow(
                                 }
                             },
                             label = { Text("Kode Hex") },
-                            placeholder = { Text("#RRGGBB / #AARRGGBB") },
-                            supportingText = {
-                                if (isHexError) {
-                                    Text("Format salah — contoh: #F53, #FF5722, #80FF5722")
-                                } else {
-                                    Text("Bisa 3/4/6/8 digit (dgn # atau tanpa)")
-                                }
-                            },
+                            placeholder = { Text("#RRGGBB") },
+                            supportingText = if (isHexError) {
+                                { Text("Format salah — contoh: #F53, #FF5722, #80FF5722") }
+                            } else null,
                             isError = isHexError,
                             singleLine = true,
                             modifier = Modifier.weight(1f)
@@ -535,15 +480,15 @@ private fun SliderBar(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(76.dp)
+                .height(58.dp)
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(24.dp)
+                    .height(20.dp)
                     .align(Alignment.BottomStart)
-                    .background(brush = brush, shape = RoundedCornerShape(12.dp))
-                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
+                    .background(brush = brush, shape = RoundedCornerShape(10.dp))
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
             ) {
                 Canvas(
                     modifier = Modifier
@@ -567,20 +512,20 @@ private fun SliderBar(
                     val handleX = handleFraction.coerceIn(0f, 1f) * size.width
                     drawCircle(
                         color = Color.White,
-                        radius = 10.dp.toPx(),
+                        radius = 8.5.dp.toPx(),
                         center = Offset(handleX, size.height / 2f),
-                        style = Stroke(width = 3.dp.toPx())
+                        style = Stroke(width = 2.5.dp.toPx())
                     )
                     drawCircle(
                         color = Color.Black,
-                        radius = 8.dp.toPx(),
+                        radius = 6.5.dp.toPx(),
                         center = Offset(handleX, size.height / 2f),
                         style = Stroke(width = 1.5.dp.toPx())
                     )
                 }
             }
             if (picking) {
-                val pillSize = 52.dp
+                val pillSize = 46.dp
                 val pillX = (maxWidth * handleFraction.coerceIn(0f, 1f) - pillSize / 2)
                     .coerceIn(0.dp, maxWidth - pillSize)
                 Surface(

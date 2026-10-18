@@ -4574,11 +4574,11 @@ private fun ScriptPanel(
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = 360.dp)
+            .heightIn(max = 284.dp)
     ) {
         Column(
             modifier = Modifier
-                .padding(horizontal = 10.dp, vertical = 8.dp)
+                .padding(horizontal = 10.dp, vertical = 6.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
@@ -4617,6 +4617,18 @@ private fun ScriptPanel(
                         )
                     }
                 }
+                if (scriptQueue != null) {
+                    IconButton(
+                        onClick = onLoadScriptFile,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.FolderOpen,
+                            contentDescription = "Ganti file",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
                 IconButton(
                     onClick = onToggleCollapse,
                     modifier = Modifier.size(28.dp)
@@ -4650,29 +4662,16 @@ private fun ScriptPanel(
                 val entries = q.pages.getOrNull(q.pageIdx)?.entries ?: emptyList()
                 val entry = q.currentEntry
                 SectionCard(title = "Queue") {
-                    // Info baris + tombol ganti file.
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = if (entry != null) {
-                                "Baris ${q.lineIdx + 1} / ${q.lineCount}"
-                            } else {
-                                "Selesai — ${q.lineCount} baris"
-                            },
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f)
-                        )
-                        TextButton(
-                            onClick = onLoadScriptFile,
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                        ) {
-                            Text("Ganti file", style = MaterialTheme.typography.labelMedium)
-                        }
-                    }
+                    // Info baris.
+                    Text(
+                        text = if (entry != null) {
+                            "Baris ${q.lineIdx + 1} / ${q.lineCount}"
+                        } else {
+                            "Selesai — ${q.lineCount} baris"
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                     // Progress bar tipis.
                     Box(
                         modifier = Modifier
@@ -4704,7 +4703,7 @@ private fun ScriptPanel(
                         state = listState,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(150.dp),
+                            .height(76.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         itemsIndexed(entries) { idx, e ->
@@ -4725,7 +4724,7 @@ private fun ScriptPanel(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
@@ -4742,7 +4741,7 @@ private fun ScriptPanel(
                                     Text(
                                         text = e.text,
                                         style = MaterialTheme.typography.bodySmall,
-                                        maxLines = 2,
+                                        maxLines = if (isCurrent) 2 else 1,
                                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                         modifier = Modifier.weight(1f)
                                     )
@@ -4767,13 +4766,18 @@ private fun ScriptPanel(
                         Button(
                             onClick = onApplyScriptLine,
                             enabled = entry != null,
-                            modifier = Modifier.weight(1f)
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(36.dp)
                         ) {
                             Text(if (hasSelection) "Masukkan" else "Buat baru")
                         }
                         OutlinedButton(
                             onClick = onSkipScriptLine,
-                            enabled = entry != null
+                            enabled = entry != null,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier.height(36.dp)
                         ) {
                             Text("Lewati")
                         }
@@ -4788,7 +4792,8 @@ private fun ScriptPanel(
                             OutlinedButton(
                                 onClick = { onScriptPage(q.pageIdx - 1) },
                                 enabled = q.pageIdx > 0,
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                modifier = Modifier.height(32.dp)
                             ) {
                                 Text("‹")
                             }
@@ -4802,7 +4807,8 @@ private fun ScriptPanel(
                             OutlinedButton(
                                 onClick = { onScriptPage(q.pageIdx + 1) },
                                 enabled = q.pageIdx < q.pageCount - 1,
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                modifier = Modifier.height(32.dp)
                             ) {
                                 Text("›")
                             }
