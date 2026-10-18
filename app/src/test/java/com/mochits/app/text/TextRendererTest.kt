@@ -8,6 +8,7 @@ import com.mochits.app.model.TextContainerShape
 import com.mochits.app.model.TextStyleConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -632,9 +633,10 @@ class TextRendererTest {
         val bounds = textRenderer.getTextBounds(text, style, 0f, 0f, TextContainerShape.OVAL, boxW, storedH)
 
         assertEquals("Bounds mengikuti geometri oval", layout.containerHeight, bounds.height(), 0.5f)
+        val sumH = layout.lines.sumOf { (if (it.height > 0f) it.height else layout.lineHeight).toDouble() }.toFloat()
         assertTrue(
-            "Semua baris harus berada di dalam bounds (topOffset=${layout.topOffset}, lines=${layout.lines.size}, lh=${layout.lineHeight}, h=${bounds.height()})",
-            layout.topOffset + layout.lines.size * layout.lineHeight <= bounds.height() + 0.5f
+            "Semua baris harus berada di dalam bounds (topOffset=${layout.topOffset}, blockH=$sumH, h=${bounds.height()})",
+            layout.topOffset + sumH <= bounds.height() + 0.5f
         )
     }
 
@@ -652,9 +654,10 @@ class TextRendererTest {
             text, Paint().apply { textSize = 100f },
             TextContainerShape.OVAL, boxW, minH, TextAlignment.CENTER, style
         )
+        val sumH = after.lines.sumOf { (if (it.height > 0f) it.height else after.lineHeight).toDouble() }.toFloat()
         assertTrue(
-            "Setelah grow, teks harus muat (topOffset=${after.topOffset}, lines=${after.lines.size})",
-            after.topOffset + after.lines.size * after.lineHeight <= minH + 0.5f
+            "Setelah grow, teks harus muat (topOffset=${after.topOffset}, blockH=$sumH, minH=$minH)",
+            after.topOffset + sumH <= minH + 0.5f
         )
         assertTrue("Geometri oval tidak melebihi hasil grow", after.containerHeight <= minH + 0.5f)
     }
@@ -720,5 +723,30 @@ class TextRendererTest {
             "Baseline harus sebaris: dasar kata kecil & besar hampir sama (small=$smallBottom, big=$bigBottom)",
             kotlin.math.abs(smallBottom - bigBottom) <= 5
         )
+    }
+
+    @Test
+    fun testSpanEnlarge_onlyItsLineGrowsTaller() {
+        val style = TextStyleConfig(fontSize = 40f, alignment = TextAlignment.LEFT)
+        val text = "aaa bbb ccc ddd eee fff ggg hhh"
+        val spans = listOf(com.mochits.app.model.TextSpanStyle(start = 16, end = 19, fontSize = 90f))
+        val layout = textRenderer.layoutText(
+            text, Paint().apply { textSize = 40f },
+            TextContainerShape.BOX, 300f, null, TextAlignment.LEFT, style, spans
+        )
+        assertTrue("Teks harus wrap jadi beberapa baris (lines=${layout.lines.size})", layout.lines.size >= 2)
+        val bigLine = layout.lines.firstOrNull { it.text.contains("eee") }
+        assertNotNull("Baris berisi kata diperbesar harus ada", bigLine)
+        val smallLines = layout.lines.filter { !it.text.contains("eee") }
+        assertTrue("Harus ada baris tanpa kata besar", smallLines.isNotEmpty())
+
+        val bigH = bigLine!!.height
+        val uniformH = smallLines.first().height
+        assertTrue("Baris kata besar harus lebih tinggi (big=$bigH, small=$uniformH)", bigH > uniformH * 1.5f)
+        for (l in smallLines) {
+            assertEquals("Baris tanpa kata besar tingginya tetap seragam", uniformH, l.height, 0.5f)
+        }
+        val sumH = layout.lines.sumOf { it.height.toDouble() }.toFloat()
+        assertEquals("containerHeight = jumlah tinggi baris (bukan lines * global)", sumH, layout.containerHeight, 0.5f)
     }
 }

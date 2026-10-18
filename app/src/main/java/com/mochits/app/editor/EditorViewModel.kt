@@ -335,7 +335,7 @@ class EditorViewModel @Inject constructor(
                     fontName = fontName, fontStyle = fontStyle,
                     fontSize = fontSize, textColor = textColor
                 )
-                growBoxToFit(layer.copy(richSpans = spans))
+                growBoxToFit(layer.copy(richSpans = spans), spanSafe = true)
             } else {
                 layer
             }
@@ -354,7 +354,7 @@ class EditorViewModel @Inject constructor(
         layers.value = layers.value.map { layer ->
             if (layer.id == selectedId && layer is Layer.TextLayer) {
                 val spans = com.mochits.app.text.clearSpanRange(layer.richSpans, layer.text.length, start, end)
-                growBoxToFit(layer.copy(richSpans = spans))
+                growBoxToFit(layer.copy(richSpans = spans), spanSafe = true)
             } else {
                 layer
             }
@@ -367,11 +367,22 @@ class EditorViewModel @Inject constructor(
     /**
      * Besarkan box (bila eksplisit) agar konten muat — teks yang diperbesar
      * tidak boleh nglebihin kotak. Hanya membesar, tidak mengecil.
+     * [spanSafe]: perubahan gaya per kata TIDAK boleh mengubah lebar/tinggi
+     * box (wrap & susunan kalimat harus tetap). Untuk box persegi, tinggi
+     * boleh tumbuh agar teks tak menggantung di bawah (posisi teks tetap,
+     * hanya outline yang memanjang). OVAL tak disentuh — geometri oval
+     * sudah mengikuti isi teks saat digambar.
      */
-    private fun growBoxToFit(layer: Layer.TextLayer): Layer.TextLayer {
+    private fun growBoxToFit(layer: Layer.TextLayer, spanSafe: Boolean = false): Layer.TextLayer {
         val bw = layer.boxWidth ?: return layer
         val bh = layer.boxHeight ?: return layer
         if (bw <= 0f || bh <= 0f) return layer
+        if (spanSafe) {
+            if (layer.textContainerShape != com.mochits.app.model.TextContainerShape.BOX) return layer
+            val minH = textRenderer.getMinBoxHeight(layer)
+            if (minH <= bh) return layer
+            return layer.copy(boxHeight = maxOf(bh, minH))
+        }
         val minW = textRenderer.getMinBoxWidth(layer)
         val minH = textRenderer.getMinBoxHeight(layer)
         if (minW <= bw && minH <= bh) return layer

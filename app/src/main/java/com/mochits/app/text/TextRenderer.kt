@@ -36,7 +36,9 @@ data class RenderedLine(
     val width: Float,
     val xOffset: Float,
     /** Run-run gaya pembentuk baris (fase 1 rich text). */
-    val runs: List<RenderedRun> = emptyList()
+    val runs: List<RenderedRun> = emptyList(),
+    /** Tinggi baris efektif = maks gaya di baris ini (0 = warisan lineHeight global). */
+    val height: Float = 0f
 )
 
 data class TextLayoutResult(
@@ -223,6 +225,35 @@ class TextRenderer(private val context: Context) {
     /** Fill per-run rich-text (dikonfigurasi ulang tiap run). */
     private val reusableRunPaint = Paint()
 
+    /** Cache tinggi baris per gaya (fs|fn|fst) — hindari re-measure font metrics. */
+    private val styleHeightCache = object : LinkedHashMap<Triple<Float, String, String>, Float>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Triple<Float, String, String>, Float>?): Boolean = size > 128
+    }
+
+    /** Tinggi baris satu gaya = fontMetrics.bottom - top (konsisten dgn lineHeight global). */
+    private fun styleHeight(fs: Float, fn: String, fst: String): Float {
+        val key = Triple(fs, fn.trim().lowercase(), fst.trim().lowercase())
+        val cached = synchronized(styleHeightCache) { styleHeightCache[key] }
+        if (cached != null) return cached
+        val p = reusableMeasurePaint.apply {
+            reset()
+            isAntiAlias = true
+            textSize = fs
+            typeface = getTypeface(fn, fst)
+        }
+        val fm = p.fontMetrics
+        val h = (fm.bottom - fm.top).coerceAtLeast(1f)
+        synchronized(styleHeightCache) { styleHeightCache[key] = h }
+        return h
+    }
+
+    /** Tinggi blok teks = jumlah tinggi baris (fallback lineHeight global bila kosong). */
+    private fun blockHeight(lines: List<RenderedLine>, globalLineHeight: Float): Float {
+        var sum = 0f
+        for (l in lines) sum += if (l.height > 0f) l.height else globalLineHeight
+        return sum
+    }
+
     /**
      * Complete rewrite of text layout and reflow logic from scratch.
      * Supports both BOX and OVAL container shapes with greedy word-wrapping,
@@ -371,9 +402,15 @@ class TextRenderer(private val context: Context) {
                     cum += t.w
                     r
                 }
-                finalLines.add(RenderedLine(text = para, width = w, xOffset = xOff, runs = runs))
+                var paraH = 0f
+                for (t in toks) {
+                    val h = styleHeight(t.fs, t.fn, t.fst)
+                    if (h > paraH) paraH = h
+                }
+                if (paraH <= 0f) paraH = styleHeight(baseStyle.fontSize, baseStyle.fontName, baseStyle.fontStyle)
+                finalLines.add(RenderedLine(text = para, width = w, xOffset = xOff, runs = runs, height = paraH))
             }
-            val totalH = (finalLines.size * lineHeight).coerceAtLeast(lineHeight)
+            val totalH = blockHeight(finalLines, lineHeight).coerceAtLeast(lineHeight)
             val finalH = boxHeight ?: totalH
             val topOffset = if (boxHeight != null) ((finalH - totalH) / 2f).coerceAtLeast(0f) else 0f
             val nonEmptyLines = finalLines.filter { it.text.isNotEmpty() }
@@ -417,38 +454,27 @@ class TextRenderer(private val context: Context) {
 
         // Helper function to build lines given a vertical top offset
         fun buildLinesForOffset(computedTopOffset: Float): List<RenderedLine> {
-            val availableWidthCache = FloatArray(100) { -1f }
-
-            fun getAvailableWidth(lineIdx: Int): Float {
-                if (shape == TextContainerShape.BOX || effectiveBoxHeight == null) {
-                    return targetW
-                }
-                if (lineIdx in availableWidthCache.indices && availableWidthCache[lineIdx] >= 0f) {
-                    return availableWidthCache[lineIdx]
-                }
-                val yRelativeToContainerTop = computedTopOffset + (lineIdx + 0.5f) * lineHeight
-                val yRelativeToCenter = yRelativeToContainerTop - ovalB
+            // Lebar elips di ketinggian tertentu — murni, tanpa cache index.
+            fun availWidthAt(yMid: Float): Float {
+                if (shape == TextContainerShape.BOX || effectiveBoxHeight == null) return targetW
+                val yRelativeToCenter = yMid - ovalB
                 val ratio = (yRelativeToCenter / ovalB).coerceIn(-0.98f, 0.98f)
                 // Lantai kecil: teks harus tetap di dalam elips walau di
                 // garis atas/bawah yang sempit (bukan minLineWidth).
-                val avail = (2f * ovalA * sqrt(1f - ratio * ratio)).coerceAtLeast(4f)
-                if (lineIdx in availableWidthCache.indices) {
-                    availableWidthCache[lineIdx] = avail
-                }
-                return avail
-            }
-
-            fun calculateLineXOffset(lineIdx: Int, lineW: Float): Float {
-                val availW = getAvailableWidth(lineIdx)
-                val sliceStart = if (shape == TextContainerShape.OVAL) (targetW - availW) / 2f else 0f
-                return when (alignment) {
-                    TextAlignment.LEFT -> sliceStart
-                    TextAlignment.CENTER -> sliceStart + (availW - lineW) / 2f
-                    TextAlignment.RIGHT -> sliceStart + availW - lineW
-                }
+                return (2f * ovalA * sqrt(1f - ratio * ratio)).coerceAtLeast(4f)
             }
 
             val lines = mutableListOf<RenderedLine>()
+            /** Tinggi kumulatif baris yang sudah commit (= top baris berikutnya). */
+            var cumulativeTop = 0f
+            /** Tinggi baris berjalan (belum commit) = maks gaya token di dalamnya. */
+            var currentLineH = 0f
+            fun currentAvailWidth(extraH: Float = 0f): Float {
+                if (shape == TextContainerShape.BOX || effectiveBoxHeight == null) return targetW
+                val h = maxOf(currentLineH, extraH)
+                return availWidthAt(computedTopOffset + cumulativeTop + h / 2f)
+            }
+
             var paraOff = 0
             val paragraphs = if (text.isEmpty()) {
                 listOf("" to 0)
@@ -459,7 +485,6 @@ class TextRenderer(private val context: Context) {
                     r
                 }
             }
-            var currentLineIdx = 0
 
             // Commit baris dari token bergaya (potong spasi trailing).
             fun commitToks(toks: List<StyledTok>): RenderedLine {
@@ -470,16 +495,31 @@ class TextRenderer(private val context: Context) {
                     w -= toks[end].w
                 }
                 val kept = toks.subList(0, end)
+                var lh = 0f
+                for (t in kept) {
+                    val h = styleHeight(t.fs, t.fn, t.fst)
+                    if (h > lh) lh = h
+                }
+                if (lh <= 0f) lh = styleHeight(baseStyle.fontSize, baseStyle.fontName, baseStyle.fontStyle)
+                val availW = if (shape == TextContainerShape.OVAL && effectiveBoxHeight != null) {
+                    availWidthAt(computedTopOffset + cumulativeTop + lh / 2f)
+                } else targetW
+                val sliceStart = if (shape == TextContainerShape.OVAL) (targetW - availW) / 2f else 0f
+                val xOff = when (alignment) {
+                    TextAlignment.LEFT -> sliceStart
+                    TextAlignment.CENTER -> sliceStart + (availW - w) / 2f
+                    TextAlignment.RIGHT -> sliceStart + availW - w
+                }
                 val lineStr = kept.joinToString("") { it.t }
-                val xOff = calculateLineXOffset(currentLineIdx, w)
                 var cum = 0f
                 val runs = kept.map { t ->
                     val r = RenderedRun(t.t, t.w, xOff + cum, t.fs, t.fn, t.fst, t.tc)
                     cum += t.w
                     r
                 }
-                currentLineIdx++
-                return RenderedLine(lineStr, w, xOff, runs)
+                cumulativeTop += lh
+                currentLineH = 0f
+                return RenderedLine(lineStr, w, xOff, runs, lh)
             }
             // Satu baris dari satu token (hasil hyphenation/penggal).
             fun commitSingle(tokText: String, fs: Float, fn: String, fst: String, tc: Int?): RenderedLine {
@@ -489,14 +529,22 @@ class TextRenderer(private val context: Context) {
 
             for ((para, paraStart) in paragraphs) {
                 if (para.isEmpty()) {
-                    val xOff = calculateLineXOffset(currentLineIdx, 0f)
+                    val lh = styleHeight(baseStyle.fontSize, baseStyle.fontName, baseStyle.fontStyle)
+                    val availW = currentAvailWidth(lh)
+                    val sliceStart = if (shape == TextContainerShape.OVAL) (targetW - availW) / 2f else 0f
+                    val xOff = when (alignment) {
+                        TextAlignment.LEFT -> sliceStart
+                        TextAlignment.CENTER -> sliceStart + availW / 2f
+                        TextAlignment.RIGHT -> sliceStart + availW
+                    }
                     lines.add(
                         RenderedLine(
                             "", 0f, xOff,
-                            listOf(RenderedRun("", 0f, xOff, baseStyle.fontSize, baseStyle.fontName, baseStyle.fontStyle, null))
+                            listOf(RenderedRun("", 0f, xOff, baseStyle.fontSize, baseStyle.fontName, baseStyle.fontStyle, null)),
+                            lh
                         )
                     )
-                    currentLineIdx++
+                    cumulativeTop += lh
                     continue
                 }
 
@@ -507,7 +555,8 @@ class TextRenderer(private val context: Context) {
 
                 while (tokenIdx < tokens.size) {
                     val token = tokens[tokenIdx]
-                    val availW = getAvailableWidth(currentLineIdx)
+                    val tokenH = styleHeight(token.fs, token.fn, token.fst)
+                    val availW = currentAvailWidth(tokenH)
 
                     if (currentLineToks.isEmpty() && token.t.trim().isEmpty()) {
                         tokenIdx++
@@ -519,6 +568,7 @@ class TextRenderer(private val context: Context) {
                     if (candidateW <= availW) {
                         currentLineToks.add(token)
                         currentLineW = candidateW
+                        if (tokenH > currentLineH) currentLineH = tokenH
                         tokenIdx++
                     } else {
                         if (currentLineToks.isNotEmpty()) {
@@ -529,9 +579,10 @@ class TextRenderer(private val context: Context) {
                             val cleanToken = token.t.trim()
                             if (shape == TextContainerShape.OVAL && effectiveBoxHeight != null) {
                                 val tokenW = measureTok(cleanToken, token.fs, token.fn, token.fst)
-                                val yRelativeToTop = computedTopOffset + (currentLineIdx + 0.5f) * lineHeight
+                                val yRelativeToTop = computedTopOffset + cumulativeTop + maxOf(currentLineH, tokenH) / 2f
                                 if (yRelativeToTop < ovalB && tokenW <= targetW * 0.95f && availW < tokenW) {
-                                    currentLineIdx++
+                                    cumulativeTop += tokenH
+                                    currentLineH = 0f
                                     continue
                                 }
                             }
@@ -631,12 +682,12 @@ class TextRenderer(private val context: Context) {
         val pass1Lines = buildLinesForOffset(initialTopOffsetForOval)
 
         val lines = if (shape == TextContainerShape.OVAL && effectiveBoxHeight != null) {
-            val totalTextH1 = pass1Lines.size * lineHeight
+            val totalTextH1 = blockHeight(pass1Lines, lineHeight)
             val topOffset1 = ((effectiveBoxHeight - totalTextH1) / 2f).coerceAtLeast(0f)
             if (topOffset1 > 0f) {
                 usedTopOffset = topOffset1
                 val pass2Lines = buildLinesForOffset(topOffset1)
-                val totalTextH2 = pass2Lines.size * lineHeight
+                val totalTextH2 = blockHeight(pass2Lines, lineHeight)
                 val topOffset2 = ((effectiveBoxHeight - totalTextH2) / 2f).coerceAtLeast(0f)
                 if (kotlin.math.abs(topOffset2 - topOffset1) > 1f) {
                     usedTopOffset = topOffset2
@@ -653,7 +704,7 @@ class TextRenderer(private val context: Context) {
             pass1Lines
         }
 
-        val totalTextHeight = lines.size * lineHeight
+        val totalTextHeight = blockHeight(lines, lineHeight)
         val finalContainerW = if (shape == TextContainerShape.OVAL) {
             // Geometri oval = targetW (sama dgn perhitungan lebar per baris),
             // bukan lebar teks — outline & hit-box ikut geometri asli.
@@ -741,7 +792,7 @@ class TextRenderer(private val context: Context) {
             val gradX = x + layoutResult.minX
             val gradW = (layoutResult.maxX - layoutResult.minX).coerceAtLeast(10f)
             val gradY = y + layoutResult.topOffset
-            val gradH = (layoutResult.lines.size * layoutResult.lineHeight).coerceAtLeast(10f)
+            val gradH = blockHeight(layoutResult.lines, layoutResult.lineHeight).coerceAtLeast(10f)
             val (x0, y0, x1, y1) = style.calculateGradientPoints(gradX, gradY, gradW, gradH)
             val stops = style.getEffectiveGradientStops()
             val colors = IntArray(stops.size)
@@ -819,7 +870,11 @@ class TextRenderer(private val context: Context) {
         shadowPaint: Paint?,
         strokePaint: Paint?
     ) {
-        lines.forEachIndexed { i, line ->
+        // Top kumulatif per baris: baris dengan kata besar hanya meninggikan
+        // dirinya sendiri, bukan seluruh blok (height = tinggi baris efektif).
+        var blockTop = 0f
+        lines.forEach { line ->
+            val lh = if (line.height > 0f) line.height else lineHeight
             // Baseline bersama per baris (ascent terbesar di baris itu).
             // Sebelumnya tiap run pakai fontMetrics sendiri → kata yang
             // diperbesar rata-atas & tumbuh ke bawah, bukan sebaris.
@@ -835,41 +890,42 @@ class TextRenderer(private val context: Context) {
                 val ascent = -mp.fontMetrics.top
                 if (ascent > lineAscent) lineAscent = ascent
             }
-            if (lineAscent <= 0f) return@forEachIndexed
+            if (lineAscent > 0f) {
+                for (run in line.runs) {
+                    if (run.text.isEmpty()) continue
+                    val rp = reusableRunPaint.apply {
+                        reset()
+                        isAntiAlias = true
+                        textSize = run.fontSize
+                        typeface = getTypeface(run.fontName, run.fontStyle)
+                        color = run.textColor ?: baseStyle.textColor
+                        alpha = (baseStyle.textOpacity * 255).toInt().coerceIn(0, 255)
+                        if (gradient != null) shader = gradient
+                    }
+                    val rx = x + run.xOffset
+                    val baselineY = y + topOffset + blockTop + lineAscent
 
-            for (run in line.runs) {
-                if (run.text.isEmpty()) continue
-                val rp = reusableRunPaint.apply {
-                    reset()
-                    isAntiAlias = true
-                    textSize = run.fontSize
-                    typeface = getTypeface(run.fontName, run.fontStyle)
-                    color = run.textColor ?: baseStyle.textColor
-                    alpha = (baseStyle.textOpacity * 255).toInt().coerceIn(0, 255)
-                    if (gradient != null) shader = gradient
+                    // Efek ikut ukuran/font run (bukan base) — kata besar
+                    // jangan dapat stroke/glow seukuran font layer.
+                    glowPaint?.let {
+                        it.textSize = run.fontSize
+                        it.typeface = rp.typeface
+                        canvas.drawText(run.text, rx, baselineY, it)
+                    }
+                    shadowPaint?.let {
+                        it.textSize = run.fontSize
+                        it.typeface = rp.typeface
+                        canvas.drawText(run.text, rx, baselineY, it)
+                    }
+                    strokePaint?.let {
+                        it.textSize = run.fontSize
+                        it.typeface = rp.typeface
+                        canvas.drawText(run.text, rx, baselineY, it)
+                    }
+                    canvas.drawText(run.text, rx, baselineY, rp)
                 }
-                val rx = x + run.xOffset
-                val baselineY = y + topOffset + (i * lineHeight) + lineAscent
-
-                // Efek ikut ukuran/font run (bukan base) — kata besar
-                // jangan dapat stroke/glow seukuran font layer.
-                glowPaint?.let {
-                    it.textSize = run.fontSize
-                    it.typeface = rp.typeface
-                    canvas.drawText(run.text, rx, baselineY, it)
-                }
-                shadowPaint?.let {
-                    it.textSize = run.fontSize
-                    it.typeface = rp.typeface
-                    canvas.drawText(run.text, rx, baselineY, it)
-                }
-                strokePaint?.let {
-                    it.textSize = run.fontSize
-                    it.typeface = rp.typeface
-                    canvas.drawText(run.text, rx, baselineY, it)
-                }
-                canvas.drawText(run.text, rx, baselineY, rp)
             }
+            blockTop += lh
         }
     }
 
@@ -962,7 +1018,7 @@ class TextRenderer(private val context: Context) {
         val radius = style.motionBlurRadius
         if (radius <= 0f) return
         val textW = (layoutResult.maxX - layoutResult.minX).coerceAtLeast(1f)
-        val textH = (layoutResult.lines.size * layoutResult.lineHeight).coerceAtLeast(1f)
+        val textH = blockHeight(layoutResult.lines, layoutResult.lineHeight).coerceAtLeast(1f)
         val pad = ceil(radius.toDouble()).toInt() + 4
         val bw = (textW + 2 * pad).toInt().coerceAtLeast(1)
         val bh = (textH + 2 * pad).toInt().coerceAtLeast(1)
@@ -1241,7 +1297,7 @@ class TextRenderer(private val context: Context) {
             repeat(6) {
                 val res = layoutText(text, paint, shape, boxWidth, h, style.alignment, style, spans)
                 val needed = maxOf(
-                    res.topOffset + res.lines.size * res.lineHeight,
+                    res.topOffset + blockHeight(res.lines, res.lineHeight),
                     res.containerHeight
                 )
                 if (needed <= h + 0.5f) return h.coerceAtLeast(30f)
@@ -1250,7 +1306,7 @@ class TextRenderer(private val context: Context) {
             return h.coerceAtLeast(30f)
         }
         val layoutResult = layoutText(text, paint, shape, boxWidth, boxHeight = null, style.alignment, style, spans)
-        val reqHeight = layoutResult.lines.size * layoutResult.lineHeight
+        val reqHeight = blockHeight(layoutResult.lines, layoutResult.lineHeight)
         return reqHeight.coerceAtLeast(if (shape == TextContainerShape.OVAL) 30f else 20f)
     }
 
