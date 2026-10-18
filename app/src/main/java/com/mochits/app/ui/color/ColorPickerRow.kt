@@ -2,6 +2,7 @@ package com.mochits.app.ui.color
 
 import android.graphics.Color as AndroidColor
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -16,17 +17,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Colorize
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
@@ -162,6 +167,39 @@ fun ColorPickerRow(
             }
         }
 
+        // Baris akses cepat: swatch + kode hex warna saat ini + buka panel
+        // kustom (biar tak tersembunyi di balik ikon palet saja).
+        Surface(
+            onClick = { expanded = !expanded },
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                CheckerSwatch(color = selectedColor, size = 20.dp)
+                Text(
+                    text = "Warna kustom & Hex",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = ColorUtils.colorToHex(selectedColor, includeAlpha = (selectedColor ushr 24) < 255),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Icon(
+                    imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+
         AnimatedVisibility(visible = expanded) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -173,6 +211,23 @@ fun ColorPickerRow(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    // 0. Header: pratinjau warna + kode hex live.
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        CheckerSwatch(color = currentColor, size = 34.dp)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Warna Kustom", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                text = ColorUtils.colorToHex(currentColor, includeAlpha = alpha < 1f || hexInput.length > 7),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
                     // 1. Saturation-Value 2D Palette Box (+ loupe saat drag:
                     // jari menutupi titik sentuh, jadi area sekitar pointer
                     // ditampilkan diperbesar + crosshair di titik pas).
@@ -180,9 +235,10 @@ fun ColorPickerRow(
                     BoxWithConstraints(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(190.dp)
+                            .height(200.dp)
                             .background(Color.Black, RoundedCornerShape(8.dp))
                             .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(8.dp))
                     ) {
                         val pureHueColor = remember(hsv[0]) {
                             Color(ColorUtils.hsvToColor(hsv[0], 1f, 1f, 1f))
@@ -337,12 +393,7 @@ fun ColorPickerRow(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .background(Color(currentColor), CircleShape)
-                                .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
-                        )
+                        CheckerSwatch(color = currentColor, size = 44.dp)
 
                         OutlinedTextField(
                             value = hexInput,
@@ -358,7 +409,15 @@ fun ColorPickerRow(
                                     isHexError = true
                                 }
                             },
-                            label = { Text("Hex (#RRGGBB / #AARRGGBB)") },
+                            label = { Text("Kode Hex") },
+                            placeholder = { Text("#RRGGBB / #AARRGGBB") },
+                            supportingText = {
+                                if (isHexError) {
+                                    Text("Format salah — contoh: #F53, #FF5722, #80FF5722")
+                                } else {
+                                    Text("Bisa 3/4/6/8 digit (dgn # atau tanpa)")
+                                }
+                            },
                             isError = isHexError,
                             singleLine = true,
                             modifier = Modifier.weight(1f)
@@ -366,12 +425,48 @@ fun ColorPickerRow(
                     }
 
                     // 5. Selesai (tutup panel)
-                    TextButton(onClick = { expanded = false }) {
+                    FilledTonalButton(
+                        onClick = { expanded = false },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Text("Selesai")
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CheckerSwatch(color: Int, size: Dp, modifier: Modifier = Modifier) {
+    // Papan catur di belakang warna: transparansi terlihat jelas.
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val cell = this.size.minDimension / 5f
+            var row = 0
+            var y = 0f
+            while (y < this.size.height) {
+                var col = 0
+                var x = 0f
+                while (x < this.size.width) {
+                    drawRect(
+                        color = if ((row + col) % 2 == 0) Color(0xFFDDDDDD) else Color(0xFFFFFFFF),
+                        topLeft = Offset(x, y),
+                        size = androidx.compose.ui.geometry.Size(cell + 1f, cell + 1f)
+                    )
+                    x += cell
+                    col++
+                }
+                y += cell
+                row++
+            }
+        }
+        Box(modifier = Modifier.fillMaxSize().background(Color(color)))
     }
 }
 

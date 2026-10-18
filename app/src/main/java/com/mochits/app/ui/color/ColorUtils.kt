@@ -9,21 +9,31 @@ import kotlin.math.min
 object ColorUtils {
 
     /**
-     * Palet preset tunggal untuk seluruh fitur effect (warna teks, gradient,
-     * stroke, shadow). Abu-abu tua & muda diletakkan berdampingan dengan
-     * hitam dan putih.
+     * Palet preset tunggal untuk seluruh fitur (warna teks, kata, gradient,
+     * stroke, shadow, glow). Netral berdampingan dengan putih/hitam, lalu
+     * lingkaran warna lengkap — biar tak perlu buka picker untuk warna umum.
      */
     val defaultPresetColors: List<Int> = listOf(
         Color.BLACK,
-        Color.DKGRAY, // abu-abu tua (#444444)
-        Color.LTGRAY, // abu-abu muda (#CCCCCC)
+        0xFF444444.toInt(), // abu tua
+        0xFF888888.toInt(), // abu
+        0xFFC0C0C0.toInt(), // silver
         Color.WHITE,
-        Color.RED,
-        Color.BLUE,
-        Color.GREEN,
-        Color.YELLOW,
-        Color.MAGENTA,
-        Color.CYAN
+        0xFFFF0000.toInt(), // merah
+        0xFFFFA500.toInt(), // oranye
+        0xFFFFFF00.toInt(), // kuning
+        0xFF808000.toInt(), // olive
+        0xFF00FF00.toInt(), // lime
+        0xFF008000.toInt(), // hijau
+        0xFF008080.toInt(), // teal
+        0xFF00FFFF.toInt(), // cyan
+        0xFF0000FF.toInt(), // biru
+        0xFF000080.toInt(), // navy
+        0xFF800080.toInt(), // ungu
+        0xFFFF00FF.toInt(), // magenta
+        0xFFFFC0CB.toInt(), // pink
+        0xFF800000.toInt(), // marun
+        0xFFA52A2A.toInt()  // coklat
     )
 
     /** True jika warna terang (ikon cek di atasnya harus gelap agar terbaca). */
@@ -94,6 +104,23 @@ object ColorUtils {
         val cleaned = hex.trim().removePrefix("#")
         return try {
             when (cleaned.length) {
+                3 -> {
+                    // Shorthand #RGB → #RRGGBB (tiap digit dikali 17/0x11).
+                    val v = cleaned.toLong(16).toInt()
+                    val r = (v shr 8) and 0xF
+                    val g = (v shr 4) and 0xF
+                    val b = v and 0xF
+                    0xFF000000.toInt() or (r * 17 shl 16) or (g * 17 shl 8) or (b * 17)
+                }
+                4 -> {
+                    // Shorthand #ARGB → #AARRGGBB.
+                    val v = cleaned.toLong(16).toInt()
+                    val a = (v shr 12) and 0xF
+                    val r = (v shr 8) and 0xF
+                    val g = (v shr 4) and 0xF
+                    val b = v and 0xF
+                    (a * 17 shl 24) or (r * 17 shl 16) or (g * 17 shl 8) or (b * 17)
+                }
                 6 -> {
                     val rgb = cleaned.toLong(16).toInt()
                     (0xFF shl 24) or (rgb and 0x00FFFFFF)

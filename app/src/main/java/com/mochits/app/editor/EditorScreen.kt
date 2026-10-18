@@ -40,6 +40,7 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
@@ -60,6 +61,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -802,6 +804,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         allFonts = allFonts,
                         onApplySpan = { s, e, fn, fst, fs, tc, saveUndo -> viewModel.applySpanStyle(s, e, fn, fst, fs, tc, saveUndo) },
                         onClearSpan = { s, e -> viewModel.clearSpanStyle(s, e) },
+                        onStartEyedropper = { cb -> viewModel.startEyedropper(cb) },
                         isCollapsed = EditorPanel.TEXT in collapsedPanels,
                         onToggleCollapse = { togglePanelCollapse(EditorPanel.TEXT) }
                     )
@@ -878,6 +881,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onApplyScriptLine = { viewModel.applyScriptCurrent() },
                         onSkipScriptLine = { viewModel.skipScriptLine() },
                         onScriptPage = { viewModel.setScriptPage(it) },
+                        onScriptLine = { viewModel.setScriptLine(it) },
                         isCollapsed = EditorPanel.SCRIPT in collapsedPanels,
                         onToggleCollapse = { togglePanelCollapse(EditorPanel.SCRIPT) }
                     )
@@ -3050,6 +3054,8 @@ fun TextToolPanel(
     onApplySpan: ((Int, Int, String?, String?, Float?, Int?, Boolean) -> Unit)? = null,
     // Hapus gaya kata [s, e). Wire ke clearSpanStyle.
     onClearSpan: ((Int, Int) -> Unit)? = null,
+    // Mulai mode eyedropper utk warna kata (callback dipanggil dgn warna hasil sampling).
+    onStartEyedropper: (((Int) -> Unit) -> Unit)? = null,
     isCollapsed: Boolean = false,
     onToggleCollapse: () -> Unit = {}
 ) {
@@ -3256,51 +3262,27 @@ fun TextToolPanel(
                             style = MaterialTheme.typography.bodyMedium,
                             maxLines = 2
                         )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val presets = listOf(
-                                AndroidColor.BLACK to "Hitam",
-                                AndroidColor.WHITE to "Putih",
-                                AndroidColor.RED to "Merah",
-                                0xFFFFA500.toInt() to "Oranye",
-                                AndroidColor.YELLOW to "Kuning",
-                                0xFF808000.toInt() to "Olive",
-                                AndroidColor.GREEN to "Hijau",
-                                0xFF00FF00.toInt() to "Lime",
-                                0xFF008080.toInt() to "Teal",
-                                AndroidColor.CYAN to "Cyan",
-                                0xFF000080.toInt() to "Navy",
-                                AndroidColor.BLUE to "Biru",
-                                0xFF800080.toInt() to "Ungu",
-                                0xFFFFC0CB.toInt() to "Pink",
-                                0xFF800000.toInt() to "Marun",
-                                0xFFA52A2A.toInt() to "Coklat",
-                                AndroidColor.GRAY to "Abu",
-                                0xFFC0C0C0.toInt() to "Silver"
-                            )
-                            for ((c, desc) in presets) {
-                                val sel = effColor == c
-                                Surface(
-                                    onClick = {
-                                        bankSpanSnapshot()
-                                        onApplySpan?.invoke(s, e, null, null, null, c, false)
-                                    },
-                                    shape = CircleShape,
-                                    color = Color(c),
-                                    border = if (sel) {
-                                        BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-                                    } else {
-                                        BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-                                    },
-                                    modifier = Modifier.size(28.dp)
-                                ) {}
+                        // Palet warna kata = ColorPickerRow penuh (dot + picker
+                        // kustom + kode hex + eyedropper), sama seperti menu lain.
+                        ColorPickerRow(
+                            selectedColor = effColor,
+                            onColorSelected = { c ->
+                                bankSpanSnapshot()
+                                onApplySpan?.invoke(s, e, null, null, null, c, false)
+                            },
+                            onCustomColorChange = { c ->
+                                bankSpanSnapshot()
+                                onApplySpan?.invoke(s, e, null, null, null, c, false)
+                            },
+                            onPickStart = { bankSpanSnapshot() },
+                            onPickEnd = {},
+                            onEyedropperClick = {
+                                onStartEyedropper?.invoke { sampledCol ->
+                                    bankSpanSnapshot()
+                                    onApplySpan?.invoke(s, e, null, null, null, sampledCol, false)
+                                }
                             }
-                        }
+                        )
                         if (allFonts.isNotEmpty()) {
                             var fontPickerOpen by remember(snappedRange) { mutableStateOf(false) }
                             val fontNames = allFonts.map { it.name }.distinct()
@@ -4582,6 +4564,7 @@ private fun ScriptPanel(
     onApplyScriptLine: () -> Unit,
     onSkipScriptLine: () -> Unit,
     onScriptPage: (Int) -> Unit,
+    onScriptLine: (Int) -> Unit = {},
     isCollapsed: Boolean = false,
     onToggleCollapse: () -> Unit = {}
 ) {
@@ -4591,10 +4574,12 @@ private fun ScriptPanel(
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = 280.dp)
+            .heightIn(max = 360.dp)
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            modifier = Modifier
+                .padding(horizontal = 10.dp, vertical = 8.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Box(
@@ -4612,11 +4597,26 @@ private fun ScriptPanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Script",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = "Script",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    if (scriptQueue != null) {
+                        Text(
+                            text = scriptQueue.fileName,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                    }
+                }
                 IconButton(
                     onClick = onToggleCollapse,
                     modifier = Modifier.size(28.dp)
@@ -4629,68 +4629,186 @@ private fun ScriptPanel(
                 }
             }
             if (!isCollapsed) {
-            SectionCard(title = "Queue") {
-            OutlinedButton(
-                onClick = onLoadScriptFile,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(if (scriptQueue != null) "Ganti file script" else "Muat file .txt")
-            }
-            if (scriptQueue != null) {
-                val q = scriptQueue
-                val entry = q.currentEntry
-                val pageLabel = q.pageLabel.ifBlank { "Hal. ${q.pageIdx + 1}" }
-                Text(
-                    text = if (entry != null) {
-                        "$pageLabel • Baris ${q.lineIdx + 1}/${q.lineCount}: ${entry.text.take(120)}"
-                    } else {
-                        "$pageLabel • Habis."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 4
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.horizontalScroll(rememberScrollState())
-                ) {
+            val q = scriptQueue
+            if (q == null) {
+                SectionCard(title = "Queue") {
+                    Text(
+                        "Muat file .txt terjemahan — baris dibaca satu per satu saat mendubbing. Simbol di awal baris otomatis memakai preset gaya pasangannya.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Button(
-                        onClick = onApplyScriptLine,
-                        enabled = entry != null
+                        onClick = onLoadScriptFile,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(if (hasSelection) "Masukkan" else "Buat baru")
-                    }
-                    OutlinedButton(
-                        onClick = onSkipScriptLine,
-                        enabled = entry != null
-                    ) {
-                        Text("Lewati")
-                    }
-                    if (q.pageCount > 1) {
-                        OutlinedButton(
-                            onClick = { onScriptPage(q.pageIdx - 1) },
-                            enabled = q.pageIdx > 0,
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                        ) {
-                            Text("‹")
-                        }
-                        OutlinedButton(
-                            onClick = { onScriptPage(q.pageIdx + 1) },
-                            enabled = q.pageIdx < q.pageCount - 1,
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                        ) {
-                            Text("›")
-                        }
+                        Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Muat file .txt")
                     }
                 }
             } else {
-                Text(
-                    "Muat file .txt terjemahan untuk mengantre baris per baris.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+                val entries = q.pages.getOrNull(q.pageIdx)?.entries ?: emptyList()
+                val entry = q.currentEntry
+                SectionCard(title = "Queue") {
+                    // Info baris + tombol ganti file.
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = if (entry != null) {
+                                "Baris ${q.lineIdx + 1} / ${q.lineCount}"
+                            } else {
+                                "Selesai — ${q.lineCount} baris"
+                            },
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = onLoadScriptFile,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        ) {
+                            Text("Ganti file", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                    // Progress bar tipis.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(2.dp))
+                            .background(MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        val done = if (entry == null) {
+                            1f
+                        } else {
+                            q.lineIdx.toFloat() / q.lineCount.coerceAtLeast(1)
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(fraction = done.coerceIn(0f, 1f))
+                                .fillMaxHeight()
+                                .background(MaterialTheme.colorScheme.primary)
+                        )
+                    }
+                    // Preview antrean halaman ini: ketuk untuk lompat baris.
+                    val listState = rememberLazyListState()
+                    LaunchedEffect(q.pageIdx, q.lineIdx, q.fileName) {
+                        if (q.lineIdx in entries.indices) {
+                            listState.animateScrollToItem(q.lineIdx)
+                        }
+                    }
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(150.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        itemsIndexed(entries) { idx, e ->
+                            val isCurrent = idx == q.lineIdx
+                            Surface(
+                                onClick = { onScriptLine(idx) },
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                                color = if (isCurrent) {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surface
+                                },
+                                border = if (isCurrent) {
+                                    BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+                                } else {
+                                    null
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Surface(
+                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant
+                                    ) {
+                                        Text(
+                                            text = e.symbol,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = e.text,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 2,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    if (isCurrent) {
+                                        Icon(
+                                            Icons.Default.PlayArrow,
+                                            contentDescription = "Baris kini",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Aksi utama.
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = onApplyScriptLine,
+                            enabled = entry != null,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(if (hasSelection) "Masukkan" else "Buat baru")
+                        }
+                        OutlinedButton(
+                            onClick = onSkipScriptLine,
+                            enabled = entry != null
+                        ) {
+                            Text("Lewati")
+                        }
+                    }
+                    // Navigasi halaman.
+                    if (q.pageCount > 1) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { onScriptPage(q.pageIdx - 1) },
+                                enabled = q.pageIdx > 0,
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                            ) {
+                                Text("‹")
+                            }
+                            Text(
+                                text = "Hal. ${q.pageIdx + 1} / ${q.pageCount}" +
+                                    (q.pageLabel.ifBlank { "" }.let { if (it.isEmpty()) "" else " • $it" }),
+                                style = MaterialTheme.typography.bodySmall,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedButton(
+                                onClick = { onScriptPage(q.pageIdx + 1) },
+                                enabled = q.pageIdx < q.pageCount - 1,
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                            ) {
+                                Text("›")
+                            }
+                        }
+                    }
+                }
             }
             }
         }

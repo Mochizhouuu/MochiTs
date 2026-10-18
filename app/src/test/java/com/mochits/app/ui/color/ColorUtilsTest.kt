@@ -3,6 +3,7 @@ package com.mochits.app.ui.color
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ColorUtilsTest {
@@ -26,6 +27,26 @@ class ColorUtilsTest {
     fun testParseHexColor_invalidHex() {
         assertNull(ColorUtils.parseHexColor("invalid"))
         assertNull(ColorUtils.parseHexColor("#12345"))
+    }
+
+    @Test
+    fun testParseHexColor_shorthand3Digit() {
+        assertEquals(0xFFFF5533.toInt(), ColorUtils.parseHexColor("#F53"))
+        assertEquals(0xFF000000.toInt(), ColorUtils.parseHexColor("#000"))
+    }
+
+    @Test
+    fun testParseHexColor_shorthand4Digit() {
+        assertEquals(0x88FF5533.toInt(), ColorUtils.parseHexColor("#8F53"))
+    }
+
+    @Test
+    fun testDefaultPresetColors_lengkapDanUnik() {
+        val colors = ColorUtils.defaultPresetColors
+        assertTrue("Palet harus kaya warna (>= 18)", colors.size >= 18)
+        assertEquals("Tidak boleh ada duplikat", colors.size, colors.distinct().size)
+        assertTrue("Hitam & putih ada", 0xFF000000.toInt() in colors && 0xFFFFFFFF.toInt() in colors)
+        assertTrue("Oranye & ungu ada", 0xFFFFA500.toInt() in colors && 0xFF800080.toInt() in colors)
     }
 
     @Test

@@ -2857,6 +2857,15 @@ data class HistoryManifest(
         saveScriptPosition(projId, q.uriString, p, 0)
     }
 
+    /** Lompat ke baris tertentu pada halaman kini (dari preview antrean). */
+    fun setScriptLine(line: Int) {
+        val q = scriptQueue.value ?: return
+        val projId = project.value?.id ?: return
+        val l = line.coerceIn(0, (q.lineCount - 1).coerceAtLeast(0))
+        scriptQueue.value = q.copy(lineIdx = l)
+        saveScriptPosition(projId, q.uriString, q.pageIdx, l)
+    }
+
     private fun advanceScript(by: Int) {
         val q = scriptQueue.value ?: return
         val projId = project.value?.id ?: return
