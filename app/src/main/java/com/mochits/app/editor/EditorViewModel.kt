@@ -286,6 +286,14 @@ class EditorViewModel @Inject constructor(
         compositeBitmap = null
     }
 
+    /**
+     * Bitmap sumber untuk kaca pembesar (loupe) eyedropper: komposit bila
+     * sudah selesai dirender, kalau belum jatuh ke base. Dipakai layar untuk
+     * menampilkan piksel di sekitar titik sampling secara zoom.
+     */
+    val eyedropperSourceBitmap: android.graphics.Bitmap?
+        get() = compositeBitmap?.takeIf { !it.isRecycled } ?: baseBitmap.value
+
 
     fun updateSelectedTextContent(newText: String, saveUndo: Boolean = true) {
         val selectedId = selectedLayerId.value

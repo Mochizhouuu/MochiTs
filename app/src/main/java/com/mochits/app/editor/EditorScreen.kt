@@ -77,6 +77,7 @@ import com.mochits.app.model.TextStyleConfig
 import androidx.documentfile.provider.DocumentFile
 import com.mochits.app.text.TextRenderer
 import com.mochits.app.ui.color.ColorPickerRow
+import com.mochits.app.ui.color.ColorUtils
 import com.mochits.app.settings.DownloadErrorDialog
 import java.io.File
 
@@ -961,6 +962,9 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
             val crossPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.RED; isAntiAlias = true } }
             val fillPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.FILL; isAntiAlias = true } }
             val strokePaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.WHITE; isAntiAlias = true } }
+            val eyedropperPathCache = remember { android.graphics.Path() }
+            val loupeBitmapPaint = remember { AndroidPaint().apply { isFilterBitmap = false; isAntiAlias = false } }
+            val loupeRingDarkPaint = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.BLACK; isAntiAlias = true } }
             val alphaPaintCache = remember { AndroidPaint() }
             // Bitmap warp perspektif: upscale halus + alpha/tone per draw.
             val perspPaintCache = remember { AndroidPaint().apply { isFilterBitmap = true } }
@@ -1148,20 +1152,19 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                     viewModel.onSliderDragEnd()
                                 }
 
-                                // 0. EYEDROPPER MODE ACTIVE: Intercept all drags/taps to move crosshair
+                                // 0. EYEDROPPER MODE ACTIVE: titik sampling = posisi
+                                // jari persis (kaca pembesar di atas jari yang
+                                // menampilkan piksel sekitar), dan LEpas jari =
+                                // warna langsung terpakai (tanpa tombol konfirmasi).
                                 if (isEyedropperActive) {
                                     val firstChange = changes.first()
                                     val touchCanvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
-                                    // Ujung probe (tengah "+") melayang di atas jari agar
-                                    // terlihat; warna diambil di tengah "+", jadi posisi
-                                    // sampling = posisi probe, bukan titik sentuh mentah.
-                                    val probeScale = viewModel.canvasState.scale.coerceAtLeast(0.1f)
-                                    val probeLift = 80.dp.toPx() / probeScale
-                                    viewModel.updateEyedropperPosition(
-                                        touchCanvasPt.copy(y = (touchCanvasPt.y - probeLift).coerceAtLeast(0f))
-                                    )
+                                    viewModel.updateEyedropperPosition(touchCanvasPt)
                                     firstChange.consume()
                                     triggerRedraw++
+                                    if (event.changes.all { !it.pressed }) {
+                                        viewModel.confirmEyedropper()
+                                    }
                                     continue
                                 }
 
@@ -1852,29 +1855,10 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         }
                     }
 
-                    // 3. Eyedropper Crosshair & Swatch Preview Overlay
-                    if (isEyedropperActive && eyedropperCanvasPt != null) {
-                        val pt = eyedropperCanvasPt!!
-                        val currentScale = viewModel.canvasState.scale.coerceAtLeast(0.1f)
-                        val strokeW = 4f / currentScale
-                        val crossArm = 24f / currentScale
-                        val swatchRadius = 28f / currentScale
+                    // (Eyedropper overlay digambar paling akhir — di atas semua
+                    // layer — lihat blok sebelum nativeCanvas.restore().)
 
-                        // Red Crosshair Paint — tengah "+" = titik sampling,
-                        // melayang di atas jari agar tidak tertutup. Tanpa garis
-                        // penunjuk: probe digerakkan dengan menatap tanda "+"-nya.
-                        val crossPaint = crossPaintCache.apply { strokeWidth = strokeW }
-                        drawContext.canvas.nativeCanvas.drawLine(pt.x - crossArm, pt.y, pt.x + crossArm, pt.y, crossPaint)
-                        drawContext.canvas.nativeCanvas.drawLine(pt.x, pt.y - crossArm, pt.x, pt.y + crossArm, crossPaint)
 
-                        // Sampled Color Swatch Bubble (di atas penanda, tidak ketutup jari)
-                        val sampledCol = sampledColorPreview ?: AndroidColor.BLACK
-                        val fillPaint = fillPaintCache.apply { color = sampledCol }
-                        val strokePaint = strokePaintCache.apply { strokeWidth = 3f / currentScale }
-                        val swatchCenter = Offset(pt.x, pt.y - crossArm - swatchRadius - 6f / currentScale)
-                        drawContext.canvas.nativeCanvas.drawCircle(swatchCenter.x, swatchCenter.y, swatchRadius, fillPaint)
-                        drawContext.canvas.nativeCanvas.drawCircle(swatchCenter.x, swatchCenter.y, swatchRadius, strokePaint)
-                    }
 
 
 
@@ -2354,6 +2338,65 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                     }
                 }
 
+                // 5. Eyedropper: penanda titik sampling + kaca pembesar.
+                // Digambar paling akhir AGAR di atas semua layer & overlay —
+                // sebelumnya letaknya sebelum render layer jadi ketutup gambar.
+                if (isEyedropperActive && eyedropperCanvasPt != null) {
+                    val pt = eyedropperCanvasPt!!
+                    val currentScale = viewModel.canvasState.scale.coerceAtLeast(0.1f)
+                    val nc = drawContext.canvas.nativeCanvas
+
+                    // Marker merah kecil tepat di titik sampling.
+                    val crossArm = 12f / currentScale
+                    val crossPaint = crossPaintCache.apply { strokeWidth = 2.5f / currentScale }
+                    nc.drawLine(pt.x - crossArm, pt.y, pt.x + crossArm, pt.y, crossPaint)
+                    nc.drawLine(pt.x, pt.y - crossArm, pt.x, pt.y + crossArm, crossPaint)
+
+                    // Kaca pembesar (loupe) melayang di atas jari: menampilkan
+                    // piksel di sekitar titik sampling, zoom 4x (nearest neighbor
+                    // biar tajam) + penanda tengah. Titik sampling tetap persis
+                    // di jari, loupe hanya alat bantu lihat.
+                    val srcBmp = viewModel.eyedropperSourceBitmap
+                    if (srcBmp != null && srcBmp.width > 0 && srcBmp.height > 0) {
+                        val loupeR = 64.dp.toPx() / currentScale
+                        val gap = 14.dp.toPx() / currentScale
+                        val viewTL = viewModel.canvasState.mapper.screenToCanvas(0f, 0f)
+                        val viewBR = viewModel.canvasState.mapper.screenToCanvas(drawContext.size.width, drawContext.size.height)
+                        val cx = pt.x.coerceAtLeast(viewTL.x + loupeR).coerceAtMost(viewBR.x - loupeR)
+                        val roomAbove = pt.y - (loupeR + gap) >= viewTL.y + loupeR
+                        var cy = if (roomAbove) pt.y - loupeR - gap else pt.y + loupeR + gap
+                        cy = cy.coerceAtLeast(viewTL.y + loupeR).coerceAtMost(viewBR.y - loupeR)
+
+                        val zoom = 4f
+                        var half = loupeR / zoom
+                        val maxHalf = minOf(srcBmp.width, srcBmp.height) / 2f
+                        if (half > maxHalf && maxHalf > 0f) half = maxHalf
+                        val scx = pt.x.coerceIn(half, (srcBmp.width - half).coerceAtLeast(half))
+                        val scy = pt.y.coerceIn(half, (srcBmp.height - half).coerceAtLeast(half))
+                        val srcRect = android.graphics.Rect(
+                            (scx - half).toInt(), (scy - half).toInt(),
+                            (scx + half).toInt(), (scy + half).toInt()
+                        )
+                        val dstRect = RectF(cx - loupeR, cy - loupeR, cx + loupeR, cy + loupeR)
+
+                        nc.save()
+                        eyedropperPathCache.reset()
+                        eyedropperPathCache.addCircle(cx, cy, loupeR, android.graphics.Path.Direction.CW)
+                        nc.clipPath(eyedropperPathCache)
+                        nc.drawBitmap(srcBmp, srcRect, dstRect, loupeBitmapPaint)
+                        nc.restore()
+
+                        // Cincin luar + penanda tengah loupe.
+                        nc.drawCircle(cx, cy, loupeR, strokePaintCache.apply { strokeWidth = 3f / currentScale })
+                        nc.drawCircle(cx, cy, loupeR + 1.5f / currentScale, loupeRingDarkPaint.apply { strokeWidth = 1.5f / currentScale })
+                        val inArm = 9f / currentScale
+                        val inPaint = strokePaintCache.apply { strokeWidth = 2f / currentScale }
+                        nc.drawLine(cx - inArm, cy, cx + inArm, cy, inPaint)
+                        nc.drawLine(cx, cy - inArm, cx, cy + inArm, inPaint)
+                        nc.drawCircle(cx, cy, 1.5f / currentScale, fillPaintCache.apply { color = AndroidColor.WHITE })
+                    }
+                }
+
                 drawContext.canvas.nativeCanvas.restore()
             }
 
@@ -2421,20 +2464,25 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                 modifier = Modifier.size(20.dp)
                             )
                             Text(
-                                text = "Geser crosshair ambil warna",
+                                text = "Geser jari — lepas = pakai",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1
                             )
                         }
 
-                        // Center/Right: Sample Swatch + Action Buttons
+                        // Right: kode hex live + swatch + batal. Tanpa tombol
+                        // Pilih: warna langsung terpakai saat jari diangkat.
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            // Sampled Color Swatch Circle Preview
                             val sampledCol = sampledColorPreview ?: AndroidColor.BLACK
+                            Text(
+                                text = ColorUtils.colorToHex(sampledCol, includeAlpha = (sampledCol ushr 24) < 255),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                             Box(
                                 modifier = Modifier
                                     .size(26.dp)
@@ -2448,18 +2496,6 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                         shape = androidx.compose.foundation.shape.CircleShape
                                     )
                             )
-
-                            // Confirm Button
-                            Button(
-                                onClick = { viewModel.confirmEyedropper() },
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
-                                modifier = Modifier.height(36.dp)
-                            ) {
-                                Text(
-                                    text = "Pilih",
-                                    style = MaterialTheme.typography.labelLarge
-                                )
-                            }
 
                             // Cancel Button
                             IconButton(
