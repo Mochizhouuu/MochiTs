@@ -1500,12 +1500,20 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                             if (dragLayer != null) {
                                                 val currentDist = kotlin.math.hypot(unrotatedCurrentPt.x - initialTextCenterX, unrotatedCurrentPt.y - initialTextCenterY)
                                                 if (initialDragDist > 0f) {
-                                                    val scaleFactor = currentDist / initialDragDist
+                                                    // Batasi skala oleh limit fontSize (10..300) supaya
+                                                    // kotak & font SELALU proporsional. Tanpa ini, saat
+                                                    // font mentok tapi kotak terus membesar, teks reflow
+                                                    // mendadak = posisi kalimat meloncat/glitch (paling
+                                                    // kelihatan di kotak OVAL).
+                                                    val baseFs = initialFontSize.coerceAtLeast(0.1f)
+                                                    val scaleFactor = (currentDist / initialDragDist)
+                                                        .coerceIn(10f / baseFs, 300f / baseFs)
                                                     val newSize = (initialFontSize * scaleFactor).coerceIn(10f, 300f)
-                                                    val newBoxW = if (dragLayer.boxWidth != null || dragLayer.textContainerShape == com.mochits.app.model.TextContainerShape.OVAL) {
+                                                    val isOval = dragLayer.textContainerShape == com.mochits.app.model.TextContainerShape.OVAL
+                                                    val newBoxW = if (dragLayer.boxWidth != null || isOval) {
                                                         (initialBoxW * scaleFactor).coerceAtLeast(30f)
                                                     } else null
-                                                    val newBoxH = if (dragLayer.boxHeight != null || dragLayer.textContainerShape == com.mochits.app.model.TextContainerShape.OVAL) {
+                                                    val newBoxH = if (dragLayer.boxHeight != null || isOval) {
                                                         (initialBoxH * scaleFactor).coerceAtLeast(20f)
                                                     } else null
 

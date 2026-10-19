@@ -584,6 +584,40 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun testResizeWithSpans_scalesSpanFontSizeAndKeepsVisualCenterFixed() {
+        viewModel.addTextLayer("Halo Dunia Kecil")
+        val layerId = viewModel.selectedLayerId.value
+        assertNotNull(layerId)
+
+        // Kata pertama diperbesar 2x lewat span (fontSize sendiri di span).
+        val baseFs = (viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer).style.fontSize
+        viewModel.applySpanStyle(start = 0, end = 4, fontSize = baseFs * 2f, saveUndo = false)
+
+        var layer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        var bounds = viewModel.textRenderer.getTextBounds(layer)
+        val anchorX = bounds.centerX()
+        val anchorY = bounds.centerY()
+        val spanBefore = layer.richSpans.first { it.fontSize != null }.fontSize!!
+
+        // Simulasi drag resize 1.5x: span ikut 1.5x dan pusat visual tetap.
+        viewModel.updateSelectedTextLayerResize(
+            fontSize = layer.style.fontSize * 1.5f,
+            boxWidth = null,
+            boxHeight = null,
+            anchorCenterX = anchorX,
+            anchorCenterY = anchorY,
+            saveUndo = false
+        )
+
+        layer = viewModel.layers.value.find { it.id == layerId } as Layer.TextLayer
+        val spanAfter = layer.richSpans.first { it.fontSize != null }.fontSize!!
+        assertEquals(spanBefore * 1.5f, spanAfter, 1f)
+        bounds = viewModel.textRenderer.getTextBounds(layer)
+        assertEquals(anchorX, bounds.centerX(), 2f)
+        assertEquals(anchorY, bounds.centerY(), 2f)
+    }
+
+    @Test
     fun testSaveAndApplyStylePreset_roundTripToSelectedLayer() {
         viewModel.addTextLayer("Preset Round Trip")
         val layerId = viewModel.selectedLayerId.value

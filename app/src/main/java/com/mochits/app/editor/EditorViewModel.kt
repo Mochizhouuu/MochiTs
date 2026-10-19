@@ -2221,6 +2221,17 @@ data class HistoryManifest(
         layers.value = layers.value.map { layer ->
             if (layer.id == selectedId && layer is Layer.TextLayer) {
                 val newStyle = layer.style.copy(fontSize = fontSize)
+                // Span dgn fontSize sendiri (kata yg diperbesar/diperkecil) ikut
+                // diskalakan supaya rasio antar-kata tetap. Kalau tidak, wrap
+                // berubah mendadak saat drag = posisi kalimat meloncat.
+                val effScale = if (layer.style.fontSize > 0.01f) fontSize / layer.style.fontSize else 1f
+                val scaledSpans = if (kotlin.math.abs(effScale - 1f) < 1e-4f || layer.richSpans.isEmpty()) {
+                    layer.richSpans
+                } else {
+                    layer.richSpans.map { span ->
+                        if (span.fontSize != null) span.copy(fontSize = span.fontSize * effScale) else span
+                    }
+                }
                 var newX = layer.x
                 var newY = layer.y
                 if (anchorCenterX != null && anchorCenterY != null) {
@@ -2228,6 +2239,8 @@ data class HistoryManifest(
                     // tetap di posisi awal gesture. Tanpa ini bounds berjangkar
                     // kiri-atas (left=x, top=y) sehingga teks membesar melar
                     // ke kanan-bawah, bukan diam di tempat.
+                    // Spans WAJIB ikut diukur: kalau tidak, teks ber-span
+                    // terukur beda dari yg digambar dan kalimat terus bergeser.
                     val measured = textRenderer.getTextBounds(
                         text = layer.text,
                         style = newStyle,
@@ -2235,7 +2248,8 @@ data class HistoryManifest(
                         y = 0f,
                         shape = layer.textContainerShape,
                         boxWidth = boxWidth,
-                        boxHeight = boxHeight
+                        boxHeight = boxHeight,
+                        spans = scaledSpans
                     )
                     // center(x) = x + c (c = titik tengah saat x=0), jadi ini
                     // tepat untuk box maupun ukuran natural/reflow.
@@ -2247,7 +2261,8 @@ data class HistoryManifest(
                     boxWidth = boxWidth,
                     boxHeight = boxHeight,
                     x = newX,
-                    y = newY
+                    y = newY,
+                    richSpans = scaledSpans
                 )
             } else {
                 layer
