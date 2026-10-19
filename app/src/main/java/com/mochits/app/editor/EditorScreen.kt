@@ -959,7 +959,6 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
             val maskPaintCache = remember { AndroidPaint().apply { colorFilter = android.graphics.PorterDuffColorFilter(AndroidColor.argb(64, 255, 0, 0), android.graphics.PorterDuff.Mode.SRC_IN) } }
             val lassoPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.RED; isAntiAlias = true } }
             val lassoPathCache = remember { android.graphics.Path() }
-            val crossPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.RED; isAntiAlias = true } }
             val fillPaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.FILL; isAntiAlias = true } }
             val strokePaintCache = remember { AndroidPaint().apply { style = AndroidPaint.Style.STROKE; color = AndroidColor.WHITE; isAntiAlias = true } }
             val eyedropperPathCache = remember { android.graphics.Path() }
@@ -1152,14 +1151,18 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                     viewModel.onSliderDragEnd()
                                 }
 
-                                // 0. EYEDROPPER MODE ACTIVE: titik sampling = posisi
-                                // jari persis (kaca pembesar di atas jari yang
-                                // menampilkan piksel sekitar), dan LEpas jari =
-                                // warna langsung terpakai (tanpa tombol konfirmasi).
+                                // 0. EYEDROPPER MODE ACTIVE: penanda (kaca pembesar)
+                                // MELAYANG di atas jari supaya bisa diarahkan tanpa
+                                // tertutup jari; LEPAS jari = warna langsung
+                                // terpakai (tanpa tombol konfirmasi).
                                 if (isEyedropperActive) {
                                     val firstChange = changes.first()
                                     val touchCanvasPt = viewModel.canvasState.mapper.screenToCanvas(firstChange.position.x, firstChange.position.y)
-                                    viewModel.updateEyedropperPosition(touchCanvasPt)
+                                    val probeScale = viewModel.canvasState.scale.coerceAtLeast(0.1f)
+                                    val probeLift = 96.dp.toPx() / probeScale
+                                    viewModel.updateEyedropperPosition(
+                                        touchCanvasPt.copy(y = (touchCanvasPt.y - probeLift).coerceAtLeast(0f))
+                                    )
                                     firstChange.consume()
                                     triggerRedraw++
                                     if (event.changes.all { !it.pressed }) {
@@ -2338,35 +2341,20 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                     }
                 }
 
-                // 5. Eyedropper: penanda titik sampling + kaca pembesar.
-                // Digambar paling akhir AGAR di atas semua layer & overlay —
-                // sebelumnya letaknya sebelum render layer jadi ketutup gambar.
+                // 5. Eyedropper: kaca pembesar tepat di titik sampling.
+                // Penanda melayang 96dp di atas jari (lihat handler gesture)
+                // supaya bisa diarahkan tanpa tertutup jari; digambar paling
+                // akhir AGAR di atas semua layer & overlay.
                 if (isEyedropperActive && eyedropperCanvasPt != null) {
                     val pt = eyedropperCanvasPt!!
                     val currentScale = viewModel.canvasState.scale.coerceAtLeast(0.1f)
                     val nc = drawContext.canvas.nativeCanvas
+                    val loupeR = 64.dp.toPx() / currentScale
 
-                    // Marker merah kecil tepat di titik sampling.
-                    val crossArm = 12f / currentScale
-                    val crossPaint = crossPaintCache.apply { strokeWidth = 2.5f / currentScale }
-                    nc.drawLine(pt.x - crossArm, pt.y, pt.x + crossArm, pt.y, crossPaint)
-                    nc.drawLine(pt.x, pt.y - crossArm, pt.x, pt.y + crossArm, crossPaint)
-
-                    // Kaca pembesar (loupe) melayang di atas jari: menampilkan
-                    // piksel di sekitar titik sampling, zoom 4x (nearest neighbor
-                    // biar tajam) + penanda tengah. Titik sampling tetap persis
-                    // di jari, loupe hanya alat bantu lihat.
+                    // Kaca pembesar (loupe): piksel di sekitar titik sampling,
+                    // zoom 4x nearest-neighbor biar tajam.
                     val srcBmp = viewModel.eyedropperSourceBitmap
                     if (srcBmp != null && srcBmp.width > 0 && srcBmp.height > 0) {
-                        val loupeR = 64.dp.toPx() / currentScale
-                        val gap = 14.dp.toPx() / currentScale
-                        val viewTL = viewModel.canvasState.mapper.screenToCanvas(0f, 0f)
-                        val viewBR = viewModel.canvasState.mapper.screenToCanvas(drawContext.size.width, drawContext.size.height)
-                        val cx = pt.x.coerceAtLeast(viewTL.x + loupeR).coerceAtMost(viewBR.x - loupeR)
-                        val roomAbove = pt.y - (loupeR + gap) >= viewTL.y + loupeR
-                        var cy = if (roomAbove) pt.y - loupeR - gap else pt.y + loupeR + gap
-                        cy = cy.coerceAtLeast(viewTL.y + loupeR).coerceAtMost(viewBR.y - loupeR)
-
                         val zoom = 4f
                         var half = loupeR / zoom
                         val maxHalf = minOf(srcBmp.width, srcBmp.height) / 2f
@@ -2377,24 +2365,24 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             (scx - half).toInt(), (scy - half).toInt(),
                             (scx + half).toInt(), (scy + half).toInt()
                         )
-                        val dstRect = RectF(cx - loupeR, cy - loupeR, cx + loupeR, cy + loupeR)
+                        val dstRect = RectF(pt.x - loupeR, pt.y - loupeR, pt.x + loupeR, pt.y + loupeR)
 
                         nc.save()
                         eyedropperPathCache.reset()
-                        eyedropperPathCache.addCircle(cx, cy, loupeR, android.graphics.Path.Direction.CW)
+                        eyedropperPathCache.addCircle(pt.x, pt.y, loupeR, android.graphics.Path.Direction.CW)
                         nc.clipPath(eyedropperPathCache)
                         nc.drawBitmap(srcBmp, srcRect, dstRect, loupeBitmapPaint)
                         nc.restore()
-
-                        // Cincin luar + penanda tengah loupe.
-                        nc.drawCircle(cx, cy, loupeR, strokePaintCache.apply { strokeWidth = 3f / currentScale })
-                        nc.drawCircle(cx, cy, loupeR + 1.5f / currentScale, loupeRingDarkPaint.apply { strokeWidth = 1.5f / currentScale })
-                        val inArm = 9f / currentScale
-                        val inPaint = strokePaintCache.apply { strokeWidth = 2f / currentScale }
-                        nc.drawLine(cx - inArm, cy, cx + inArm, cy, inPaint)
-                        nc.drawLine(cx, cy - inArm, cx, cy + inArm, inPaint)
-                        nc.drawCircle(cx, cy, 1.5f / currentScale, fillPaintCache.apply { color = AndroidColor.WHITE })
                     }
+
+                    // Cincin luar + crosshair tengah (titik piksel tersorot).
+                    nc.drawCircle(pt.x, pt.y, loupeR, strokePaintCache.apply { strokeWidth = 3f / currentScale })
+                    nc.drawCircle(pt.x, pt.y, loupeR + 1.5f / currentScale, loupeRingDarkPaint.apply { strokeWidth = 1.5f / currentScale })
+                    val inArm = 9f / currentScale
+                    val inPaint = strokePaintCache.apply { strokeWidth = 2f / currentScale }
+                    nc.drawLine(pt.x - inArm, pt.y, pt.x + inArm, pt.y, inPaint)
+                    nc.drawLine(pt.x, pt.y - inArm, pt.x, pt.y + inArm, inPaint)
+                    nc.drawCircle(pt.x, pt.y, 1.5f / currentScale, fillPaintCache.apply { color = AndroidColor.WHITE })
                 }
 
                 drawContext.canvas.nativeCanvas.restore()
