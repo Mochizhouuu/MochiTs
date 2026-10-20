@@ -7,16 +7,22 @@ komposit layer. Package `com.mochits.app` (minSdk 29, targetSdk 34).
 ## Fitur
 
 - **Home & Proyek** — buat proyek kanvas kosong/transparan, impor gambar dari
-  galeri, daftar proyek dengan thumbnail, autosave + riwayat undo/redo yang
-  bertahan antar sesi.
+  galeri (banyak sekaligus), daftar proyek dengan thumbnail, folder virtual,
+  autosave + riwayat undo/redo yang bertahan antar sesi.
+- **Impor ZIP** — gambar root menjadi folder bernama ZIP, subfolder menjadi
+  folder masing-masing, bundel `.mts` di dalamnya tetap bisa diedit; ZIP dari
+  file manager dibuka lewat dialog pratinjau. Natural sort + batas keamanan.
+- **Script TL** — impor `.txt`/`.docx`, pemisah halaman regex, simbol
+  normal/gabung/terhubung (`//-`, `//[]`), preset per simbol, antrean baris di
+  Editor, muat ulang otomatis per proyek, dan ringkasan "Tes Script".
 - **Erase / Seleksi objek** — Brush, Eraser, Lasso, dan Magic Wand (flood fill
   toleransi warna + pelebaran margin/expand), invert mask.
 - **Inpainting** — Telea via OpenCV native (cepat, offline) dan LaMa AI via
   ONNX Runtime (`lama_manga.onnx` ±196 MB, diunduh saat pertama dipakai dari
   HuggingFace ke `models/`, dengan fallback otomatis ke Telea).
 - **Teks** — layer teks BOX/OVAL, alignment, gradient, stroke, glow/shadow,
-  huruf vertikal, reflow + hyphenation Indonesia/Inggris, resize/rotate/
-  stretch langsung di kanvas, edit ketuk-2-kali.
+  huruf vertikal, reflow + hyphenation Indonesia/Inggris, jarak huruf dan jarak
+  baris per layer, resize/rotate/stretch langsung di kanvas, edit ketuk-2-kali.
 - **Font kustom** — impor `.ttf`/`.otf`, kelola & hapus dari Settings.
 - **Layer gambar** — tambah gambar sebagai layer (tersimpan permanen di proyek).
 - **Ekspor** — PNG/JPEG/WEBP + atur kualitas, ke folder pilihan (Storage
@@ -33,16 +39,25 @@ komposit layer. Package `com.mochits.app` (minSdk 29, targetSdk 34).
 
 Paket penting di `:app`: `canvas` (state kanvas & mapping koordinat),
 `editor` (layar editor, serializer layer, exporter), `text` (layout/render
-teks), `imaging` (LaMa), `project` (Room + repository), `font`, `home`,
-`settings`, `model`, `ui`.
+teks), `imaging` (LaMa), `project` (Room + repository + impor ZIP/bundel),
+`script` (parser & mapping naskah TL), `font`, `home`, `settings`, `model`,
+`ui`.
 
 ## Penyimpanan Lokal
 
-- Database Room `mochits.db` (proyek + font kustom).
+- Database Room `mochits.db` (proyek, folder, font kustom).
 - `filesDir/projects/{id}/`: `base_image.png`, `layers/layer_{id}.png`,
   `history/` (bitmap undo/redo + `manifest.json`).
 - `filesDir/models/lama_manga.onnx` (+`.tmp` saat mengunduh),
   `filesDir/fonts/`, `filesDir/custom_fonts/`.
+- Preferensi script (`mochits_script_state`): file TL terakhir + posisi
+  halaman/baris per proyek, serta toggle muat ulang otomatis.
+
+## Dokumentasi
+
+Panduan pengguna (Indonesia, statis): repo
+[MochiTs-Docs](https://github.com/Mochizhouuu/MochiTs-Docs) — mencakup folder,
+impor ZIP, teks/spasi, format script TL, tester parser di browser, dan ekspor.
 
 ## Build & Test
 
