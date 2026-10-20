@@ -469,7 +469,7 @@ fun HomeScreen(
                                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                             )
                         } catch (e: Exception) {
-                            fallbackContentLauncher.launch("image/*")
+                            fallbackContentLauncher.launch(arrayOf("image/*"))
                         }
                     },
                     modifier = Modifier
