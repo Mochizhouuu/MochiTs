@@ -80,6 +80,7 @@ import com.mochits.app.ui.color.ColorPickerRow
 import com.mochits.app.ui.color.ColorUtils
 import com.mochits.app.settings.DownloadErrorDialog
 import java.io.File
+import kotlin.math.roundToInt
 
 private enum class TextHandleType {
     RESIZE, ROTATE, DELETE, STRETCH_V, STRETCH_H, BODY_MOVE
@@ -5286,7 +5287,7 @@ fun FontToolPanel(
             )
 
             Text(
-                "Jarak huruf: ${kotlin.math.roundToInt(currentStyle.letterSpacing * 100f)}%",
+                "Jarak huruf: ${(currentStyle.letterSpacing * 100f).roundToInt()}%",
                 style = MaterialTheme.typography.labelLarge
             )
             Slider(
@@ -5303,7 +5304,7 @@ fun FontToolPanel(
             )
 
             Text(
-                "Jarak baris: ${kotlin.math.roundToInt(currentStyle.lineSpacing * 100f)}%",
+                "Jarak baris: ${(currentStyle.lineSpacing * 100f).roundToInt()}%",
                 style = MaterialTheme.typography.labelLarge
             )
             Slider(
