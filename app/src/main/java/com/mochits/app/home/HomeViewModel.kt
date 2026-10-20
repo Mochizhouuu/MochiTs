@@ -27,7 +27,8 @@ class HomeViewModel @Inject constructor(
     private val exportSettingsRepository: ExportSettingsRepository,
     val lamaModelManager: com.mochits.app.imaging.LaMaModelManager,
     // Optional so existing callers/tests keep compiling; Hilt always provides it.
-    val fontRepository: FontRepository? = null
+    val fontRepository: FontRepository? = null,
+    private val projectImporter: com.mochits.app.project.ProjectImporter? = null
 ) : ViewModel() {
 
     private val _themeMode = MutableStateFlow(AppThemeMode.SYSTEM)
@@ -57,6 +58,45 @@ class HomeViewModel @Inject constructor(
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+    val folders: StateFlow<List<com.mochits.app.project.ProjectFolderEntity>> =
+        repository.getAllFolders()
+            .catch { emit(emptyList()) }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList()
+            )
+
+    fun createFolder(name: String, onCreated: (com.mochits.app.project.ProjectFolderEntity) -> Unit = {}) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val folder = repository.createFolder(name)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onCreated(folder)
+                }
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    fun renameFolder(id: String, name: String) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try { repository.renameFolder(id, name) } catch (_: Exception) {}
+        }
+    }
+
+    fun deleteFolder(id: String) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try { repository.deleteFolder(id) } catch (_: Exception) {}
+        }
+    }
+
+    fun moveProjectToFolder(projectId: String, folderId: String?) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try { repository.moveProjectToFolder(projectId, folderId) } catch (_: Exception) {}
+        }
+    }
 
     fun setThemeMode(mode: AppThemeMode) {
         _themeMode.value = mode
@@ -109,10 +149,39 @@ class HomeViewModel @Inject constructor(
         height: Int,
         imageUri: android.net.Uri? = null,
         isTransparent: Boolean = false,
-        backgroundColor: Int = android.graphics.Color.WHITE
+        backgroundColor: Int = android.graphics.Color.WHITE,
+        folderId: String? = null
     ): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-        val project = repository.createProject(title, width, height, imageUri, isTransparent, backgroundColor)
+        val project = repository.createProject(
+            title, width, height, imageUri, isTransparent, backgroundColor, folderId
+        )
         project.id
+    }
+
+    suspend fun importImages(
+        uris: List<Uri>,
+        targetFolderId: String? = null,
+        autoFolderName: String? = null
+    ): com.mochits.app.project.ProjectImporter.ImageImportResult? {
+        val importer = projectImporter ?: return null
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                importer.importImages(uris, targetFolderId, autoFolderName)
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+
+    suspend fun importZip(uri: Uri): com.mochits.app.project.ProjectImporter.ZipImportResult? {
+        val importer = projectImporter ?: return null
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                importer.importZip(uri)
+            } catch (_: Exception) {
+                null
+            }
+        }
     }
 
     fun deleteProject(id: String) {

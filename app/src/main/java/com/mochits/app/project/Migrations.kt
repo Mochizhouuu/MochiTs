@@ -20,3 +20,21 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         )
     }
 }
+
+/**
+ * v2 -> v3: folder proyek (grup di Home) + kolom folderId.
+ * Proyek lama otomatis tanpa folder (NULL).
+ */
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `project_folders` (" +
+                "`id` TEXT NOT NULL, " +
+                "`name` TEXT NOT NULL, " +
+                "`createdAt` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`id`))"
+        )
+        db.execSQL("ALTER TABLE `projects` ADD COLUMN `folderId` TEXT")
+    }
+}

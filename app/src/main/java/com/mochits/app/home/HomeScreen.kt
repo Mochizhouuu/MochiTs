@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -23,6 +25,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.FolderOpen
@@ -49,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.mochits.app.project.ProjectEntity
+import com.mochits.app.project.ProjectFolderEntity
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
@@ -65,12 +69,26 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val projects by viewModel.projects.collectAsState()
+    val folders by viewModel.folders.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
     var showOpenProjectDialog by remember { mutableStateOf(false) }
+    var showFoldersDialog by remember { mutableStateOf(false) }
+    var moveProjectId by remember { mutableStateOf<String?>(null) }
     var selectedDeleteProjectId by remember { mutableStateOf<String?>(null) }
+    var filterFolderId by remember { mutableStateOf<String?>(null) }
+    var filterUnfiled by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    val filteredProjects = remember(projects, filterFolderId, filterUnfiled) {
+        when {
+            filterUnfiled -> projects.filter { it.folderId == null }
+            filterFolderId != null -> projects.filter { it.folderId == filterFolderId }
+            else -> projects
+        }
+    }
+    val targetFolderId: String? = if (filterUnfiled) null else filterFolderId
 
     // Bundel .mts dibuka dari luar (ketuk/share): impor sekali saat tampil.
     androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -138,43 +156,59 @@ fun HomeScreen(
         }
     }
 
-    val galleryPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri: Uri? ->
-        uri?.let { selectedUri ->
-            coroutineScope.launch {
-                viewModel.isLoading.value = true
-                try {
-                    val sdf = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
-                    val title = "Proyek ${sdf.format(Date())}"
-                    val newId = viewModel.createProject(title, 1080, 1920, selectedUri)
-                    if (newId.isNotBlank()) {
-                        onOpenEditor(newId)
-                    }
-                } catch (e: Exception) {
-                    Logger.e("Error: ${e.message}", e)
-                } finally {
-                    viewModel.isLoading.value = false
+    fun importPickedImages(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        coroutineScope.launch {
+            viewModel.isLoading.value = true
+            try {
+                val result = viewModel.importImages(
+                    uris = uris,
+                    targetFolderId = targetFolderId,
+                    autoFolderName = "Impor ${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())}"
+                )
+                if (result == null || result.projectIds.isEmpty()) {
+                    toast("Gagal mengimpor gambar.")
+                } else if (uris.size == 1 && result.folderId == null) {
+                    onOpenEditor(result.projectIds.first())
+                } else {
+                    toast(
+                        "${result.projectIds.size} proyek diimpor" +
+                            (result.folderName?.let { " ke folder \"$it\"" } ?: "")
+                    )
+                    if (result.failed > 0) toast("${result.failed} gambar gagal.")
                 }
+            } catch (e: Exception) {
+                Logger.e("Error: ${e.message}", e)
+            } finally {
+                viewModel.isLoading.value = false
             }
         }
     }
 
+    val galleryPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia(100)
+    ) { uris: List<Uri> -> importPickedImages(uris) }
+
     val fallbackContentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> -> importPickedImages(uris) }
+
+    val zipImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let { selectedUri ->
+        if (uri != null) {
             coroutineScope.launch {
                 viewModel.isLoading.value = true
                 try {
-                    val sdf = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
-                    val title = "Proyek ${sdf.format(Date())}"
-                    val newId = viewModel.createProject(title, 1080, 1920, selectedUri)
-                    if (newId.isNotBlank()) {
-                        onOpenEditor(newId)
+                    val result = viewModel.importZip(uri)
+                    when {
+                        result == null -> toast("Gagal mengimpor ZIP.")
+                        result.total == 0 -> toast("Tidak ada gambar/.mts yang bisa diimpor.")
+                        else -> {
+                            toast("ZIP diimpor: ${result.projects} gambar, ${result.bundles} proyek.")
+                            if (result.failed > 0) toast("${result.failed} entri gagal.")
+                        }
                     }
-                } catch (e: Exception) {
-                    Logger.e("Error: ${e.message}", e)
                 } finally {
                     viewModel.isLoading.value = false
                 }
@@ -196,6 +230,21 @@ fun HomeScreen(
                     )
                 },
                 actions = {
+                    IconButton(onClick = {
+                        zipImportLauncher.launch(
+                            arrayOf(
+                                "application/zip",
+                                "application/x-zip-compressed",
+                                "application/octet-stream"
+                            )
+                        )
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.Download,
+                            contentDescription = "Impor ZIP berisi gambar/folder",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                     // Impor bundel .mts (F8).
                     IconButton(onClick = { bundleImportLauncher.launch(arrayOf("*/*")) }) {
                         Icon(
@@ -232,6 +281,59 @@ fun HomeScreen(
             ) {
                 Spacer(modifier = Modifier.height(8.dp))
 
+                // Section: Folders
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "FOLDERS",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    )
+                    TextButton(onClick = { showFoldersDialog = true }) {
+                        Text("Kelola")
+                    }
+                }
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(end = 16.dp)
+                ) {
+                    item {
+                        FilterChip(
+                            selected = filterFolderId == null && !filterUnfiled,
+                            onClick = {
+                                filterFolderId = null
+                                filterUnfiled = false
+                            },
+                            label = { Text("Semua") }
+                        )
+                    }
+                    items(folders, key = { it.id }) { folder ->
+                        FilterChip(
+                            selected = filterFolderId == folder.id && !filterUnfiled,
+                            onClick = {
+                                filterFolderId = if (filterFolderId == folder.id) null else folder.id
+                                filterUnfiled = false
+                            },
+                            label = { Text(folder.name, maxLines = 1) }
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = filterUnfiled,
+                            onClick = {
+                                filterUnfiled = !filterUnfiled
+                                filterFolderId = null
+                            },
+                            label = { Text("Tanpa folder") }
+                        )
+                    }
+                }
+
                 // Section: Recent Projects
                 Text(
                     text = "Recent Projects",
@@ -241,7 +343,7 @@ fun HomeScreen(
                     )
                 )
 
-                if (projects.isEmpty()) {
+                if (filteredProjects.isEmpty()) {
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -254,7 +356,11 @@ fun HomeScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "Belum Ada Proyek",
+                                text = if (filterFolderId != null || filterUnfiled) {
+                                    "Tidak ada proyek di folder ini"
+                                } else {
+                                    "Belum Ada Proyek"
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -265,7 +371,7 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         contentPadding = PaddingValues(end = 16.dp)
                     ) {
-                        val recentList = projects.take(5)
+                        val recentList = filteredProjects.take(5)
                         items(recentList, key = { it.id }) { project ->
                             RecentProjectCard(
                                 project = project,
@@ -274,7 +380,7 @@ fun HomeScreen(
                             )
                         }
 
-                        if (projects.size > 5) {
+                        if (filteredProjects.size > 5) {
                             item {
                                 Card(
                                     modifier = Modifier
@@ -399,7 +505,8 @@ fun HomeScreen(
                                 height = height,
                                 imageUri = null,
                                 isTransparent = isTransparent,
-                                backgroundColor = backgroundColor
+                                backgroundColor = backgroundColor,
+                                folderId = targetFolderId
                             )
                             if (newId.isNotBlank()) {
                                 onOpenEditor(newId)
@@ -439,9 +546,33 @@ fun HomeScreen(
             )
         }
 
+        if (showFoldersDialog) {
+            FoldersDialog(
+                folders = folders,
+                projects = projects,
+                onDismiss = { showFoldersDialog = false },
+                onCreate = { name -> viewModel.createFolder(name) },
+                onRename = { id, name -> viewModel.renameFolder(id, name) },
+                onDelete = { id -> viewModel.deleteFolder(id) },
+                onMoveProject = { id -> moveProjectId = id }
+            )
+        }
+
+        moveProjectId?.let { id ->
+            MoveProjectDialog(
+                project = projects.find { it.id == id },
+                folders = folders,
+                onDismiss = { moveProjectId = null },
+                onMove = { folderId ->
+                    viewModel.moveProjectToFolder(id, folderId)
+                    moveProjectId = null
+                }
+            )
+        }
+
         if (showOpenProjectDialog) {
             OpenProjectDialog(
-                projects = projects,
+                projects = filteredProjects,
                 onDismiss = { showOpenProjectDialog = false },
                 onSelectProject = { id ->
                     showOpenProjectDialog = false
@@ -455,6 +586,10 @@ fun HomeScreen(
                     bundleExportLauncher.launch(
                         com.mochits.app.project.ProjectBundle.fileNameFor(project.title)
                     )
+                },
+                onMoveProject = { id ->
+                    showOpenProjectDialog = false
+                    moveProjectId = id
                 }
             )
         }
@@ -778,7 +913,8 @@ fun OpenProjectDialog(
     onDismiss: () -> Unit,
     onSelectProject: (String) -> Unit,
     onDeleteProject: (String) -> Unit,
-    onExportBundle: (ProjectEntity) -> Unit = {}
+    onExportBundle: (ProjectEntity) -> Unit = {},
+    onMoveProject: (String) -> Unit = {}
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -832,6 +968,12 @@ fun OpenProjectDialog(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
+                                IconButton(onClick = { onMoveProject(project.id) }) {
+                                    Icon(
+                                        imageVector = Icons.Default.FolderOpen,
+                                        contentDescription = "Pindahkan ke folder"
+                                    )
+                                }
                                 IconButton(onClick = { onDeleteProject(project.id) }) {
                                     Icon(
                                         imageVector = Icons.Default.Delete,
@@ -858,4 +1000,236 @@ fun OpenProjectDialog(
         },
         shape = RoundedCornerShape(20.dp)
     )
+}
+
+@Composable
+fun FoldersDialog(
+    folders: List<ProjectFolderEntity>,
+    projects: List<ProjectEntity>,
+    onDismiss: () -> Unit,
+    onCreate: (String) -> Unit,
+    onRename: (String, String) -> Unit,
+    onDelete: (String) -> Unit,
+    onMoveProject: (String) -> Unit
+) {
+    var newName by remember { mutableStateOf("") }
+    var renameTarget by remember { mutableStateOf<ProjectFolderEntity?>(null) }
+    var deleteTarget by remember { mutableStateOf<ProjectFolderEntity?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Kelola Folder", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = newName,
+                        onValueChange = { newName = it },
+                        label = { Text("Nama folder baru") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    Button(
+                        onClick = {
+                            if (newName.isNotBlank()) {
+                                onCreate(newName.trim())
+                                newName = ""
+                            }
+                        },
+                        shape = RoundedCornerShape(10.dp)
+                    ) { Text("Tambah") }
+                }
+
+                if (folders.isEmpty()) {
+                    Text(
+                        "Belum ada folder. Buat folder untuk mengelompokkan proyek.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 300.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(folders, key = { it.id }) { folder ->
+                            val count = projects.count { it.folderId == folder.id }
+                            Card(
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            folder.name,
+                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            "$count proyek",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    IconButton(onClick = { renameTarget = folder }) {
+                                        Icon(Icons.Default.Edit, contentDescription = "Ganti nama")
+                                    }
+                                    IconButton(onClick = { deleteTarget = folder }) {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = "Hapus folder",
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Tutup") }
+        },
+        shape = RoundedCornerShape(20.dp)
+    )
+
+    renameTarget?.let { folder ->
+        RenameFolderDialog(
+            initialName = folder.name,
+            onDismiss = { renameTarget = null },
+            onRename = { name ->
+                onRename(folder.id, name)
+                renameTarget = null
+            }
+        )
+    }
+
+    deleteTarget?.let { folder ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("Hapus Folder") },
+            text = {
+                Text(
+                    "Hapus folder \"${folder.name}\"? Proyek di dalamnya tidak dihapus, " +
+                        "hanya dipindah ke \"Tanpa folder\"."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDelete(folder.id)
+                        deleteTarget = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("Hapus") }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) { Text("Batal") }
+            },
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+}
+
+@Composable
+fun RenameFolderDialog(
+    initialName: String,
+    onDismiss: () -> Unit,
+    onRename: (String) -> Unit
+) {
+    var name by remember(initialName) { mutableStateOf(initialName) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Ganti Nama Folder") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Nama folder") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = { if (name.isNotBlank()) onRename(name.trim()) },
+                shape = RoundedCornerShape(10.dp)
+            ) { Text("Simpan") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Batal") }
+        },
+        shape = RoundedCornerShape(20.dp)
+    )
+}
+
+@Composable
+fun MoveProjectDialog(
+    project: ProjectEntity?,
+    folders: List<ProjectFolderEntity>,
+    onDismiss: () -> Unit,
+    onMove: (String?) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Pindahkan ke Folder") },
+        text = {
+            Column(modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                FolderChoiceRow(
+                    label = "Tanpa folder",
+                    selected = project?.folderId == null,
+                    onClick = { onMove(null) }
+                )
+                folders.forEach { folder ->
+                    FolderChoiceRow(
+                        label = folder.name,
+                        selected = project?.folderId == folder.id,
+                        onClick = { onMove(folder.id) }
+                    )
+                }
+                if (folders.isEmpty()) {
+                    Text(
+                        "Belum ada folder. Buat folder lewat tombol Kelola.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Batal") }
+        },
+        shape = RoundedCornerShape(20.dp)
+    )
+}
+
+@Composable
+private fun FolderChoiceRow(label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+        if (selected) {
+            Icon(
+                Icons.Default.Check,
+                contentDescription = "Dipilih",
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
 }

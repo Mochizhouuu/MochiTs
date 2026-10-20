@@ -13,5 +13,6 @@ data class ProjectEntity(
     val updatedAt: Long,
     val thumbnailPath: String? = null,
     val isTransparent: Boolean = false,
+    val folderId: String? = null,
     val layersJson: String = "[]"
 )

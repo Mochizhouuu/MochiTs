@@ -3,10 +3,12 @@ package com.mochits.app.project
 import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.room.Room
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -61,6 +63,46 @@ class ProjectRepositoryTest {
         val retrieved = repository.getProject(project.id)
         assertNotNull(retrieved)
         assertEquals(project.id, retrieved?.id)
+    }
+
+    @Test
+    fun createFolder_membuatNamaUnikCaseInsensitive() = runBlocking {
+        val a = repository.createFolder("Bab Baru")
+        val b = repository.createFolder("bab baru")
+        assertEquals("Bab Baru", a.name)
+        assertEquals("bab baru (2)", b.name)
+        assertEquals(2, repository.getAllFolders().first().size)
+    }
+
+    @Test
+    fun moveProject_danDeleteFolder_tidakMenghapusProyek() = runBlocking {
+        val folder = repository.createFolder("Kelompok")
+        val project = repository.createProject(
+            title = "Di Folder",
+            width = 100,
+            height = 100,
+            folderId = folder.id
+        )
+        assertEquals(folder.id, repository.getProject(project.id)?.folderId)
+
+        val other = repository.createProject(title = "Lain", width = 100, height = 100)
+        repository.moveProjectToFolder(other.id, folder.id)
+        assertEquals(folder.id, repository.getProject(other.id)?.folderId)
+
+        assertTrue(repository.deleteFolder(folder.id))
+        assertNull(repository.getProject(project.id)?.folderId)
+        assertNull(repository.getProject(other.id)?.folderId)
+        assertNotNull(repository.getProject(project.id))
+        assertNotNull(repository.getProject(other.id))
+        assertTrue(repository.getAllFolders().first().isEmpty())
+    }
+
+    @Test
+    fun renameFolder_mengubahNama() = runBlocking {
+        val folder = repository.createFolder("Lama")
+        assertTrue(repository.renameFolder(folder.id, "Baru"))
+        assertEquals("Baru", repository.getAllFolders().first().single().name)
+        assertTrue(!repository.renameFolder(folder.id, "   "))
     }
 
     @Test

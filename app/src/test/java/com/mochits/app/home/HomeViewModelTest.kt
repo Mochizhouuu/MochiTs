@@ -2,6 +2,7 @@ package com.mochits.app.home
 
 import com.mochits.app.project.ProjectDao
 import com.mochits.app.project.ProjectEntity
+import com.mochits.app.project.ProjectFolderEntity
 import com.mochits.app.project.ProjectRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -21,6 +22,14 @@ class ErrorProjectDao : ProjectDao {
     override suspend fun updateProject(project: ProjectEntity) {}
     override suspend fun deleteProject(project: ProjectEntity) {}
     override suspend fun deleteProjectById(id: String) {}
+    override suspend fun setProjectFolder(id: String, folderId: String?) {}
+    override suspend fun clearFolder(folderId: String) {}
+    override fun getAllFolders(): Flow<List<ProjectFolderEntity>> = flow { emit(emptyList()) }
+    override suspend fun getFolderById(id: String): ProjectFolderEntity? = null
+    override suspend fun findFolderByName(name: String): ProjectFolderEntity? = null
+    override suspend fun insertFolder(folder: ProjectFolderEntity) {}
+    override suspend fun updateFolder(folder: ProjectFolderEntity) {}
+    override suspend fun deleteFolder(folder: ProjectFolderEntity) {}
 }
 
 @RunWith(RobolectricTestRunner::class)

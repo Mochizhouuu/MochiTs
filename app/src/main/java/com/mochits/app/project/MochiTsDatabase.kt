@@ -6,8 +6,8 @@ import com.mochits.app.font.CustomFontDao
 import com.mochits.app.font.CustomFontEntity
 
 @Database(
-    entities = [ProjectEntity::class, CustomFontEntity::class],
-    version = 2,
+    entities = [ProjectEntity::class, ProjectFolderEntity::class, CustomFontEntity::class],
+    version = 3,
     // exportSchema=false PERMANEN: exportSchema=true membuat task KSP
     // debug+release balapan menulis schemas/2.json yang sama ("Empty schema
     // file", flaky). Proteksi data tetap via MIGRATION_1_2 + fallback

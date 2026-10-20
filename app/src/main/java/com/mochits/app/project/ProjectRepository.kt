@@ -28,6 +28,8 @@ class ProjectRepository @Inject constructor(
 
     fun getAllProjects(): Flow<List<ProjectEntity>> = projectDao.getAllProjects()
 
+    fun getAllFolders(): Flow<List<ProjectFolderEntity>> = projectDao.getAllFolders()
+
     suspend fun getProject(id: String): ProjectEntity? {
         return try {
             projectDao.getProjectById(id)
@@ -42,7 +44,8 @@ class ProjectRepository @Inject constructor(
         height: Int,
         imageUri: android.net.Uri? = null,
         isTransparent: Boolean = false,
-        backgroundColor: Int = android.graphics.Color.WHITE
+        backgroundColor: Int = android.graphics.Color.WHITE,
+        folderId: String? = null
     ): ProjectEntity = withContext(Dispatchers.IO) {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
@@ -160,6 +163,7 @@ class ProjectRepository @Inject constructor(
             updatedAt = now,
             thumbnailPath = thumbnailPath,
             isTransparent = isTransparent,
+            folderId = folderId,
             layersJson = "[]"
         )
         projectDao.insertProject(entity)
@@ -190,16 +194,67 @@ class ProjectRepository @Inject constructor(
         }
 
     /** Impor bundel .mts dari stream; @return entity baru atau null. */
-    suspend fun importBundle(input: java.io.InputStream): ProjectEntity? =
+    suspend fun importBundle(
+        input: java.io.InputStream,
+        folderId: String? = null
+    ): ProjectEntity? =
         withContext(Dispatchers.IO) {
             ProjectBundle.importFrom(
                 input,
                 context.filesDir,
                 readLayers = { json -> layerSerializer.deserialize(json) },
                 writeLayers = { layers -> layerSerializer.serialize(layers) },
-                insert = { entity -> projectDao.insertProject(entity) }
+                insert = { entity -> projectDao.insertProject(entity.copy(folderId = folderId)) }
             )
         }
+
+    // ---------- Folder virtual ----------
+
+    /**
+     * Buat folder baru. Nama dirapikan dan dibuat unik (case-insensitive):
+     * nama yang sudah dipakai diberi akhiran " (2)", " (3)", dst.
+     */
+    suspend fun createFolder(name: String): ProjectFolderEntity = withContext(Dispatchers.IO) {
+        val base = name.trim().ifBlank { "Folder" }.take(60)
+        var candidate = base
+        var attempt = 2
+        while (projectDao.findFolderByName(candidate) != null) {
+            candidate = "$base (${attempt})"
+            attempt++
+            if (attempt > 999) break
+        }
+        val now = System.currentTimeMillis()
+        val folder = ProjectFolderEntity(
+            id = UUID.randomUUID().toString(),
+            name = candidate,
+            createdAt = now,
+            updatedAt = now
+        )
+        projectDao.insertFolder(folder)
+        folder
+    }
+
+    suspend fun renameFolder(id: String, name: String): Boolean = withContext(Dispatchers.IO) {
+        val folder = projectDao.getFolderById(id) ?: return@withContext false
+        val clean = name.trim().take(60)
+        if (clean.isEmpty()) return@withContext false
+        projectDao.updateFolder(folder.copy(name = clean, updatedAt = System.currentTimeMillis()))
+        true
+    }
+
+    /** Hapus folder; proyek di dalamnya dipindah ke "Tanpa folder" (tidak dihapus). */
+    suspend fun deleteFolder(id: String): Boolean = withContext(Dispatchers.IO) {
+        val folder = projectDao.getFolderById(id) ?: return@withContext false
+        projectDao.clearFolder(folder.id)
+        projectDao.deleteFolder(folder)
+        true
+    }
+
+    suspend fun moveProjectToFolder(projectId: String, folderId: String?) {
+        withContext(Dispatchers.IO) {
+            projectDao.setProjectFolder(projectId, folderId)
+        }
+    }
 
     suspend fun deleteProject(id: String) {
         withContext(Dispatchers.IO) {
