@@ -3,6 +3,7 @@ package com.mochits.app.settings
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.widget.Toast
@@ -162,6 +163,29 @@ fun SettingsScreen(
                                 selected = currentTheme == AppThemeMode.DARK,
                                 onClick = { viewModel.setThemeMode(AppThemeMode.DARK) }
                             )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "Bantuan",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Panduan fitur, format script TL, dan tips ekspor.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            OutlinedButton(
+                                onClick = { openDocs(context) },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(
+                                    Icons.Default.Info,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Buka Panduan MochiTs")
+                            }
                         }
                     }
                     1 -> {
@@ -1171,5 +1195,15 @@ fun ThemeOptionCard(    label: String,
                 color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
             )
         }
+    }
+}
+
+private fun openDocs(context: Context) {
+    try {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse("https://mochits-docs.pages.dev/"))
+        )
+    } catch (_: Exception) {
+        Toast.makeText(context, "Tidak bisa membuka panduan. Browser tidak tersedia.", Toast.LENGTH_SHORT).show()
     }
 }

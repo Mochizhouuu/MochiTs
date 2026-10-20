@@ -55,9 +55,10 @@ teks), `imaging` (LaMa), `project` (Room + repository + impor ZIP/bundel),
 
 ## Dokumentasi
 
-Panduan pengguna (Indonesia, statis): repo
-[MochiTs-Docs](https://github.com/Mochizhouuu/MochiTs-Docs) — mencakup folder,
+Panduan pengguna (Indonesia, statis): **https://mochits-docs.pages.dev/** — repo
+[MochiTs-Docs](https://github.com/Mochizhouuu/MochiTs-Docs). Mencakup folder,
 impor ZIP, teks/spasi, format script TL, tester parser di browser, dan ekspor.
+Tautan juga tersedia dari **Pengaturan → Tema → Buka Panduan MochiTs**.
 
 ## Build & Test
 
