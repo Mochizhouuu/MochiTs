@@ -422,9 +422,14 @@ class TextRenderer(private val context: Context) {
         // Determine container dimensions
         val targetW = (boxWidth ?: 200f).coerceAtLeast(20f)
 
-        // Fast non-recursive estimation of container height for OVAL
+        // Fast non-recursive estimation of container height for OVAL.
+        // Estimasi jumlah baris WAJIB kontinu (bukan .toInt()+1): kalau
+        // dibulatkan, geometri oval melompat di ambang bilangan bulat saat
+        // layer di-resize. Lompatan itu mengubah lebar efektif per baris =
+        // wrap berubah / kalimat "menyesuaikan", padahal font & kotak
+        // sedang diskalakan proporsional.
         val effectiveBoxHeight: Float? = if (shape == TextContainerShape.OVAL) {
-            var estimatedLinesCount = 0
+            var estimatedLinesCount = 0f
             var estOff = 0
             val estParas = if (text.isEmpty()) listOf("" to 0) else text.split("\n").map { p ->
                 val r = p to estOff
@@ -437,12 +442,13 @@ class TextRenderer(private val context: Context) {
                 } else {
                     styledTokensOf(p, pStart).sumOf { it.w.toDouble() }.toFloat()
                 }
-                estimatedLinesCount += (w / (targetW * 0.7f)).toInt() + 1
+                estimatedLinesCount += w / (targetW * 0.7f) + 1f
             }
+            val estLines = estimatedLinesCount.coerceAtLeast(1f)
             if (boxHeight == null) {
-                (estimatedLinesCount.coerceAtLeast(1) * lineHeight * 1.5f).coerceAtLeast(40f)
+                (estLines * lineHeight * 1.5f).coerceAtLeast(40f)
             } else {
-                val minReqH = (estimatedLinesCount.coerceAtLeast(1) * lineHeight * 1.35f).coerceAtLeast(30f)
+                val minReqH = (estLines * lineHeight * 1.35f).coerceAtLeast(30f)
                 maxOf(boxHeight, minReqH)
             }
         } else {
@@ -663,7 +669,7 @@ class TextRenderer(private val context: Context) {
                     r
                 }
             }
-            var estLinesCount = 0
+            var estLinesCount = 0f
             val estAvailW = (targetW * 0.8f).coerceAtLeast(20f)
             for ((p, pStart) in rawParas) {
                 val w = if (p.isEmpty()) {
@@ -671,9 +677,9 @@ class TextRenderer(private val context: Context) {
                 } else {
                     styledTokensOf(p, pStart).sumOf { it.w.toDouble() }.toFloat()
                 }
-                estLinesCount += (w / estAvailW).toInt() + 1
+                estLinesCount += w / estAvailW + 1f
             }
-            val estTextH = estLinesCount.coerceAtLeast(1) * lineHeight
+            val estTextH = estLinesCount.coerceAtLeast(1f) * lineHeight
             ((effectiveBoxHeight - estTextH) / 2f).coerceAtLeast(0f)
         } else {
             0f
@@ -689,7 +695,10 @@ class TextRenderer(private val context: Context) {
                 val pass2Lines = buildLinesForOffset(topOffset1)
                 val totalTextH2 = blockHeight(pass2Lines, lineHeight)
                 val topOffset2 = ((effectiveBoxHeight - totalTextH2) / 2f).coerceAtLeast(0f)
-                if (kotlin.math.abs(topOffset2 - topOffset1) > 1f) {
+                // Ambang RELATIF (2% tinggi baris), bukan 1px absolut: ambang
+                // absolut bikin keputusan pass-2/pass-3 (dan hasil wrap)
+                // berubah-ubah saat layer diskalakan naik/turun.
+                if (kotlin.math.abs(topOffset2 - topOffset1) > lineHeight * 0.02f) {
                     usedTopOffset = topOffset2
                     buildLinesForOffset(topOffset2)
                 } else {

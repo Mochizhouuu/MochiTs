@@ -109,6 +109,50 @@ class TextRendererTest {
     }
 
     @Test
+    fun testOvalProportionalResize_keepsWrapIdentical() {
+        // Regresi: corner-resize = font & kotak diskalakan BERSAMA, jadi
+        // pemenggalan baris harus identik di semua skala (huruf membesar,
+        // bukan "menyesuaikan"). Dulu estimasi tinggi oval memakai .toInt()
+        // dan ambang konvergensi 1px absolut -> wrap berubah saat resize.
+        val text = "SEPERTINYA SEIRING DENGAN KEMATIAN PEMILIK ASLINYA, CINCIN PENYIMPANAN YANG TELAH MENJADI ITEM TANPA PEMILIK INI,"
+        val baseSize = 38f
+        val baseW = 452f
+        val baseH = 260f
+        val baseStyle = TextStyleConfig(fontSize = baseSize)
+        val basePaint = Paint().apply { textSize = baseSize }
+
+        val base = textRenderer.layoutText(
+            text = text, paint = basePaint,
+            shape = TextContainerShape.OVAL,
+            boxWidth = baseW, boxHeight = baseH,
+            alignment = TextAlignment.CENTER, baseStyle = baseStyle
+        )
+
+        for (k in listOf(0.75f, 0.9f, 0.96f, 1.04f, 1.1f, 1.3f, 1.6f)) {
+            val paint = Paint().apply { textSize = baseSize * k }
+            val style = TextStyleConfig(fontSize = baseSize * k)
+            val scaled = textRenderer.layoutText(
+                text = text, paint = paint,
+                shape = TextContainerShape.OVAL,
+                boxWidth = baseW * k, boxHeight = baseH * k,
+                alignment = TextAlignment.CENTER, baseStyle = style
+            )
+            assertEquals("Jumlah baris harus sama di skala $k", base.lines.size, scaled.lines.size)
+            for (i in base.lines.indices) {
+                assertEquals(
+                    "Pemenggalan baris ${i + 1} harus sama di skala $k",
+                    base.lines[i].text, scaled.lines[i].text
+                )
+            }
+            assertEquals("containerWidth skala $k", baseW * k, scaled.containerWidth, 0.5f)
+            assertEquals(
+                "containerHeight skala $k",
+                base.containerHeight * k, scaled.containerHeight, baseH * 0.08f
+            )
+        }
+    }
+
+    @Test
     fun testScenario4_SwitchingShapeRepeatedly() {
         val paint = Paint().apply { textSize = 30f }
         val text = "Contoh paragraf dengan beberapa kata panjang untuk memicu pemenggalan atau reflow yang berbeda antara box dan oval"
