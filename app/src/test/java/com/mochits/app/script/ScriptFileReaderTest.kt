@@ -3,10 +3,13 @@ package com.mochits.app.script
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import java.io.ByteArrayOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
+@RunWith(RobolectricTestRunner::class)
 class ScriptFileReaderTest {
 
     private fun docx(xml: String, entryName: String = "word/document.xml"): ByteArray {

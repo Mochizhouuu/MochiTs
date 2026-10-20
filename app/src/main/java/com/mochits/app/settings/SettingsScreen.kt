@@ -55,6 +55,34 @@ fun SettingsScreen(
     val currentTheme by viewModel.themeMode.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Tema", "Model", "Style", "Font", "Output", "Script")
+    val settingsScope = rememberCoroutineScope()
+    var scriptTestSummary by remember { mutableStateOf<com.mochits.app.script.ScriptTestSummary?>(null) }
+    var showScriptTest by remember { mutableStateOf(false) }
+    val scriptTestLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            settingsScope.launch {
+                val summary = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val repo = com.mochits.app.script.ScriptMappingRepository(context)
+                        .also { it.reload() }
+                    com.mochits.app.script.ScriptTestSummary.build(
+                        context, uri, repo.getMappings(), repo.getSeparator()
+                    )
+                }
+                if (summary == null) {
+                    Toast.makeText(
+                        context,
+                        "Gagal membaca file. Pilih .txt atau .docx.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    scriptTestSummary = summary
+                    showScriptTest = true
+                }
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -763,7 +791,7 @@ fun SettingsScreen(
 
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(
-                                text = "Script TL (.txt)",
+                                text = "Script TL (.txt / .docx)",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
@@ -792,6 +820,19 @@ fun SettingsScreen(
                                     checked = autoRestore,
                                     onCheckedChange = { scriptSettingsRepo.setAutoRestore(it) }
                                 )
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    scriptTestLauncher.launch(
+                                        arrayOf(
+                                            com.mochits.app.script.ScriptFileReader.TXT_MIME,
+                                            com.mochits.app.script.ScriptFileReader.DOCX_MIME
+                                        )
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Tes file script (.txt/.docx)")
                             }
                             OutlinedTextField(
                                 value = separator,
@@ -854,6 +895,46 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+
+    val testSummary = scriptTestSummary
+    if (showScriptTest && testSummary != null) {
+        AlertDialog(
+            onDismissRequest = { showScriptTest = false },
+            title = { Text("Tes Script") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = testSummary.fileName ?: "File",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "${testSummary.pages} halaman • ${testSummary.entries} entri • ${testSummary.linkedEntries} terhubung",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    if (testSummary.symbolCounts.isNotEmpty()) {
+                        Text(
+                            "Simbol: " + testSummary.symbolCounts.joinToString(", ") {
+                                "${it.first} ×${it.second}"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    testSummary.warnings.forEach { warning ->
+                        Text(
+                            text = warning,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showScriptTest = false }) { Text("Tutup") }
+            }
+        )
     }
 }
 
