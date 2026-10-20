@@ -14,6 +14,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertSame
 import org.junit.Before
@@ -31,6 +32,7 @@ class EditorViewModelTest {
     private lateinit var dao: ProjectDao
     private lateinit var repository: ProjectRepository
     private lateinit var viewModel: EditorViewModel
+    private lateinit var createdProjectId: String
 
     @Before
     fun setUp() = runBlocking {
@@ -47,6 +49,7 @@ class EditorViewModelTest {
             height = 1920,
             imageUri = null
         )
+        createdProjectId = project.id
 
         val savedStateHandle = androidx.lifecycle.SavedStateHandle(mapOf("projectId" to project.id))
         val exportSettingsRepository = com.mochits.app.settings.ExportSettingsRepository(context)
@@ -58,6 +61,25 @@ class EditorViewModelTest {
     @After
     fun tearDown() {
         db.close()
+    }
+
+    @Test
+    fun testSavedScriptForRestore_returnsUriOnlyWhenAutoRestoreEnabled() {
+        val prefs = RuntimeEnvironment.getApplication()
+            .getSharedPreferences("mochits_script_state", android.content.Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString("uri_$createdProjectId", "content://tl/halaman.txt")
+            .putString("name_$createdProjectId", "halaman.txt")
+            .apply()
+
+        viewModel.scriptSettingsRepository.setAutoRestore(true)
+        val restored = viewModel.savedScriptForRestore(createdProjectId)
+        assertNotNull(restored)
+        assertEquals("content://tl/halaman.txt", restored!!.first.toString())
+        assertEquals("halaman.txt", restored.second)
+
+        viewModel.scriptSettingsRepository.setAutoRestore(false)
+        assertNull(viewModel.savedScriptForRestore(createdProjectId))
     }
 
     @Test

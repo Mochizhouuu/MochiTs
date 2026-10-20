@@ -67,7 +67,9 @@ class EditorViewModel @Inject constructor(
     // Param terakhir + default agar pemanggil posisional lama (termasuk test)
     // tetap kompil tanpa perubahan. Binding Hilt disediakan di AppModule.
     val stylePresetRepository: com.mochits.app.style.StylePresetRepository =
-        com.mochits.app.style.StylePresetRepository(context)
+        com.mochits.app.style.StylePresetRepository(context),
+    val scriptSettingsRepository: com.mochits.app.script.ScriptSettingsRepository =
+        com.mochits.app.script.ScriptSettingsRepository(context)
 ) : ViewModel() {
 
     /** fontNameKey yang difavoritkan pengguna. */
@@ -828,6 +830,7 @@ data class HistoryManifest(
 
                 if (proj != null) {
                     project.value = proj
+                    restoreScriptIfEnabled(proj.id)
 
                     var loadedBmp: Bitmap? = null
                     // Sumber tunggal: base_image.png (B8). thumbnailPath hanya
@@ -2779,8 +2782,27 @@ data class HistoryManifest(
         } catch (_: Exception) {}
     }
 
+    /** URI + nama file yang perlu dipulihkan saat proyek dibuka (null = tidak). */
+    internal fun savedScriptForRestore(projId: String): Pair<android.net.Uri, String?>? {
+        if (!scriptSettingsRepository.autoRestore.value) return null
+        if (scriptQueue.value != null) return null
+        val savedUri = scriptSettingsRepository.getLastUri(projId) ?: return null
+        val parsed = try {
+            android.net.Uri.parse(savedUri)
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        return parsed to scriptSettingsRepository.getLastName(projId)
+    }
+
+    /** Muat ulang file TL terakhir proyek bila toggle di Pengaturan aktif. */
+    private fun restoreScriptIfEnabled(projId: String) {
+        val (uri, name) = savedScriptForRestore(projId) ?: return
+        loadScriptFile(uri, name, silent = true)
+    }
+
     /** Muat file .txt script dari URI SAF; posisi per proyek dipulihkan. */
-    fun loadScriptFile(uri: android.net.Uri, displayName: String? = null) {
+    fun loadScriptFile(uri: android.net.Uri, displayName: String? = null, silent: Boolean = false) {
         val projId = project.value?.id ?: return
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
@@ -2799,7 +2821,9 @@ data class HistoryManifest(
                     raw, repo.getMappings(), repo.getSeparator()
                 )
                 if (doc.totalEntries == 0) {
-                    userMessage.value = UiMessage("File script kosong / tak ada baris bersimbol.", UiMessage.Kind.WARNING)
+                    if (!silent) {
+                        userMessage.value = UiMessage("File script kosong / tak ada baris bersimbol.", UiMessage.Kind.WARNING)
+                    }
                     return@launch
                 }
                 val savedUri = scriptPrefs().getString("uri_$projId", null)
@@ -2811,16 +2835,23 @@ data class HistoryManifest(
                 }
                 val safePage = page.coerceIn(0, doc.pages.size - 1)
                 val safeLine = line.coerceIn(0, (doc.pages.getOrNull(safePage)?.entries?.size ?: 1) - 1)
+                val fileName = displayName ?: uri.lastPathSegment ?: "script.txt"
                 scriptQueue.value = ScriptQueue(
                     pages = doc.pages,
                     pageIdx = safePage,
                     lineIdx = safeLine,
                     uriString = uri.toString(),
-                    fileName = displayName ?: uri.lastPathSegment ?: "script.txt"
+                    fileName = fileName
                 )
+                saveScriptPosition(projId, uri.toString(), safePage, safeLine)
+                try {
+                    scriptPrefs().edit().putString("name_$projId", fileName).apply()
+                } catch (_: Exception) {}
             } catch (t: Throwable) {
                 Logger.e("Gagal memuat script: ${t.message}", t)
-                userMessage.value = UiMessage("Gagal membaca file script.", UiMessage.Kind.ERROR)
+                if (!silent) {
+                    userMessage.value = UiMessage("Gagal membaca file script.", UiMessage.Kind.ERROR)
+                }
             }
         }
     }

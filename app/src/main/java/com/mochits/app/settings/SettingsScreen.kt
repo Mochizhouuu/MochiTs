@@ -743,6 +743,14 @@ fun SettingsScreen(
                         val scriptRepo = remember { scriptEntryPoint.scriptMappingRepository() }
                         val mappings by scriptRepo.mappings.collectAsState()
                         val separator by scriptRepo.separator.collectAsState()
+                        val scriptSettingsEntryPoint = remember {
+                            dagger.hilt.android.EntryPointAccessors.fromApplication(
+                                context.applicationContext,
+                                ScriptSettingsEntryPoint::class.java
+                            )
+                        }
+                        val scriptSettingsRepo = remember { scriptSettingsEntryPoint.scriptSettingsRepository() }
+                        val autoRestore by scriptSettingsRepo.autoRestore.collectAsState()
                         val styleEntryPoint5 = remember {
                             dagger.hilt.android.EntryPointAccessors.fromApplication(
                                 context.applicationContext,
@@ -764,6 +772,27 @@ fun SettingsScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Muat ulang file TL otomatis",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Saat project dibuka, file script terakhir dimuat lagi beserta posisi halaman/barisnya.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Switch(
+                                    checked = autoRestore,
+                                    onCheckedChange = { scriptSettingsRepo.setAutoRestore(it) }
+                                )
+                            }
                             OutlinedTextField(
                                 value = separator,
                                 onValueChange = { scriptRepo.setSeparator(it) },
@@ -904,6 +933,12 @@ interface StylePresetEntryPoint {
 @dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
 interface ScriptMappingEntryPoint {
     fun scriptMappingRepository(): com.mochits.app.script.ScriptMappingRepository
+}
+
+@dagger.hilt.EntryPoint
+@dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
+interface ScriptSettingsEntryPoint {
+    fun scriptSettingsRepository(): com.mochits.app.script.ScriptSettingsRepository
 }
 
 /** Satu baris pemetaan simbol -> preset + flag sambung + hapus. */
