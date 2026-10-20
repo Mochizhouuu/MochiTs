@@ -21,10 +21,15 @@ data class ScriptSymbolEntry(
     /** Id preset; kosong = teks polos ikut style aktif. */
     val presetId: String = "",
     /**
-     * true = sambung ke entri sebelumnya (mis. `//-` menempel ke balon
-     * sebelumnya), bukan entri baru.
+     * true = teks digabung ke entri sebelumnya (satu balon/kotak).
      */
-    val append: Boolean = false
+    val append: Boolean = false,
+    /**
+     * true = entri BARU yang terhubung ke balon/kotak berikutnya (mis.
+     * `//-` setelah `-`). Teks tidak digabung; preset diwarisi dari simbol
+     * induk (`//-` -> `-`) bila simbol ini tidak punya preset sendiri.
+     */
+    val linked: Boolean = false
 )
 
 @Singleton
@@ -55,6 +60,7 @@ class ScriptMappingRepository @Inject constructor(
         val clean = entries
             .map { it.copy(symbol = it.symbol.trim()) }
             .filter { it.symbol.isNotEmpty() }
+            .map { if (it.linked) it.copy(append = false) else if (it.append) it.copy(linked = false) else it }
             .distinctBy { it.symbol }
         try {
             prefs.edit().putString(KEY_MAPPINGS, gson.toJson(clean)).apply()
@@ -77,13 +83,30 @@ class ScriptMappingRepository @Inject constructor(
                 val type = object : TypeToken<List<ScriptSymbolEntry>>() {}.type
                 val list: List<ScriptSymbolEntry>? = gson.fromJson(json, type)
                 if (list != null) {
-                    return list.map { it.copy(symbol = it.symbol.trim()) }
-                        .filter { it.symbol.isNotEmpty() }
-                        .distinctBy { it.symbol }
+                    return sanitize(list)
                 }
             } catch (_: Exception) {}
         }
-        return defaultMappings()
+        return sanitize(defaultMappings())
+    }
+
+    private fun sanitize(entries: List<ScriptSymbolEntry>): List<ScriptSymbolEntry> =
+        entries
+            .map { it.copy(symbol = it.symbol.trim()) }
+            .filter { it.symbol.isNotEmpty() }
+            .map { migrateLegacy(it) }
+            .distinctBy { it.symbol }
+
+    /**
+     * Data lama menyimpan `//-`/`//[]` sebagai append. Semantik yang benar:
+     * entri baru yang terhubung ke balon/kotak berikutnya.
+     */
+    private fun migrateLegacy(e: ScriptSymbolEntry): ScriptSymbolEntry {
+        if (e.append && e.linked) return e.copy(append = false)
+        if (e.append && (e.symbol == "//-" || e.symbol == "//[]")) {
+            return e.copy(append = false, linked = true)
+        }
+        return e
     }
 
     private fun loadSeparator(): String {
@@ -101,8 +124,8 @@ class ScriptMappingRepository @Inject constructor(
         fun defaultMappings(): List<ScriptSymbolEntry> = listOf(
             ScriptSymbolEntry("[]"),
             ScriptSymbolEntry("-"),
-            ScriptSymbolEntry("//-", append = true),
-            ScriptSymbolEntry("//[]", append = true),
+            ScriptSymbolEntry("//-", linked = true),
+            ScriptSymbolEntry("//[]", linked = true),
             ScriptSymbolEntry("#"),
             ScriptSymbolEntry("*"),
             ScriptSymbolEntry("**"),

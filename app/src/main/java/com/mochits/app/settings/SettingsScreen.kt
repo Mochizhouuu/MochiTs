@@ -768,7 +768,7 @@ fun SettingsScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Simbol = awalan baris (cocok terpanjang). Sambung = menempel ke entri sebelumnya (mis. //-). Preset = style yang dipakai saat baris dimasukkan.",
+                                text = "Simbol = awalan baris (cocok terpanjang). Gabung = teks digabung ke entri sebelumnya (satu balon). Terhubung = entri baru untuk balon/kotak berikutnya yang tersambung (mis. //-). Preset = style saat baris dimasukkan.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -1021,10 +1021,25 @@ private fun ScriptMappingRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(
                     checked = entry.append,
-                    onCheckedChange = { onUpdate(entry.copy(append = it)) }
+                    onCheckedChange = {
+                        onUpdate(entry.copy(append = it, linked = if (it) false else entry.linked))
+                    }
                 )
                 Text(
-                    "Sambung ke entri sebelumnya",
+                    "Gabung teks ke entri sebelumnya",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = entry.linked,
+                    onCheckedChange = {
+                        onUpdate(entry.copy(linked = it, append = if (it) false else entry.append))
+                    }
+                )
+                Text(
+                    "Entri baru, terhubung ke sebelumnya (//)",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

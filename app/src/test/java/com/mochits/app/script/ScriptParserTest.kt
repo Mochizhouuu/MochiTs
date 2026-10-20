@@ -55,6 +55,56 @@ class ScriptParserTest {
     }
 
     @Test
+    fun `simbol linked jadi entri terpisah dengan induk`() {
+        val doc = ScriptParser.parse(
+            "- Aku datang\n//- dan langsung pergi\n//- masih lanjutan\n- Baris baru",
+            listOf(
+                ScriptSymbolEntry("-"),
+                ScriptSymbolEntry("//-", linked = true)
+            ),
+            "==="
+        )
+        val e = doc.pages[0].entries
+        assertEquals(4, e.size)
+        assertEquals("Aku datang", e[0].text)
+        assertEquals("//-", e[1].symbol)
+        assertEquals("dan langsung pergi", e[1].text)
+        assertEquals("-", e[1].linkedParent)
+        assertEquals("masih lanjutan", e[2].text)
+        assertEquals("-", e[2].linkedParent)
+        assertEquals("Baris baru", e[3].text)
+    }
+
+    @Test
+    fun `linked kotak mewarisi induk kurung siku`() {
+        val doc = ScriptParser.parse(
+            "[] Narasi kotak\n//[] lanjutan kotak",
+            listOf(
+                ScriptSymbolEntry("[]"),
+                ScriptSymbolEntry("//[]", linked = true)
+            ),
+            "==="
+        )
+        val e = doc.pages[0].entries
+        assertEquals(2, e.size)
+        assertEquals("[]", e[1].linkedParent)
+        assertEquals("lanjutan kotak", e[1].text)
+    }
+
+    @Test
+    fun `indentasi sejajar dibuang indentasi dalam dipertahankan`() {
+        val doc = ScriptParser.parse(
+            "# Nama: Blablabla\n  Class: Assassin\n    Sub: Bayangan\n- Dialog",
+            m("#", "-"),
+            "==="
+        )
+        val e = doc.pages[0].entries
+        assertEquals(2, e.size)
+        assertEquals("Nama: Blablabla\nClass: Assassin\n  Sub: Bayangan", e[0].text)
+        assertEquals("Dialog", e[1].text)
+    }
+
+    @Test
     fun `kepala file dibuang bila ada pemisah halaman`() {
         val doc = ScriptParser.parse(
             "Judul Chapter\nNote tl:\n[]: Kotak dialognya\n-: Balon dialog\nP1\n- Halo",

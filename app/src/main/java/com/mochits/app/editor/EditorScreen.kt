@@ -388,7 +388,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
         }
     }
 
-    // Picker file script TL (.txt).
+    // Picker file script TL (.txt / .docx).
     val scriptFilePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -877,7 +877,12 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         scriptQueue = scriptQueue,
                         hasSelection = selectedLayerId != null,
                         onLoadScriptFile = {
-                            scriptFilePickerLauncher.launch(arrayOf("text/plain", "*/*"))
+                            scriptFilePickerLauncher.launch(
+                                arrayOf(
+                                    com.mochits.app.script.ScriptFileReader.TXT_MIME,
+                                    com.mochits.app.script.ScriptFileReader.DOCX_MIME
+                                )
+                            )
                         },
                         onApplyScriptLine = { viewModel.applyScriptCurrent() },
                         onSkipScriptLine = { viewModel.skipScriptLine() },
@@ -4586,7 +4591,7 @@ fun EffectToolPanel(
  * Panel riwayat undo/redo bernama (F3): ketuk entri untuk lompat ke state itu.
  */
 /**
- * Panel antrean script TL (muat .txt, masukkan baris per baris).
+ * Panel antrean script TL (muat .txt/.docx, masukkan baris per baris).
  */
 @Composable
 private fun ScriptPanel(
@@ -4677,7 +4682,7 @@ private fun ScriptPanel(
             if (q == null) {
                 SectionCard(title = "Queue") {
                     Text(
-                        "Muat file .txt terjemahan — baris dibaca satu per satu saat mendubbing. Simbol di awal baris otomatis memakai preset gaya pasangannya.",
+                        "Muat file .txt/.docx terjemahan — baris dibaca satu per satu saat mendubbing. Simbol di awal baris otomatis memakai preset gaya pasangannya.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -4687,7 +4692,7 @@ private fun ScriptPanel(
                     ) {
                         Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Muat file .txt")
+                        Text("Muat file .txt / .docx")
                     }
                 }
             } else {
@@ -4765,7 +4770,7 @@ private fun ScriptPanel(
                                         color = MaterialTheme.colorScheme.surfaceVariant
                                     ) {
                                         Text(
-                                            text = e.symbol,
+                                            text = if (e.linkedParent != null) "↳ ${e.symbol}" else e.symbol,
                                             style = MaterialTheme.typography.labelSmall,
                                             modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                                         )

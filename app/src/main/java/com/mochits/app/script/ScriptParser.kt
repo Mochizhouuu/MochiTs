@@ -10,13 +10,21 @@ package com.mochits.app.script
  *   (kepala file berisi judul/nick/legenda yang kebetulan bersimbol).
  * - Baris kosong -> lewati.
  * - Baris diawali simbol dikenal (cocok awalan TERPANJANG) -> entri baru,
- *   KECUALI simbol bertipe sambung (mis. `//-`, `//[]`) yang menempel ke
- *   entri sebelumnya (gabung newline); tanpa entri sebelumnya -> entri baru.
+ *   KECUALI simbol bertipe append yang menggabung teks ke entri sebelumnya.
+ * - Simbol bertipe linked (mis. `//-`, `//[]`) tetap entri BARU, ditandai
+ *   terhubung ke balon/kotak berikutnya (induk `-` / `[]`), bukan digabung.
  * - Baris lain -> sambungan entri sebelumnya; tanpa entri -> buang.
+ *   Spasi indentasi sejajar (sampai kolom teks simbol) dibuang; indentasi
+ *   yang lebih dalam dipertahankan.
  */
 object ScriptParser {
 
-    data class ScriptEntry(val symbol: String, val text: String)
+    data class ScriptEntry(
+        val symbol: String,
+        val text: String,
+        /** Simbol induk untuk entri terhubung (mis. `//-` -> `-`). */
+        val linkedParent: String? = null
+    )
     data class ScriptPage(val entries: List<ScriptEntry>, val label: String = "")
     data class ScriptDoc(val pages: List<ScriptPage>) {
         val totalEntries: Int get() = pages.sumOf { it.entries.size }
@@ -36,7 +44,14 @@ object ScriptParser {
             .filter { (s, _) -> s.isNotEmpty() }
             .sortedByDescending { (s, _) -> s.length }
 
-        var lines = rawText.split("\n")
+        var lines = rawText
+            .replace("\uFEFF", "")
+            .replace("\u200B", "")
+            .replace('\u00A0', ' ')
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
+            .replace("\t", "    ")
+            .split("\n")
         if (sepRegex != null) {
             val first = lines.indexOfFirst { it.trim().matches(sepRegex) }
             if (first >= 0) {
@@ -48,12 +63,35 @@ object ScriptParser {
         var current = mutableListOf<ScriptEntry>()
         var currentLabel = ""
         var seenSep = false
+        /** Kolom awal teks pada baris simbol terakhir (acuan indentasi). */
+        var textColumn = 0
         pages.add(currentLabel to current)
 
         fun pushPage(label: String) {
             current = mutableListOf()
             currentLabel = label
+            textColumn = 0
             pages.add(currentLabel to current)
+        }
+
+        fun mergeLast(text: String) {
+            if (current.isEmpty()) return
+            val last = current.removeAt(current.size - 1)
+            current.add(last.copy(text = if (last.text.isEmpty()) text else last.text + "\n" + text))
+        }
+
+        fun textStartColumn(rawLine: String, sym: String): Int {
+            val symStart = rawLine.indexOfFirst { it != ' ' }.let { if (it < 0) 0 else it }
+            var i = symStart + sym.length
+            while (i < rawLine.length && rawLine[i] == ' ') i++
+            return i
+        }
+
+        fun linkedParentFor(sym: String, entries: List<ScriptEntry>): String? {
+            val stripped = if (sym.startsWith("//")) sym.substring(2) else null
+            if (!stripped.isNullOrEmpty()) return stripped
+            val prev = entries.lastOrNull() ?: return null
+            return prev.linkedParent ?: prev.symbol
         }
 
         for (rawLine in lines) {
@@ -69,14 +107,17 @@ object ScriptParser {
                 val (sym, entry) = hit
                 val text = line.substring(sym.length).trimStart()
                 if (entry.append && current.isNotEmpty()) {
-                    val last = current.removeAt(current.size - 1)
-                    current.add(last.copy(text = if (last.text.isEmpty()) text else last.text + "\n" + text))
+                    mergeLast(text)
                 } else {
-                    current.add(ScriptEntry(sym, text))
+                    val parent = if (entry.linked) linkedParentFor(sym, current) else null
+                    current.add(ScriptEntry(sym, text, parent))
+                    textColumn = textStartColumn(rawLine, sym)
                 }
             } else if (current.isNotEmpty()) {
-                val last = current.removeAt(current.size - 1)
-                current.add(last.copy(text = if (last.text.isEmpty()) line else last.text + "\n" + line))
+                val leading = rawLine.indexOfFirst { it != ' ' }
+                    .let { if (it < 0) rawLine.length else it }
+                val continuation = rawLine.substring(minOf(leading, textColumn)).trimEnd()
+                if (continuation.isNotEmpty()) mergeLast(continuation)
             }
             // Tanpa entri sebelumnya: buang.
         }

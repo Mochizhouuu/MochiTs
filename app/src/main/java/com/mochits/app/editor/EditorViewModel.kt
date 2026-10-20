@@ -2812,9 +2812,14 @@ data class HistoryManifest(
                         android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
                     )
                 } catch (_: Exception) {}
-                val raw = context.contentResolver.openInputStream(uri)?.use { stream ->
-                    stream.bufferedReader(Charsets.UTF_8).readText()
-                } ?: return@launch
+                val read = com.mochits.app.script.ScriptFileReader.read(context, uri, displayName)
+                if (read == null) {
+                    if (!silent) {
+                        userMessage.value = UiMessage("Pilih file .txt atau .docx.", UiMessage.Kind.ERROR)
+                    }
+                    return@launch
+                }
+                val raw = read.text
                 val repo = com.mochits.app.script.ScriptMappingRepository(context)
                 repo.reload()
                 val doc = com.mochits.app.script.ScriptParser.parse(
@@ -2835,7 +2840,7 @@ data class HistoryManifest(
                 }
                 val safePage = page.coerceIn(0, doc.pages.size - 1)
                 val safeLine = line.coerceIn(0, (doc.pages.getOrNull(safePage)?.entries?.size ?: 1) - 1)
-                val fileName = displayName ?: uri.lastPathSegment ?: "script.txt"
+                val fileName = read.fileName ?: displayName ?: uri.lastPathSegment ?: "script.txt"
                 scriptQueue.value = ScriptQueue(
                     pages = doc.pages,
                     pageIdx = safePage,
@@ -2861,8 +2866,13 @@ data class HistoryManifest(
         val q = scriptQueue.value ?: return
         val entry = q.currentEntry ?: return
         val repo = com.mochits.app.script.ScriptMappingRepository(context)
-        val presetId = repo.getMappings().firstOrNull { it.symbol == entry.symbol }?.presetId
-        val preset = presetId?.takeIf { it.isNotBlank() }?.let { stylePresetRepository.getPreset(it) }
+        val mappings = repo.getMappings()
+        val ownPresetId = mappings.firstOrNull { it.symbol == entry.symbol }
+            ?.presetId?.takeIf { it.isNotBlank() }
+        val parentPresetId = entry.linkedParent
+            ?.let { parent -> mappings.firstOrNull { it.symbol == parent }?.presetId }
+            ?.takeIf { it.isNotBlank() }
+        val preset = (ownPresetId ?: parentPresetId)?.let { stylePresetRepository.getPreset(it) }
         val selected = selectedLayerId.value?.let { sid ->
             layers.value.find { it.id == sid } as? Layer.TextLayer
         }
