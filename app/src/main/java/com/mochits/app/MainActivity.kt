@@ -77,24 +77,54 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * File .mts dibuka dari app lain (VIEW): salin ke cache + tandai agar
-     * Home mengimpornya saat tampil.
+     * File .mts / ZIP dibuka dari app lain (VIEW): salin ke cache + tandai
+     * agar Home menampilkan preview/impor saat tampil.
      */
     private fun stashIncomingBundle(intent: android.content.Intent?) {
         try {
             if (intent?.action != android.content.Intent.ACTION_VIEW) return
             val uri = intent.data ?: return
-            val dst = java.io.File(cacheDir, "incoming/incoming.mts")
+            val displayName = queryDisplayName(uri)
+            val mime = (intent.type ?: contentResolver.getType(uri) ?: "").lowercase()
+            val lowerName = (displayName ?: uri.lastPathSegment ?: "").lowercase()
+            val isBundle = lowerName.endsWith(".mts")
+            val isZip = !isBundle && (lowerName.endsWith(".zip") || mime.contains("zip"))
+            if (!isBundle && !isZip) return
+
+            val fileName = if (isBundle) "incoming.mts" else "incoming.zip"
+            val dst = java.io.File(cacheDir, "incoming/$fileName")
             dst.parentFile?.mkdirs()
             contentResolver.openInputStream(uri)?.use { inp ->
                 dst.outputStream().use { out -> inp.copyTo(out) }
             } ?: return
             if (!dst.exists() || dst.length() <= 0L) return
-            getSharedPreferences("mochits_bundle_in", MODE_PRIVATE)
-                .edit()
-                .putString("pending_bundle_path", dst.absolutePath)
-                .apply()
+
+            val prefs = getSharedPreferences("mochits_bundle_in", MODE_PRIVATE).edit()
+            if (isBundle) {
+                prefs.putString("pending_bundle_path", dst.absolutePath)
+            } else {
+                prefs.putString("pending_zip_path", dst.absolutePath)
+                prefs.putString("pending_zip_name", displayName ?: uri.lastPathSegment ?: "Impor.zip")
+            }
+            prefs.apply()
         } catch (_: Exception) {
+        }
+    }
+
+    private fun queryDisplayName(uri: android.net.Uri): String? {
+        return try {
+            contentResolver.query(
+                uri,
+                arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+                null, null, null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (idx >= 0) cursor.getString(idx) else null
+                } else null
+            }
+        } catch (_: Exception) {
+            null
         }
     }
 }

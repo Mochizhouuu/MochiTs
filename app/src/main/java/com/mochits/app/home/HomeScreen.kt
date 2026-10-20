@@ -78,6 +78,7 @@ fun HomeScreen(
     var selectedDeleteProjectId by remember { mutableStateOf<String?>(null) }
     var filterFolderId by remember { mutableStateOf<String?>(null) }
     var filterUnfiled by remember { mutableStateOf(false) }
+    var pendingZip by remember { mutableStateOf<Pair<File, String>?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
 
@@ -104,6 +105,15 @@ fun HomeScreen(
                 } else {
                     android.widget.Toast.makeText(context, "Gagal mengimpor bundel.", android.widget.Toast.LENGTH_SHORT).show()
                 }
+            }
+            val zipPath = prefs.getString("pending_zip_path", null)
+            if (zipPath != null) {
+                val zipName = prefs.getString("pending_zip_name", null) ?: File(zipPath).name
+                prefs.edit()
+                    .remove("pending_zip_path")
+                    .remove("pending_zip_name")
+                    .apply()
+                pendingZip = File(zipPath) to zipName
             }
         } catch (_: Exception) {
         }
@@ -591,6 +601,55 @@ fun HomeScreen(
                     showOpenProjectDialog = false
                     moveProjectId = id
                 }
+            )
+        }
+
+        pendingZip?.let { (file, name) ->
+            AlertDialog(
+                onDismissRequest = {
+                    try { file.delete() } catch (_: Exception) {}
+                    pendingZip = null
+                },
+                title = { Text("Impor ZIP", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)) },
+                text = {
+                    Text(
+                        "Impor \"$name\"?\n\n" +
+                            "Gambar di root ZIP menjadi folder bernama ZIP; subfolder menjadi folder sendiri. " +
+                            "File .mts di dalamnya ikut diimpor sebagai proyek."
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            pendingZip = null
+                            coroutineScope.launch {
+                                viewModel.isLoading.value = true
+                                try {
+                                    val result = viewModel.importZip(Uri.fromFile(file))
+                                    when {
+                                        result == null -> toast("Gagal mengimpor ZIP.")
+                                        result.total == 0 -> toast("Tidak ada gambar/.mts yang bisa diimpor.")
+                                        else -> {
+                                            toast("ZIP diimpor: ${result.projects} gambar, ${result.bundles} proyek.")
+                                            if (result.failed > 0) toast("${result.failed} entri gagal.")
+                                        }
+                                    }
+                                } finally {
+                                    viewModel.isLoading.value = false
+                                    try { file.delete() } catch (_: Exception) {}
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(10.dp)
+                    ) { Text("Impor") }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        try { file.delete() } catch (_: Exception) {}
+                        pendingZip = null
+                    }) { Text("Batal") }
+                },
+                shape = RoundedCornerShape(20.dp)
             )
         }
 

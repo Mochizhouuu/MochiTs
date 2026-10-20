@@ -33,6 +33,15 @@
                 <data android:mimeType="*/*" />
                 <data android:pathPattern=".*\\.mts" />
             </intent-filter>
+            <!-- ZIP berisi gambar/folder untuk diimpor (tampil preview dulu). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+            </intent-filter>
         </activity>
     </application>
 </manifest>
