@@ -304,8 +304,10 @@ class TextRenderer(private val context: Context) {
         baseStyle: TextStyleConfig,
         spans: List<TextSpanStyle>
     ): TextLayoutResult {
+        val lineSpacingMul = baseStyle.lineSpacing.let { if (it > 0f) it else 1f }
+        val letterSpacingEm = baseStyle.letterSpacing
         val fontMetrics = paint.fontMetrics
-        var lineHeight = (fontMetrics.bottom - fontMetrics.top).coerceAtLeast(10f)
+        var lineHeight = ((fontMetrics.bottom - fontMetrics.top).coerceAtLeast(10f)) * lineSpacingMul
 
         // Ukur token dengan paint khusus (paint pemanggil milik draw).
         fun measureTok(tokText: String, fs: Float, fn: String, fst: String): Float {
@@ -315,6 +317,7 @@ class TextRenderer(private val context: Context) {
                 isAntiAlias = true
                 textSize = fs
                 typeface = getTypeface(fn, fst)
+                letterSpacing = letterSpacingEm
             }
             return reusableMeasurePaint.measureText(tokText)
         }
@@ -362,7 +365,7 @@ class TextRenderer(private val context: Context) {
                         typeface = getTypeface(key.second, key.third)
                     }
                     val fm = reusableMeasurePaint.fontMetrics
-                    lineHeight = maxOf(lineHeight, (fm.bottom - fm.top).coerceAtLeast(10f))
+                    lineHeight = maxOf(lineHeight, (fm.bottom - fm.top).coerceAtLeast(10f) * lineSpacingMul)
                 }
             }
         }
@@ -404,10 +407,10 @@ class TextRenderer(private val context: Context) {
                 }
                 var paraH = 0f
                 for (t in toks) {
-                    val h = styleHeight(t.fs, t.fn, t.fst)
+                    val h = styleHeight(t.fs, t.fn, t.fst) * lineSpacingMul
                     if (h > paraH) paraH = h
                 }
-                if (paraH <= 0f) paraH = styleHeight(baseStyle.fontSize, baseStyle.fontName, baseStyle.fontStyle)
+                if (paraH <= 0f) paraH = styleHeight(baseStyle.fontSize, baseStyle.fontName, baseStyle.fontStyle) * lineSpacingMul
                 finalLines.add(RenderedLine(text = para, width = w, xOffset = xOff, runs = runs, height = paraH))
             }
             val totalH = blockHeight(finalLines, lineHeight).coerceAtLeast(lineHeight)
@@ -503,10 +506,10 @@ class TextRenderer(private val context: Context) {
                 val kept = toks.subList(0, end)
                 var lh = 0f
                 for (t in kept) {
-                    val h = styleHeight(t.fs, t.fn, t.fst)
+                    val h = styleHeight(t.fs, t.fn, t.fst) * lineSpacingMul
                     if (h > lh) lh = h
                 }
-                if (lh <= 0f) lh = styleHeight(baseStyle.fontSize, baseStyle.fontName, baseStyle.fontStyle)
+                if (lh <= 0f) lh = styleHeight(baseStyle.fontSize, baseStyle.fontName, baseStyle.fontStyle) * lineSpacingMul
                 val availW = if (shape == TextContainerShape.OVAL && effectiveBoxHeight != null) {
                     availWidthAt(computedTopOffset + cumulativeTop + lh / 2f)
                 } else targetW
@@ -535,7 +538,7 @@ class TextRenderer(private val context: Context) {
 
             for ((para, paraStart) in paragraphs) {
                 if (para.isEmpty()) {
-                    val lh = styleHeight(baseStyle.fontSize, baseStyle.fontName, baseStyle.fontStyle)
+                    val lh = styleHeight(baseStyle.fontSize, baseStyle.fontName, baseStyle.fontStyle) * lineSpacingMul
                     val availW = currentAvailWidth(lh)
                     val sliceStart = if (shape == TextContainerShape.OVAL) (targetW - availW) / 2f else 0f
                     val xOff = when (alignment) {
@@ -561,7 +564,7 @@ class TextRenderer(private val context: Context) {
 
                 while (tokenIdx < tokens.size) {
                     val token = tokens[tokenIdx]
-                    val tokenH = styleHeight(token.fs, token.fn, token.fst)
+                    val tokenH = styleHeight(token.fs, token.fn, token.fst) * lineSpacingMul
                     val availW = currentAvailWidth(tokenH)
 
                     if (currentLineToks.isEmpty() && token.t.trim().isEmpty()) {
@@ -793,6 +796,7 @@ class TextRenderer(private val context: Context) {
             color = style.textColor
             alpha = fillAlpha
             typeface = getTypeface(style.fontName, style.fontStyle)
+            letterSpacing = style.letterSpacing
         }
 
         val layoutResult = layoutText(text, paint, shape, boxWidth, boxHeight, style.alignment, style, spans)
@@ -907,6 +911,7 @@ class TextRenderer(private val context: Context) {
                         isAntiAlias = true
                         textSize = run.fontSize
                         typeface = getTypeface(run.fontName, run.fontStyle)
+                        letterSpacing = baseStyle.letterSpacing
                         color = run.textColor ?: baseStyle.textColor
                         alpha = (baseStyle.textOpacity * 255).toInt().coerceIn(0, 255)
                         if (gradient != null) shader = gradient
@@ -967,6 +972,7 @@ class TextRenderer(private val context: Context) {
         val fontName: String,
         val fontStyle: String,
         val shape: TextContainerShape,
+        val letterSpacing: Float,
         val spans: List<com.mochits.app.model.TextSpanStyle> = emptyList()
     )
 
@@ -1341,6 +1347,7 @@ class TextRenderer(private val context: Context) {
             fontName = style.fontName.trim().lowercase(),
             fontStyle = style.fontStyle.trim().lowercase(),
             shape = shape,
+            letterSpacing = style.letterSpacing,
             spans = spans
         )
         synchronized(minBoxWidthCache) {
@@ -1368,6 +1375,7 @@ class TextRenderer(private val context: Context) {
                 isAntiAlias = true
                 textSize = b.fs
                 typeface = getTypeface(b.fn, b.fst)
+                letterSpacing = style.letterSpacing
             }
             val wordW = paint.measureText(b.w)
             if (wordW > maxChunkW) maxChunkW = wordW

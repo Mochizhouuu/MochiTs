@@ -5284,6 +5284,45 @@ fun FontToolPanel(
                 valueRange = 10f..300f,
                 modifier = Modifier.fillMaxWidth()
             )
+
+            Text(
+                "Jarak huruf: ${kotlin.math.roundToInt(currentStyle.letterSpacing * 100f)}%",
+                style = MaterialTheme.typography.labelLarge
+            )
+            Slider(
+                value = currentStyle.letterSpacing.coerceIn(-0.05f, 0.20f),
+                onValueChange = {
+                    onSliderDragStart()
+                    onUpdateStyle(currentStyle.copy(letterSpacing = it), false)
+                },
+                onValueChangeFinished = {
+                    onSliderDragEnd()
+                },
+                valueRange = -0.05f..0.20f,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Text(
+                "Jarak baris: ${kotlin.math.roundToInt(currentStyle.lineSpacing * 100f)}%",
+                style = MaterialTheme.typography.labelLarge
+            )
+            Slider(
+                value = currentStyle.lineSpacing.coerceIn(0.8f, 2f),
+                onValueChange = {
+                    onSliderDragStart()
+                    onUpdateStyle(currentStyle.copy(lineSpacing = it), false)
+                },
+                onValueChangeFinished = {
+                    onSliderDragEnd()
+                },
+                valueRange = 0.8f..2f,
+                modifier = Modifier.fillMaxWidth()
+            )
+            TextButton(onClick = {
+                onUpdateStyle(currentStyle.copy(letterSpacing = 0f, lineSpacing = 1f), true)
+            }) {
+                Text("Reset jarak")
+            }
             }
             }
 

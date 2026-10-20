@@ -793,4 +793,70 @@ class TextRendererTest {
         val sumH = layout.lines.sumOf { it.height.toDouble() }.toFloat()
         assertEquals("containerHeight = jumlah tinggi baris (bukan lines * global)", sumH, layout.containerHeight, 0.5f)
     }
+
+    @Test
+    fun testLetterSpacing_menambahLebarTeks() {
+        val paint = Paint().apply { textSize = 30f }
+        val normal = textRenderer.layoutText(
+            "Halo dunia", paint, TextContainerShape.BOX,
+            baseStyle = TextStyleConfig(fontSize = 30f)
+        )
+        val spaced = textRenderer.layoutText(
+            "Halo dunia", paint, TextContainerShape.BOX,
+            baseStyle = TextStyleConfig(fontSize = 30f, letterSpacing = 0.2f)
+        )
+        assertTrue(
+            "Letter spacing harus menambah lebar (normal=${normal.containerWidth}, spaced=${spaced.containerWidth})",
+            spaced.containerWidth > normal.containerWidth + 1f
+        )
+        assertTrue(
+            "Lebar baris ikut bertambah",
+            spaced.lines.first().width > normal.lines.first().width
+        )
+    }
+
+    @Test
+    fun testLineSpacing_menambahJarakAntarBaris() {
+        val paint = Paint().apply { textSize = 30f }
+        val text = "baris satu\nbaris dua"
+        val normal = textRenderer.layoutText(
+            text, paint, TextContainerShape.BOX,
+            baseStyle = TextStyleConfig(fontSize = 30f)
+        )
+        val loose = textRenderer.layoutText(
+            text, paint, TextContainerShape.BOX,
+            baseStyle = TextStyleConfig(fontSize = 30f, lineSpacing = 1.5f)
+        )
+        assertEquals(normal.lines.size, loose.lines.size)
+        assertEquals(
+            "Tinggi baris = tinggi font x lineSpacing",
+            normal.lines.first().height * 1.5f,
+            loose.lines.first().height,
+            0.5f
+        )
+        assertTrue(
+            "Tinggi kontainer ikut bertambah (normal=${normal.containerHeight}, loose=${loose.containerHeight})",
+            loose.containerHeight > normal.containerHeight + 1f
+        )
+    }
+
+    @Test
+    fun testLineSpacing_tidakNolSaatNilaiTidakValid() {
+        val paint = Paint().apply { textSize = 30f }
+        val layout = textRenderer.layoutText(
+            "Halo", paint, TextContainerShape.BOX,
+            baseStyle = TextStyleConfig(fontSize = 30f, lineSpacing = 0f)
+        )
+        assertTrue("lineSpacing 0 harus fallback ke 1x", layout.containerHeight > 0f)
+        assertTrue(layout.lines.first().height > 0f)
+    }
+
+    @Test
+    fun testMinBoxWidth_ikutLetterSpacing() {
+        val style = TextStyleConfig(fontSize = 30f)
+        val spaced = style.copy(letterSpacing = 0.2f)
+        val w1 = textRenderer.getMinBoxWidth("Halo", style)
+        val w2 = textRenderer.getMinBoxWidth("Halo", spaced)
+        assertTrue("Min width harus ikut letter spacing (w1=$w1, w2=$w2)", w2 > w1 + 0.5f)
+    }
 }
