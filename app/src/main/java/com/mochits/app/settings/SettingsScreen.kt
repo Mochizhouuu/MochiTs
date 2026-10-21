@@ -1201,7 +1201,7 @@ fun ThemeOptionCard(    label: String,
 private fun openDocs(context: Context) {
     try {
         context.startActivity(
-            Intent(Intent.ACTION_VIEW, Uri.parse("https://mochits-docs.pages.dev/"))
+            Intent(Intent.ACTION_VIEW, Uri.parse("https://mochits.my.id/"))
         )
     } catch (_: Exception) {
         Toast.makeText(context, "Tidak bisa membuka panduan. Browser tidak tersedia.", Toast.LENGTH_SHORT).show()
