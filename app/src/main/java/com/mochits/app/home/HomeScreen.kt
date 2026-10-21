@@ -573,7 +573,7 @@ fun HomeScreen(
                             coroutineScope.launch {
                                 viewModel.isLoading.value = true
                                 try {
-                                    val result = viewModel.importZip(Uri.fromFile(file), zipName)
+                                    val result = viewModel.importZip(Uri.fromFile(file), name)
                                     when {
                                         result == null -> toast("Gagal mengimpor ZIP.")
                                         result.total == 0 -> toast("Tidak ada gambar/.mts yang bisa diimpor.")
