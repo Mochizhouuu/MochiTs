@@ -1,5 +1,7 @@
 package com.mochits.app
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -7,7 +9,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Modifier
+import androidx.core.content.IntentCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -23,6 +27,8 @@ import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    private val incomingRevision = mutableIntStateOf(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         stashIncomingBundle(intent)
@@ -42,7 +48,8 @@ class MainActivity : ComponentActivity() {
                                 onOpenSettings = {
                                     navController.navigate("settings")
                                 },
-                                viewModel = homeViewModel
+                                viewModel = homeViewModel,
+                                incomingRevision = incomingRevision.intValue
                             )
                         }
                         composable("settings") {
@@ -70,22 +77,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onNewIntent(intent: android.content.Intent) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         stashIncomingBundle(intent)
+        incomingRevision.intValue++
     }
 
     /**
-     * File .mts / ZIP dibuka dari app lain (VIEW): salin ke cache + tandai
+     * File .mts / ZIP dari app lain (VIEW atau SEND): salin ke cache + tandai
      * agar Home menampilkan preview/impor saat tampil.
      */
-    private fun stashIncomingBundle(intent: android.content.Intent?) {
+    private fun stashIncomingBundle(intent: Intent?) {
         try {
-            if (intent?.action != android.content.Intent.ACTION_VIEW) return
-            val uri = intent.data ?: return
+            val incoming = intent ?: return
+            val uri = when (incoming.action) {
+                Intent.ACTION_VIEW -> incoming.data
+                Intent.ACTION_SEND -> IntentCompat.getParcelableExtra(
+                    incoming,
+                    Intent.EXTRA_STREAM,
+                    Uri::class.java
+                ) ?: incoming.clipData?.getItemAt(0)?.uri
+                else -> null
+            } ?: return
             val displayName = queryDisplayName(uri)
-            val mime = (intent.type ?: contentResolver.getType(uri) ?: "").lowercase()
+            val mime = (incoming.type ?: contentResolver.getType(uri) ?: "").lowercase()
             val lowerName = (displayName ?: uri.lastPathSegment ?: "").lowercase()
             val isBundle = lowerName.endsWith(".mts")
             val isZip = !isBundle && (lowerName.endsWith(".zip") || mime.contains("zip"))
@@ -111,7 +127,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun queryDisplayName(uri: android.net.Uri): String? {
+    private fun queryDisplayName(uri: Uri): String? {
         return try {
             contentResolver.query(
                 uri,

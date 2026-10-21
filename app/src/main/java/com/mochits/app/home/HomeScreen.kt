@@ -66,7 +66,8 @@ private val MochiTsLogoFont = FontFamily(Font(com.mochits.app.R.font.bebas_neue)
 fun HomeScreen(
     onOpenEditor: (String) -> Unit,
     onOpenSettings: () -> Unit = {},
-    viewModel: HomeViewModel = hiltViewModel()
+    viewModel: HomeViewModel = hiltViewModel(),
+    incomingRevision: Int = 0
 ) {
     val projects by viewModel.projects.collectAsState()
     val folders by viewModel.folders.collectAsState()
@@ -91,8 +92,8 @@ fun HomeScreen(
     }
     val targetFolderId: String? = if (filterUnfiled) null else filterFolderId
 
-    // Bundel .mts dibuka dari luar (ketuk/share): impor sekali saat tampil.
-    androidx.compose.runtime.LaunchedEffect(Unit) {
+    // File .mts / ZIP dari luar (buka atau bagikan): proses sekali saat tampil.
+    LaunchedEffect(incomingRevision) {
         try {
             val prefs = context.getSharedPreferences("mochits_bundle_in", android.content.Context.MODE_PRIVATE)
             val path = prefs.getString("pending_bundle_path", null)
@@ -113,7 +114,12 @@ fun HomeScreen(
                     .remove("pending_zip_path")
                     .remove("pending_zip_name")
                     .apply()
-                pendingZip = File(zipPath) to zipName
+                val zipFile = File(zipPath)
+                val previous = pendingZip?.first
+                if (previous != null && previous.absolutePath != zipFile.absolutePath) {
+                    try { previous.delete() } catch (_: Exception) {}
+                }
+                pendingZip = zipFile to zipName
             }
         } catch (_: Exception) {
         }
