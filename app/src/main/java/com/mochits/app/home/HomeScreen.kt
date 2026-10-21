@@ -1,13 +1,10 @@
 package com.mochits.app.home
 import com.mochits.app.util.Logger
 
-import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,16 +19,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -39,14 +32,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -65,6 +55,8 @@ private val MochiTsLogoFont = FontFamily(Font(com.mochits.app.R.font.bebas_neue)
 @Composable
 fun HomeScreen(
     onOpenEditor: (String) -> Unit,
+    onOpenProjects: () -> Unit,
+    onOpenFolder: (String) -> Unit,
     onOpenSettings: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
     incomingRevision: Int = 0
@@ -73,24 +65,14 @@ fun HomeScreen(
     val folders by viewModel.folders.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
-    var showOpenProjectDialog by remember { mutableStateOf(false) }
     var showFoldersDialog by remember { mutableStateOf(false) }
-    var moveProjectId by remember { mutableStateOf<String?>(null) }
     var selectedDeleteProjectId by remember { mutableStateOf<String?>(null) }
-    var filterFolderId by remember { mutableStateOf<String?>(null) }
-    var filterUnfiled by remember { mutableStateOf(false) }
     var pendingZip by remember { mutableStateOf<Pair<File, String>?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
-
-    val filteredProjects = remember(projects, filterFolderId, filterUnfiled) {
-        when {
-            filterUnfiled -> projects.filter { it.folderId == null }
-            filterFolderId != null -> projects.filter { it.folderId == filterFolderId }
-            else -> projects
-        }
+    val folderSummaries = remember(folders, projects) {
+        buildFolderSummaries(folders, projects)
     }
-    val targetFolderId: String? = if (filterUnfiled) null else filterFolderId
 
     // File .mts / ZIP dari luar (buka atau bagikan): proses sekali saat tampil.
     LaunchedEffect(incomingRevision) {
@@ -124,31 +106,8 @@ fun HomeScreen(
         } catch (_: Exception) {
         }
     }
-    var pendingBundleExportId by remember { mutableStateOf<String?>(null) }
-
     fun toast(msg: String) {
         android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
-    }
-
-    val bundleExportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/zip")
-    ) { uri: Uri? ->
-        val id = pendingBundleExportId
-        pendingBundleExportId = null
-        if (uri != null && id != null) {
-            coroutineScope.launch {
-                viewModel.isLoading.value = true
-                try {
-                    if (viewModel.exportBundleTo(uri, id)) {
-                        toast("Bundel tersimpan.")
-                    } else {
-                        toast("Gagal menyimpan bundel.")
-                    }
-                } finally {
-                    viewModel.isLoading.value = false
-                }
-            }
-        }
     }
 
     val bundleImportLauncher = rememberLauncherForActivityResult(
@@ -179,7 +138,7 @@ fun HomeScreen(
             try {
                 val result = viewModel.importImages(
                     uris = uris,
-                    targetFolderId = targetFolderId,
+                    targetFolderId = null,
                     autoFolderName = "Impor ${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())}"
                 )
                 if (result == null || result.projectIds.isEmpty()) {
@@ -292,19 +251,20 @@ fun HomeScreen(
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Column(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Section: Folders
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "FOLDERS",
+                        text = "FOLDER",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -314,52 +274,75 @@ fun HomeScreen(
                         Text("Kelola")
                     }
                 }
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(end = 16.dp)
-                ) {
-                    item {
-                        FilterChip(
-                            selected = filterFolderId == null && !filterUnfiled,
-                            onClick = {
-                                filterFolderId = null
-                                filterUnfiled = false
-                            },
-                            label = { Text("Semua") }
+
+                if (folderSummaries.isEmpty()) {
+                    Card(
+                        onClick = { showFoldersDialog = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
                         )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FolderOpen,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Belum ada folder",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+                                )
+                                Text(
+                                    text = "Impor ZIP atau buat folder untuk mengelompokkan proyek.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
-                    items(folders, key = { it.id }) { folder ->
-                        FilterChip(
-                            selected = filterFolderId == folder.id && !filterUnfiled,
-                            onClick = {
-                                filterFolderId = if (filterFolderId == folder.id) null else folder.id
-                                filterUnfiled = false
-                            },
-                            label = { Text(folder.name, maxLines = 1) }
-                        )
-                    }
-                    item {
-                        FilterChip(
-                            selected = filterUnfiled,
-                            onClick = {
-                                filterUnfiled = !filterUnfiled
-                                filterFolderId = null
-                            },
-                            label = { Text("Tanpa folder") }
-                        )
+                } else {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        contentPadding = PaddingValues(end = 16.dp)
+                    ) {
+                        items(folderSummaries, key = { it.folder.id }) { summary ->
+                            FolderCard(
+                                summary = summary,
+                                onClick = { onOpenFolder(summary.folder.id) }
+                            )
+                        }
                     }
                 }
 
-                // Section: Recent Projects
-                Text(
-                    text = "Recent Projects",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "PROYEK TERBARU",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     )
-                )
+                    if (projects.size > 5) {
+                        TextButton(onClick = onOpenProjects) {
+                            Text("Lihat semua")
+                        }
+                    }
+                }
 
-                if (filteredProjects.isEmpty()) {
+                if (projects.isEmpty()) {
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -372,11 +355,7 @@ fun HomeScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = if (filterFolderId != null || filterUnfiled) {
-                                    "Tidak ada proyek di folder ini"
-                                } else {
-                                    "Belum Ada Proyek"
-                                },
+                                text = "Belum Ada Proyek",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -387,7 +366,7 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         contentPadding = PaddingValues(end = 16.dp)
                     ) {
-                        val recentList = filteredProjects.take(5)
+                        val recentList = projects.take(5)
                         items(recentList, key = { it.id }) { project ->
                             RecentProjectCard(
                                 project = project,
@@ -396,12 +375,12 @@ fun HomeScreen(
                             )
                         }
 
-                        if (filteredProjects.size > 5) {
+                        if (projects.size > 5) {
                             item {
                                 Card(
                                     modifier = Modifier
                                         .size(width = 130.dp, height = 150.dp)
-                                        .clickable { showOpenProjectDialog = true },
+                                        .clickable { onOpenProjects() },
                                     shape = RoundedCornerShape(16.dp),
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                                 ) {
@@ -418,7 +397,7 @@ fun HomeScreen(
                                         )
                                         Spacer(modifier = Modifier.height(8.dp))
                                         Text(
-                                            text = "View All",
+                                            text = "Lihat semua",
                                             style = MaterialTheme.typography.labelLarge,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -459,7 +438,7 @@ fun HomeScreen(
 
                 // Button 2: OPEN PROJECT
                 FilledTonalButton(
-                    onClick = { showOpenProjectDialog = true },
+                    onClick = onOpenProjects,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
@@ -522,7 +501,7 @@ fun HomeScreen(
                                 imageUri = null,
                                 isTransparent = isTransparent,
                                 backgroundColor = backgroundColor,
-                                folderId = targetFolderId
+                                folderId = null
                             )
                             if (newId.isNotBlank()) {
                                 onOpenEditor(newId)
@@ -569,44 +548,7 @@ fun HomeScreen(
                 onDismiss = { showFoldersDialog = false },
                 onCreate = { name -> viewModel.createFolder(name) },
                 onRename = { id, name -> viewModel.renameFolder(id, name) },
-                onDelete = { id -> viewModel.deleteFolder(id) },
-                onMoveProject = { id -> moveProjectId = id }
-            )
-        }
-
-        moveProjectId?.let { id ->
-            MoveProjectDialog(
-                project = projects.find { it.id == id },
-                folders = folders,
-                onDismiss = { moveProjectId = null },
-                onMove = { folderId ->
-                    viewModel.moveProjectToFolder(id, folderId)
-                    moveProjectId = null
-                }
-            )
-        }
-
-        if (showOpenProjectDialog) {
-            OpenProjectDialog(
-                projects = filteredProjects,
-                onDismiss = { showOpenProjectDialog = false },
-                onSelectProject = { id ->
-                    showOpenProjectDialog = false
-                    onOpenEditor(id)
-                },
-                onDeleteProject = { id ->
-                    selectedDeleteProjectId = id
-                },
-                onExportBundle = { project ->
-                    pendingBundleExportId = project.id
-                    bundleExportLauncher.launch(
-                        com.mochits.app.project.ProjectBundle.fileNameFor(project.title)
-                    )
-                },
-                onMoveProject = { id ->
-                    showOpenProjectDialog = false
-                    moveProjectId = id
-                }
+                onDelete = { id -> viewModel.deleteFolder(id) }
             )
         }
 
@@ -631,7 +573,7 @@ fun HomeScreen(
                             coroutineScope.launch {
                                 viewModel.isLoading.value = true
                                 try {
-                                    val result = viewModel.importZip(Uri.fromFile(file))
+                                    val result = viewModel.importZip(Uri.fromFile(file), zipName)
                                     when {
                                         result == null -> toast("Gagal mengimpor ZIP.")
                                         result.total == 0 -> toast("Tidak ada gambar/.mts yang bisa diimpor.")
@@ -702,26 +644,6 @@ fun RecentProjectCard(
         sdf.format(Date(project.updatedAt))
     }
 
-    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = project.thumbnailPath) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            project.thumbnailPath?.let { path ->
-                val file = File(path)
-                if (file.exists()) {
-                    try {
-                        // Sampling kartu (B8): cukup ~512px untuk thumbnail.
-                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                        BitmapFactory.decodeFile(file.absolutePath, bounds)
-                        val sample = maxOf(bounds.outWidth / 512, bounds.outHeight / 512, 1)
-                        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
-                        BitmapFactory.decodeFile(file.absolutePath, opts)
-                    } catch (_: Throwable) {
-                        null
-                    }
-                } else null
-            }
-        }
-    }
-
     Card(
         modifier = Modifier
             .size(width = 130.dp, height = 150.dp)
@@ -733,27 +655,11 @@ fun RecentProjectCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            val loadedBitmap = bitmap
-            if (loadedBitmap != null) {
-                Image(
-                    bitmap = loadedBitmap.asImageBitmap(),
-                    contentDescription = project.title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AspectRatio,
-                        contentDescription = null,
-                        modifier = Modifier.size(40.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
+            ProjectThumbnail(
+                path = project.thumbnailPath,
+                contentDescription = project.title,
+                modifier = Modifier.fillMaxSize()
+            )
 
             Box(
                 modifier = Modifier
@@ -973,109 +879,13 @@ fun CreateProjectDialog(
 }
 
 @Composable
-fun OpenProjectDialog(
-    projects: List<ProjectEntity>,
-    onDismiss: () -> Unit,
-    onSelectProject: (String) -> Unit,
-    onDeleteProject: (String) -> Unit,
-    onExportBundle: (ProjectEntity) -> Unit = {},
-    onMoveProject: (String) -> Unit = {}
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = "Daftar Seluruh Proyek (${projects.size})",
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-            )
-        },
-        text = {
-            if (projects.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(150.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("Belum ada proyek tersimpan.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.heightIn(max = 360.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(projects, key = { it.id }) { project ->
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onSelectProject(project.id) },
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .padding(12.dp)
-                                    .fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = project.title,
-                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "${project.width} x ${project.height} px",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                IconButton(onClick = { onMoveProject(project.id) }) {
-                                    Icon(
-                                        imageVector = Icons.Default.FolderOpen,
-                                        contentDescription = "Pindahkan ke folder"
-                                    )
-                                }
-                                IconButton(onClick = { onDeleteProject(project.id) }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Hapus",
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
-                                }
-                                IconButton(onClick = { onExportBundle(project) }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Save,
-                                        contentDescription = "Ekspor bundel (.mts)"
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Tutup")
-            }
-        },
-        shape = RoundedCornerShape(20.dp)
-    )
-}
-
-@Composable
 fun FoldersDialog(
     folders: List<ProjectFolderEntity>,
     projects: List<ProjectEntity>,
     onDismiss: () -> Unit,
     onCreate: (String) -> Unit,
     onRename: (String, String) -> Unit,
-    onDelete: (String) -> Unit,
-    onMoveProject: (String) -> Unit
+    onDelete: (String) -> Unit
 ) {
     var newName by remember { mutableStateOf("") }
     var renameTarget by remember { mutableStateOf<ProjectFolderEntity?>(null) }

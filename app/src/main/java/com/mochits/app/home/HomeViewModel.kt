@@ -173,11 +173,14 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    suspend fun importZip(uri: Uri): com.mochits.app.project.ProjectImporter.ZipImportResult? {
+    suspend fun importZip(
+        uri: Uri,
+        displayName: String? = null
+    ): com.mochits.app.project.ProjectImporter.ZipImportResult? {
         val importer = projectImporter ?: return null
         return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                importer.importZip(uri)
+                importer.importZip(uri, displayName)
             } catch (_: Exception) {
                 null
             }

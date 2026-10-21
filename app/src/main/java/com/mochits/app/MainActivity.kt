@@ -20,6 +20,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.mochits.app.editor.EditorScreen
 import com.mochits.app.home.HomeScreen
+import com.mochits.app.home.ProjectBrowserScreen
 import com.mochits.app.home.HomeViewModel
 import com.mochits.app.settings.SettingsScreen
 import com.mochits.app.ui.theme.MochiTsTheme
@@ -45,11 +46,45 @@ class MainActivity : ComponentActivity() {
                                 onOpenEditor = { projectId ->
                                     navController.navigate("editor/$projectId")
                                 },
+                                onOpenProjects = {
+                                    navController.navigate("projects")
+                                },
+                                onOpenFolder = { folderId ->
+                                    navController.navigate("folder/$folderId")
+                                },
                                 onOpenSettings = {
                                     navController.navigate("settings")
                                 },
                                 viewModel = homeViewModel,
                                 incomingRevision = incomingRevision.intValue
+                            )
+                        }
+                        composable("projects") {
+                            ProjectBrowserScreen(
+                                viewModel = homeViewModel,
+                                onBack = { navController.popBackStack() },
+                                onOpenProject = { projectId ->
+                                    navController.navigate("editor/$projectId")
+                                },
+                                onOpenFolder = { folderId ->
+                                    navController.navigate("folder/$folderId")
+                                }
+                            )
+                        }
+                        composable(
+                            route = "folder/{folderId}",
+                            arguments = listOf(navArgument("folderId") { type = NavType.StringType })
+                        ) { backStackEntry ->
+                            ProjectBrowserScreen(
+                                viewModel = homeViewModel,
+                                folderId = backStackEntry.arguments?.getString("folderId"),
+                                onBack = { navController.popBackStack() },
+                                onOpenProject = { projectId ->
+                                    navController.navigate("editor/$projectId")
+                                },
+                                onOpenFolder = { folderId ->
+                                    navController.navigate("folder/$folderId")
+                                }
                             )
                         }
                         composable("settings") {
