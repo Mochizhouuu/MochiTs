@@ -20,11 +20,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -67,6 +70,7 @@ fun HomeScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
     var showFoldersDialog by remember { mutableStateOf(false) }
+    var showHomeMenu by remember { mutableStateOf(false) }
     var pendingZip by remember { mutableStateOf<Pair<File, String>?>(null) }
     var selectionMode by remember { mutableStateOf(false) }
     var selectedProjectIds by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -303,6 +307,33 @@ fun HomeScreen(
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
                         }
+                        Box {
+                            IconButton(onClick = { showHomeMenu = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "Menu lainnya",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showHomeMenu,
+                                onDismissRequest = { showHomeMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Kelola folder") },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.FolderOpen,
+                                            contentDescription = null
+                                        )
+                                    },
+                                    onClick = {
+                                        showHomeMenu = false
+                                        showFoldersDialog = true
+                                    }
+                                )
+                            }
+                        }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.background
@@ -413,13 +444,12 @@ fun HomeScreen(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                     )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = { showFoldersDialog = true }) {
-                            Text("Kelola")
-                        }
-                        TextButton(onClick = onOpenProjects) {
-                            Text("Lihat semua")
-                        }
+                    IconButton(onClick = onOpenProjects) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = "Lihat semua proyek",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
                 Spacer(modifier = Modifier.height(12.dp))
