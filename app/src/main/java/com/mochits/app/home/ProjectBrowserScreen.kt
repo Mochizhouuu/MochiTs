@@ -68,6 +68,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -163,7 +164,7 @@ internal fun ProjectThumbnail(
 }
 
 @Composable
-private fun SelectionMark(
+internal fun SelectionMark(
     selected: Boolean,
     modifier: Modifier = Modifier
 ) {
@@ -201,7 +202,6 @@ internal fun FolderCard(
     val shape = RoundedCornerShape(16.dp)
     Card(
         modifier = modifier
-            .fillMaxWidth()
             .then(
                 if (selected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, shape)
                 else Modifier
@@ -215,63 +215,69 @@ internal fun FolderCard(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
         )
     ) {
-        Column {
+        Box(modifier = Modifier.fillMaxSize()) {
+            ProjectThumbnail(
+                path = summary.coverPath,
+                contentDescription = summary.folder.name,
+                modifier = Modifier.fillMaxSize(),
+                fallbackIcon = Icons.Default.FolderOpen
+            )
+            if (selected) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(Color.Black.copy(alpha = 0.28f))
+                )
+            }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(0.72f)
-            ) {
-                ProjectThumbnail(
-                    path = summary.coverPath,
-                    contentDescription = summary.folder.name,
-                    modifier = Modifier.fillMaxSize(),
-                    fallbackIcon = Icons.Default.FolderOpen
-                )
-                if (selected) {
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .background(Color.Black.copy(alpha = 0.28f))
-                    )
-                }
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(8.dp)
-                        .size(30.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.FolderOpen,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.primary
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.82f))
                         )
-                    }
-                }
-                if (selectionMode) {
-                    SelectionMark(
-                        selected = selected,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(8.dp)
+                    )
+                    .padding(start = 10.dp, end = 10.dp, top = 28.dp, bottom = 8.dp)
+            ) {
+                Column {
+                    Text(
+                        text = summary.folder.name,
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "${summary.count} proyek",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.78f)
                     )
                 }
             }
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-                Text(
-                    text = summary.folder.name,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "${summary.count} proyek",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp)
+                    .size(28.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.FolderOpen,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            if (selectionMode) {
+                SelectionMark(
+                    selected = selected,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
                 )
             }
         }
@@ -437,7 +443,7 @@ internal fun ProjectGridCard(
 @Composable
 fun ProjectBrowserScreen(
     viewModel: HomeViewModel,
-    folderId: String,
+    folderId: String? = null,
     onBack: () -> Unit,
     onOpenProject: (String) -> Unit
 ) {
@@ -450,7 +456,7 @@ fun ProjectBrowserScreen(
         folders.firstOrNull { it.id == folderId }
     }
     val visibleProjects = remember(projects, folderId) {
-        projects.filter { it.folderId == folderId }
+        if (folderId == null) projects else projects.filter { it.folderId == folderId }
     }
 
     var selectionMode by remember { mutableStateOf(false) }
@@ -540,7 +546,7 @@ fun ProjectBrowserScreen(
                 TopAppBar(
                     title = {
                         Text(
-                            text = folder?.name ?: "Folder",
+                            text = folder?.name ?: "All Project",
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                         )
                     },
@@ -561,7 +567,7 @@ fun ProjectBrowserScreen(
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
         LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
+            columns = GridCells.Fixed(if (folderId == null) 2 else 3),
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
@@ -585,12 +591,16 @@ fun ProjectBrowserScreen(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "Folder ini masih kosong",
+                            text = if (folderId == null) "Belum ada proyek" else "Folder ini masih kosong",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Pindahkan proyek ke folder ini lewat menu proyek.",
+                            text = if (folderId == null) {
+                                "Buat proyek atau impor gambar untuk memulai."
+                            } else {
+                                "Pindahkan proyek ke folder ini lewat menu proyek."
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

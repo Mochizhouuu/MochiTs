@@ -46,6 +46,9 @@ class MainActivity : ComponentActivity() {
                                 onOpenEditor = { projectId ->
                                     navController.navigate("editor/$projectId")
                                 },
+                                onOpenProjects = {
+                                    navController.navigate("projects")
+                                },
                                 onOpenFolder = { folderId ->
                                     navController.navigate("folder/$folderId")
                                 },
@@ -54,6 +57,15 @@ class MainActivity : ComponentActivity() {
                                 },
                                 viewModel = homeViewModel,
                                 incomingRevision = incomingRevision.intValue
+                            )
+                        }
+                        composable("projects") {
+                            ProjectBrowserScreen(
+                                viewModel = homeViewModel,
+                                onBack = { navController.popBackStack() },
+                                onOpenProject = { projectId ->
+                                    navController.navigate("editor/$projectId")
+                                }
                             )
                         }
                         composable(

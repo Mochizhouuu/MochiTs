@@ -6,35 +6,32 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -44,7 +41,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.mochits.app.project.ProjectBundle
 import com.mochits.app.project.ProjectEntity
 import com.mochits.app.project.ProjectFolderEntity
 import kotlinx.coroutines.launch
@@ -59,6 +55,7 @@ private val MochiTsLogoFont = FontFamily(Font(com.mochits.app.R.font.bebas_neue)
 @Composable
 fun HomeScreen(
     onOpenEditor: (String) -> Unit,
+    onOpenProjects: () -> Unit,
     onOpenFolder: (String) -> Unit,
     onOpenSettings: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
@@ -69,9 +66,6 @@ fun HomeScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
     var showFoldersDialog by remember { mutableStateOf(false) }
-    var selectedDeleteProjectId by remember { mutableStateOf<String?>(null) }
-    var projectToMove by remember { mutableStateOf<ProjectEntity?>(null) }
-    var pendingExportId by remember { mutableStateOf<String?>(null) }
     var pendingZip by remember { mutableStateOf<Pair<File, String>?>(null) }
     var selectionMode by remember { mutableStateOf(false) }
     var selectedProjectIds by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -82,12 +76,9 @@ fun HomeScreen(
     val folderSummaries = remember(folders, projects) {
         buildFolderSummaries(folders, projects)
     }
-    val knownFolderIds = remember(folders) { folders.mapTo(HashSet()) { it.id } }
-    val rootProjects = remember(projects, knownFolderIds) {
-        projects.filter { it.folderId == null || it.folderId !in knownFolderIds }
-    }
+    val recentProjects = remember(projects) { projects.take(5) }
     val selectedCount = selectedProjectIds.size + selectedFolderIds.size
-    val visibleItemCount = folderSummaries.size + rootProjects.size
+    val visibleItemCount = folderSummaries.size + recentProjects.size
     val allVisibleSelected = selectedCount == visibleItemCount
 
     fun leaveSelection() {
@@ -225,19 +216,6 @@ fun HomeScreen(
         }
     }
 
-    val exportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/zip")
-    ) { uri: Uri? ->
-        val id = pendingExportId
-        pendingExportId = null
-        if (uri != null && id != null) {
-            coroutineScope.launch {
-                val saved = viewModel.exportBundleTo(uri, id)
-                toast(if (saved) "Bundel tersimpan." else "Gagal menyimpan bundel.")
-            }
-        }
-    }
-
     Scaffold(
         topBar = {
             if (selectionMode) {
@@ -263,7 +241,7 @@ fun HomeScreen(
                                     selectedProjectIds = emptySet()
                                     selectedFolderIds = emptySet()
                                 } else {
-                                    selectedProjectIds = rootProjects.mapTo(LinkedHashSet()) { it.id }
+                                    selectedProjectIds = recentProjects.mapTo(LinkedHashSet()) { it.id }
                                     selectedFolderIds = folderSummaries.mapTo(LinkedHashSet()) { it.folder.id }
                                 }
                             }
@@ -303,21 +281,6 @@ fun HomeScreen(
                     },
                     actions = {
                         IconButton(onClick = {
-                            try {
-                                galleryPickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
-                            } catch (e: Exception) {
-                                fallbackContentLauncher.launch(arrayOf("image/*"))
-                            }
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.Image,
-                                contentDescription = "Impor gambar",
-                                tint = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                        IconButton(onClick = {
                             zipImportLauncher.launch(
                                 arrayOf(
                                     "application/zip",
@@ -348,60 +311,78 @@ fun HomeScreen(
         },
         bottomBar = {
             if (!selectionMode) {
-                Surface(
-                    color = MaterialTheme.colorScheme.background,
-                    tonalElevation = 2.dp
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.background)
+                        .padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Row(
+                    FilledTonalButton(
+                        onClick = { showCreateDialog = true },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            .height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        )
                     ) {
-                        Button(
-                            onClick = { showCreateDialog = true },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(54.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Add,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp)
+                        Text(
+                            text = "NEW PROJECT",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.2.sp
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "NEW PROJECT",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                maxLines = 1
+                        )
+                    }
+                    FilledTonalButton(
+                        onClick = { bundleImportLauncher.launch(arrayOf("*/*")) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        )
+                    ) {
+                        Text(
+                            text = "OPEN PROJECT",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.2.sp
                             )
-                        }
-                        FilledTonalButton(
-                            onClick = { bundleImportLauncher.launch(arrayOf("*/*")) },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(54.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp),
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                contentColor = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            try {
+                                galleryPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            } catch (e: Exception) {
+                                fallbackContentLauncher.launch(arrayOf("image/*"))
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp, pressedElevation = 8.dp)
+                    ) {
+                        Text(
+                            text = "IMPORT IMAGE",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.2.sp
                             )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.FolderOpen,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "OPEN PROJECT",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                maxLines = 1
-                            )
-                        }
+                        )
                     }
                 }
             }
@@ -413,119 +394,103 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 20.dp)
             ) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = "PROYEK",
-                                style = MaterialTheme.typography.titleLarge.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            )
-                            Text(
-                                text = when {
-                                    folders.isEmpty() -> "${projects.size} proyek"
-                                    projects.isEmpty() -> "${folders.size} folder"
-                                    else -> "${projects.size} proyek, ${folders.size} folder"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Recent Projects",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = { showFoldersDialog = true }) {
-                            Text("Kelola folder")
+                            Text("Kelola")
+                        }
+                        TextButton(onClick = onOpenProjects) {
+                            Text("Lihat semua")
                         }
                     }
                 }
+                Spacer(modifier = Modifier.height(12.dp))
 
-                if (folderSummaries.isEmpty() && rootProjects.isEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 72.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                if (folderSummaries.isEmpty() && recentProjects.isEmpty()) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(150.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.FolderOpen,
-                                contentDescription = null,
-                                modifier = Modifier.size(48.dp),
-                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "Belum ada proyek",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Buat proyek atau impor gambar untuk memulai.",
+                                text = "Belum Ada Proyek",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
-                }
-
-                gridItems(folderSummaries, key = { "folder:${it.folder.id}" }) { summary ->
-                    FolderCard(
-                        summary = summary,
-                        selected = summary.folder.id in selectedFolderIds,
-                        selectionMode = selectionMode,
-                        onClick = {
-                            if (selectionMode) toggleFolder(summary.folder.id)
-                            else onOpenFolder(summary.folder.id)
-                        },
-                        onLongClick = {
-                            if (!selectionMode) {
-                                selectionMode = true
-                                selectedFolderIds = setOf(summary.folder.id)
-                            } else {
-                                toggleFolder(summary.folder.id)
-                            }
+                } else {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        contentPadding = PaddingValues(end = 8.dp)
+                    ) {
+                        items(folderSummaries, key = { "folder:${it.folder.id}" }) { summary ->
+                            FolderCard(
+                                summary = summary,
+                                modifier = Modifier
+                                    .width(132.dp)
+                                    .height(154.dp),
+                                selected = summary.folder.id in selectedFolderIds,
+                                selectionMode = selectionMode,
+                                onClick = {
+                                    if (selectionMode) toggleFolder(summary.folder.id)
+                                    else onOpenFolder(summary.folder.id)
+                                },
+                                onLongClick = {
+                                    if (!selectionMode) {
+                                        selectionMode = true
+                                        selectedFolderIds = setOf(summary.folder.id)
+                                    } else {
+                                        toggleFolder(summary.folder.id)
+                                    }
+                                }
+                            )
                         }
-                    )
-                }
-
-                gridItems(rootProjects, key = { "project:${it.id}" }) { project ->
-                    ProjectGridCard(
-                        project = project,
-                        onOpen = {
-                            if (selectionMode) toggleProject(project.id)
-                            else onOpenEditor(project.id)
-                        },
-                        onMove = { projectToMove = project },
-                        onExport = {
-                            pendingExportId = project.id
-                            exportLauncher.launch(ProjectBundle.fileNameFor(project.title))
-                        },
-                        onDelete = { selectedDeleteProjectId = project.id },
-                        selected = project.id in selectedProjectIds,
-                        selectionMode = selectionMode,
-                        onLongClick = {
-                            if (!selectionMode) {
-                                selectionMode = true
-                                selectedProjectIds = setOf(project.id)
-                            } else {
-                                toggleProject(project.id)
-                            }
+                        items(recentProjects, key = { "project:${it.id}" }) { project ->
+                            RecentProjectCard(
+                                project = project,
+                                selected = project.id in selectedProjectIds,
+                                selectionMode = selectionMode,
+                                onClick = {
+                                    if (selectionMode) toggleProject(project.id)
+                                    else onOpenEditor(project.id)
+                                },
+                                onLongClick = {
+                                    if (!selectionMode) {
+                                        selectionMode = true
+                                        selectedProjectIds = setOf(project.id)
+                                    } else {
+                                        toggleProject(project.id)
+                                    }
+                                }
+                            )
                         }
-                    )
+                    }
                 }
+                Spacer(modifier = Modifier.weight(1f))
             }
 
             if (isLoading) {
@@ -586,33 +551,6 @@ fun HomeScreen(
         )
     }
 
-    if (selectedDeleteProjectId != null) {
-        val projToDelete = projects.find { it.id == selectedDeleteProjectId }
-        AlertDialog(
-            onDismissRequest = { selectedDeleteProjectId = null },
-            title = { Text("Hapus Proyek", style = MaterialTheme.typography.titleLarge) },
-            text = { Text("Apakah Anda yakin ingin menghapus proyek '${projToDelete?.title ?: ""}'? Aksi ini tidak dapat dibatalkan.") },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        selectedDeleteProjectId?.let { id ->
-                            viewModel.deleteProject(id)
-                        }
-                        selectedDeleteProjectId = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Hapus")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { selectedDeleteProjectId = null }) {
-                    Text("Batal")
-                }
-            }
-        )
-    }
-
     if (showBulkDelete && selectedCount > 0) {
         AlertDialog(
             onDismissRequest = { showBulkDelete = false },
@@ -653,18 +591,6 @@ fun HomeScreen(
                 }
             },
             shape = RoundedCornerShape(20.dp)
-        )
-    }
-
-    projectToMove?.let { project ->
-        MoveProjectDialog(
-            project = project,
-            folders = folders,
-            onDismiss = { projectToMove = null },
-            onMove = { targetFolderId ->
-                viewModel.moveProjectToFolder(project.id, targetFolderId)
-                projectToMove = null
-            }
         )
     }
 
@@ -728,6 +654,75 @@ fun HomeScreen(
             },
             shape = RoundedCornerShape(20.dp)
         )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun RecentProjectCard(
+    project: ProjectEntity,
+    selected: Boolean = false,
+    selectionMode: Boolean = false,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {}
+) {
+    val shape = RoundedCornerShape(16.dp)
+    Card(
+        modifier = Modifier
+            .width(132.dp)
+            .height(154.dp)
+            .then(
+                if (selected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, shape)
+                else Modifier
+            )
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
+        shape = shape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            ProjectThumbnail(
+                path = project.thumbnailPath,
+                contentDescription = project.title,
+                modifier = Modifier.fillMaxSize()
+            )
+            if (selected) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(Color.Black.copy(alpha = 0.28f))
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.82f))
+                        )
+                    )
+                    .padding(start = 10.dp, end = 10.dp, top = 24.dp, bottom = 8.dp)
+            ) {
+                Text(
+                    text = project.title,
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (selectionMode) {
+                SelectionMark(
+                    selected = selected,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                )
+            }
+        }
     }
 }
 
