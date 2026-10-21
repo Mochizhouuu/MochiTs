@@ -46,9 +46,6 @@ class MainActivity : ComponentActivity() {
                                 onOpenEditor = { projectId ->
                                     navController.navigate("editor/$projectId")
                                 },
-                                onOpenProjects = {
-                                    navController.navigate("projects")
-                                },
                                 onOpenFolder = { folderId ->
                                     navController.navigate("folder/$folderId")
                                 },
@@ -59,31 +56,16 @@ class MainActivity : ComponentActivity() {
                                 incomingRevision = incomingRevision.intValue
                             )
                         }
-                        composable("projects") {
-                            ProjectBrowserScreen(
-                                viewModel = homeViewModel,
-                                onBack = { navController.popBackStack() },
-                                onOpenProject = { projectId ->
-                                    navController.navigate("editor/$projectId")
-                                },
-                                onOpenFolder = { folderId ->
-                                    navController.navigate("folder/$folderId")
-                                }
-                            )
-                        }
                         composable(
                             route = "folder/{folderId}",
                             arguments = listOf(navArgument("folderId") { type = NavType.StringType })
                         ) { backStackEntry ->
                             ProjectBrowserScreen(
                                 viewModel = homeViewModel,
-                                folderId = backStackEntry.arguments?.getString("folderId"),
+                                folderId = backStackEntry.arguments?.getString("folderId").orEmpty(),
                                 onBack = { navController.popBackStack() },
                                 onOpenProject = { projectId ->
                                     navController.navigate("editor/$projectId")
-                                },
-                                onOpenFolder = { folderId ->
-                                    navController.navigate("folder/$folderId")
                                 }
                             )
                         }

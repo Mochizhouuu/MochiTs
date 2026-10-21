@@ -2,16 +2,19 @@ package com.mochits.app.home
 import com.mochits.app.util.Logger
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -20,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Download
@@ -39,8 +43,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.mochits.app.project.ProjectBundle
 import com.mochits.app.project.ProjectEntity
 import com.mochits.app.project.ProjectFolderEntity
 import kotlinx.coroutines.launch
@@ -55,7 +59,6 @@ private val MochiTsLogoFont = FontFamily(Font(com.mochits.app.R.font.bebas_neue)
 @Composable
 fun HomeScreen(
     onOpenEditor: (String) -> Unit,
-    onOpenProjects: () -> Unit,
     onOpenFolder: (String) -> Unit,
     onOpenSettings: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
@@ -67,11 +70,42 @@ fun HomeScreen(
     var showCreateDialog by remember { mutableStateOf(false) }
     var showFoldersDialog by remember { mutableStateOf(false) }
     var selectedDeleteProjectId by remember { mutableStateOf<String?>(null) }
+    var projectToMove by remember { mutableStateOf<ProjectEntity?>(null) }
+    var pendingExportId by remember { mutableStateOf<String?>(null) }
     var pendingZip by remember { mutableStateOf<Pair<File, String>?>(null) }
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedProjectIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedFolderIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var showBulkDelete by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
     val folderSummaries = remember(folders, projects) {
         buildFolderSummaries(folders, projects)
+    }
+    val knownFolderIds = remember(folders) { folders.mapTo(HashSet()) { it.id } }
+    val rootProjects = remember(projects, knownFolderIds) {
+        projects.filter { it.folderId == null || it.folderId !in knownFolderIds }
+    }
+    val selectedCount = selectedProjectIds.size + selectedFolderIds.size
+    val visibleItemCount = folderSummaries.size + rootProjects.size
+    val allVisibleSelected = selectedCount == visibleItemCount
+
+    fun leaveSelection() {
+        selectionMode = false
+        selectedProjectIds = emptySet()
+        selectedFolderIds = emptySet()
+    }
+
+    fun toggleProject(id: String) {
+        selectedProjectIds = if (id in selectedProjectIds) selectedProjectIds - id else selectedProjectIds + id
+    }
+
+    fun toggleFolder(id: String) {
+        selectedFolderIds = if (id in selectedFolderIds) selectedFolderIds - id else selectedFolderIds + id
+    }
+
+    BackHandler(enabled = selectionMode) {
+        leaveSelection()
     }
 
     // File .mts / ZIP dari luar (buka atau bagikan): proses sekali saat tampil.
@@ -91,7 +125,7 @@ fun HomeScreen(
             }
             val zipPath = prefs.getString("pending_zip_path", null)
             if (zipPath != null) {
-                val zipName = prefs.getString("pending_zip_name", null) ?: File(zipPath).name
+                val zipName = prefs.getString("pending_zip_name", null) ?: "Impor.zip"
                 prefs.edit()
                     .remove("pending_zip_path")
                     .remove("pending_zip_name")
@@ -191,492 +225,509 @@ fun HomeScreen(
         }
     }
 
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri: Uri? ->
+        val id = pendingExportId
+        pendingExportId = null
+        if (uri != null && id != null) {
+            coroutineScope.launch {
+                val saved = viewModel.exportBundleTo(uri, id)
+                toast(if (saved) "Bundel tersimpan." else "Gagal menyimpan bundel.")
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "MochiTs",
-                        style = MaterialTheme.typography.headlineMedium.copy(
-                            fontFamily = MochiTsLogoFont,
-                            fontWeight = FontWeight.Normal,
-                            color = MaterialTheme.colorScheme.primary
+            if (selectionMode) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "$selectedCount dipilih",
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                         )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { leaveSelection() }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Batal memilih"
+                            )
+                        }
+                    },
+                    actions = {
+                        TextButton(
+                            onClick = {
+                                if (allVisibleSelected) {
+                                    selectedProjectIds = emptySet()
+                                    selectedFolderIds = emptySet()
+                                } else {
+                                    selectedProjectIds = rootProjects.mapTo(LinkedHashSet()) { it.id }
+                                    selectedFolderIds = folderSummaries.mapTo(LinkedHashSet()) { it.folder.id }
+                                }
+                            }
+                        ) {
+                            Text(if (allVisibleSelected) "Batal" else "Semua")
+                        }
+                        IconButton(
+                            enabled = selectedCount > 0,
+                            onClick = { showBulkDelete = true }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Hapus item terpilih",
+                                tint = if (selectedCount == 0) {
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                } else {
+                                    MaterialTheme.colorScheme.error
+                                }
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background
                     )
-                },
-                actions = {
-                    IconButton(onClick = {
-                        zipImportLauncher.launch(
-                            arrayOf(
-                                "application/zip",
-                                "application/x-zip-compressed",
-                                "application/octet-stream"
+                )
+            } else {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "MochiTs",
+                            style = MaterialTheme.typography.headlineMedium.copy(
+                                fontFamily = MochiTsLogoFont,
+                                fontWeight = FontWeight.Normal,
+                                color = MaterialTheme.colorScheme.primary
                             )
                         )
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.Download,
-                            contentDescription = "Impor ZIP berisi gambar/folder",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    // Impor bundel .mts (F8).
-                    IconButton(onClick = { bundleImportLauncher.launch(arrayOf("*/*")) }) {
-                        Icon(
-                            imageVector = Icons.Default.FolderOpen,
-                            contentDescription = "Impor bundel (.mts)",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Settings",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
-        }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .padding(innerPadding)
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-                .padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(20.dp)
-            ) {
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "FOLDER",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    },
+                    actions = {
+                        IconButton(onClick = {
+                            try {
+                                galleryPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            } catch (e: Exception) {
+                                fallbackContentLauncher.launch(arrayOf("image/*"))
+                            }
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Image,
+                                contentDescription = "Impor gambar",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        IconButton(onClick = {
+                            zipImportLauncher.launch(
+                                arrayOf(
+                                    "application/zip",
+                                    "application/x-zip-compressed",
+                                    "application/octet-stream"
+                                )
+                            )
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Download,
+                                contentDescription = "Impor ZIP berisi gambar/folder",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Settings",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background
                     )
-                    TextButton(onClick = { showFoldersDialog = true }) {
-                        Text("Kelola")
-                    }
-                }
-
-                if (folderSummaries.isEmpty()) {
-                    Card(
-                        onClick = { showFoldersDialog = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
+                )
+            }
+        },
+        bottomBar = {
+            if (!selectionMode) {
+                Surface(
+                    color = MaterialTheme.colorScheme.background,
+                    tonalElevation = 2.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Row(
+                        Button(
+                            onClick = { showCreateDialog = true },
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .weight(1f)
+                                .height(54.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "NEW PROJECT",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                maxLines = 1
+                            )
+                        }
+                        FilledTonalButton(
+                            onClick = { bundleImportLauncher.launch(arrayOf("*/*")) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(54.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onSurface
+                            )
                         ) {
                             Icon(
                                 imageVector = Icons.Default.FolderOpen,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
+                                modifier = Modifier.size(20.dp)
                             )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Belum ada folder",
-                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
-                                )
-                                Text(
-                                    text = "Impor ZIP atau buat folder untuk mengelompokkan proyek.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        contentPadding = PaddingValues(end = 16.dp)
-                    ) {
-                        items(folderSummaries, key = { it.folder.id }) { summary ->
-                            FolderCard(
-                                summary = summary,
-                                onClick = { onOpenFolder(summary.folder.id) }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "OPEN PROJECT",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                maxLines = 1
                             )
                         }
                     }
                 }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "PROYEK TERBARU",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    )
-                    if (projects.size > 5) {
-                        TextButton(onClick = onOpenProjects) {
-                            Text("Lihat semua")
-                        }
-                    }
-                }
-
-                if (projects.isEmpty()) {
-                    Card(
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.background
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(140.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            .padding(bottom = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
+                        Column {
                             Text(
-                                text = "Belum Ada Proyek",
+                                text = "PROYEK",
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            )
+                            Text(
+                                text = when {
+                                    folders.isEmpty() -> "${projects.size} proyek"
+                                    projects.isEmpty() -> "${folders.size} folder"
+                                    else -> "${projects.size} proyek, ${folders.size} folder"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        TextButton(onClick = { showFoldersDialog = true }) {
+                            Text("Kelola folder")
+                        }
+                    }
+                }
+
+                if (folderSummaries.isEmpty() && rootProjects.isEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 72.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FolderOpen,
+                                contentDescription = null,
+                                modifier = Modifier.size(48.dp),
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "Belum ada proyek",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Buat proyek atau impor gambar untuk memulai.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
-                } else {
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        contentPadding = PaddingValues(end = 16.dp)
-                    ) {
-                        val recentList = projects.take(5)
-                        items(recentList, key = { it.id }) { project ->
-                            RecentProjectCard(
-                                project = project,
-                                onClick = { onOpenEditor(project.id) },
-                                onLongClick = { selectedDeleteProjectId = project.id }
-                            )
-                        }
+                }
 
-                        if (projects.size > 5) {
-                            item {
-                                Card(
-                                    modifier = Modifier
-                                        .size(width = 130.dp, height = 150.dp)
-                                        .clickable { onOpenProjects() },
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                                ) {
-                                    Column(
-                                        modifier = Modifier.fillMaxSize(),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.FolderOpen,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(32.dp)
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = "Lihat semua",
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
+                gridItems(folderSummaries, key = { "folder:${it.folder.id}" }) { summary ->
+                    FolderCard(
+                        summary = summary,
+                        selected = summary.folder.id in selectedFolderIds,
+                        selectionMode = selectionMode,
+                        onClick = {
+                            if (selectionMode) toggleFolder(summary.folder.id)
+                            else onOpenFolder(summary.folder.id)
+                        },
+                        onLongClick = {
+                            if (!selectionMode) {
+                                selectionMode = true
+                                selectedFolderIds = setOf(summary.folder.id)
+                            } else {
+                                toggleFolder(summary.folder.id)
                             }
+                        }
+                    )
+                }
+
+                gridItems(rootProjects, key = { "project:${it.id}" }) { project ->
+                    ProjectGridCard(
+                        project = project,
+                        onOpen = {
+                            if (selectionMode) toggleProject(project.id)
+                            else onOpenEditor(project.id)
+                        },
+                        onMove = { projectToMove = project },
+                        onExport = {
+                            pendingExportId = project.id
+                            exportLauncher.launch(ProjectBundle.fileNameFor(project.title))
+                        },
+                        onDelete = { selectedDeleteProjectId = project.id },
+                        selected = project.id in selectedProjectIds,
+                        selectionMode = selectionMode,
+                        onLongClick = {
+                            if (!selectionMode) {
+                                selectionMode = true
+                                selectedProjectIds = setOf(project.id)
+                            } else {
+                                toggleProject(project.id)
+                            }
+                        }
+                    )
+                }
+            }
+
+            if (isLoading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.5f))
+                        .clickable(enabled = false) {},
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 6.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(24.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                            Text(
+                                text = "Memuat & Mengimpor Gambar...",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
                     }
                 }
             }
+        }
+    }
 
-            // Stacked Main Action Buttons at Bottom
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                // Button 1: NEW PROJECT
-                FilledTonalButton(
-                    onClick = { showCreateDialog = true },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                ) {
-                    Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(22.dp))
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "NEW PROJECT",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
-                    )
+    if (showCreateDialog) {
+        CreateProjectDialog(
+            onDismiss = { showCreateDialog = false },
+            onCreate = { title, width, height, isTransparent, backgroundColor ->
+                showCreateDialog = false
+                coroutineScope.launch {
+                    try {
+                        val newId = viewModel.createProject(
+                            title = title,
+                            width = width,
+                            height = height,
+                            imageUri = null,
+                            isTransparent = isTransparent,
+                            backgroundColor = backgroundColor,
+                            folderId = null
+                        )
+                        if (newId.isNotBlank()) {
+                            onOpenEditor(newId)
+                        }
+                    } catch (e: Exception) {
+                        Logger.e("Error: ${e.message}", e)
+                    }
                 }
+            }
+        )
+    }
 
-                // Button 2: OPEN PROJECT
-                FilledTonalButton(
-                    onClick = onOpenProjects,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = MaterialTheme.colorScheme.onSurface
-                    )
-                ) {
-                    Icon(imageVector = Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(22.dp))
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "OPEN PROJECT",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
-                    )
-                }
-
-                // Button 3: IMPORT IMAGE (Highlighted Lavender Button with Gradient / Vibrant Styling)
+    if (selectedDeleteProjectId != null) {
+        val projToDelete = projects.find { it.id == selectedDeleteProjectId }
+        AlertDialog(
+            onDismissRequest = { selectedDeleteProjectId = null },
+            title = { Text("Hapus Proyek", style = MaterialTheme.typography.titleLarge) },
+            text = { Text("Apakah Anda yakin ingin menghapus proyek '${projToDelete?.title ?: ""}'? Aksi ini tidak dapat dibatalkan.") },
+            confirmButton = {
                 Button(
                     onClick = {
-                        try {
-                            galleryPickerLauncher.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
-                        } catch (e: Exception) {
-                            fallbackContentLauncher.launch(arrayOf("image/*"))
+                        selectedDeleteProjectId?.let { id ->
+                            viewModel.deleteProject(id)
                         }
+                        selectedDeleteProjectId = null
                     },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    ),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp, pressedElevation = 8.dp)
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Icon(imageVector = Icons.Default.Image, contentDescription = null, modifier = Modifier.size(22.dp))
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "IMPORT IMAGE",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
-                    )
+                    Text("Hapus")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { selectedDeleteProjectId = null }) {
+                    Text("Batal")
                 }
             }
-        }
+        )
+    }
 
-        if (showCreateDialog) {
-            CreateProjectDialog(
-                onDismiss = { showCreateDialog = false },
-                onCreate = { title, width, height, isTransparent, backgroundColor ->
-                    showCreateDialog = false
-                    coroutineScope.launch {
-                        try {
-                            val newId = viewModel.createProject(
-                                title = title,
-                                width = width,
-                                height = height,
-                                imageUri = null,
-                                isTransparent = isTransparent,
-                                backgroundColor = backgroundColor,
-                                folderId = null
-                            )
-                            if (newId.isNotBlank()) {
-                                onOpenEditor(newId)
+    if (showBulkDelete && selectedCount > 0) {
+        AlertDialog(
+            onDismissRequest = { showBulkDelete = false },
+            title = { Text("Hapus item terpilih") },
+            text = {
+                val projectCount = selectedProjectIds.size
+                val folderCount = selectedFolderIds.size
+                Text(
+                    when {
+                        projectCount > 0 && folderCount > 0 ->
+                            "Hapus $projectCount proyek dan $folderCount folder? Proyek di dalam folder yang dihapus tidak ikut terhapus."
+                        folderCount > 0 ->
+                            "Hapus $folderCount folder? Proyek di dalamnya tidak ikut terhapus."
+                        else ->
+                            "Hapus $projectCount proyek? Tindakan ini tidak bisa dibatalkan."
+                    }
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val projectIds = selectedProjectIds
+                        val folderIds = selectedFolderIds
+                        viewModel.deleteProjects(projectIds)
+                        viewModel.deleteFolders(folderIds)
+                        toast("${projectIds.size + folderIds.size} item dihapus.")
+                        showBulkDelete = false
+                        leaveSelection()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Hapus")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBulkDelete = false }) {
+                    Text("Batal")
+                }
+            },
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+
+    projectToMove?.let { project ->
+        MoveProjectDialog(
+            project = project,
+            folders = folders,
+            onDismiss = { projectToMove = null },
+            onMove = { targetFolderId ->
+                viewModel.moveProjectToFolder(project.id, targetFolderId)
+                projectToMove = null
+            }
+        )
+    }
+
+    if (showFoldersDialog) {
+        FoldersDialog(
+            folders = folders,
+            projects = projects,
+            onDismiss = { showFoldersDialog = false },
+            onCreate = { name -> viewModel.createFolder(name) },
+            onRename = { id, name -> viewModel.renameFolder(id, name) },
+            onDelete = { id -> viewModel.deleteFolder(id) }
+        )
+    }
+
+    pendingZip?.let { (file, name) ->
+        AlertDialog(
+            onDismissRequest = {
+                try { file.delete() } catch (_: Exception) {}
+                pendingZip = null
+            },
+            title = { Text("Impor ZIP", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)) },
+            text = {
+                Text(
+                    "Impor \"$name\"?\n\n" +
+                        "Gambar di root ZIP menjadi folder bernama ZIP; subfolder menjadi folder sendiri. " +
+                        "File .mts di dalamnya ikut diimpor sebagai proyek."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        pendingZip = null
+                        coroutineScope.launch {
+                            viewModel.isLoading.value = true
+                            try {
+                                val result = viewModel.importZip(Uri.fromFile(file), name)
+                                when {
+                                    result == null -> toast("Gagal mengimpor ZIP.")
+                                    result.total == 0 -> toast("Tidak ada gambar/.mts yang bisa diimpor.")
+                                    else -> {
+                                        toast("ZIP diimpor: ${result.projects} gambar, ${result.bundles} proyek.")
+                                        if (result.failed > 0) toast("${result.failed} entri gagal.")
+                                    }
+                                }
+                            } finally {
+                                viewModel.isLoading.value = false
                             }
-                        } catch (e: Exception) {
-                            Logger.e("Error: ${e.message}", e)
                         }
                     }
+                ) {
+                    Text("Impor")
                 }
-            )
-        }
-
-        if (selectedDeleteProjectId != null) {
-            val projToDelete = projects.find { it.id == selectedDeleteProjectId }
-            AlertDialog(
-                onDismissRequest = { selectedDeleteProjectId = null },
-                title = { Text("Hapus Proyek", style = MaterialTheme.typography.titleLarge) },
-                text = { Text("Apakah Anda yakin ingin menghapus proyek '${projToDelete?.title ?: ""}'? Aksi ini tidak dapat dibatalkan.") },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            selectedDeleteProjectId?.let { id ->
-                                viewModel.deleteProject(id)
-                            }
-                            selectedDeleteProjectId = null
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                    ) {
-                        Text("Hapus")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { selectedDeleteProjectId = null }) {
-                        Text("Batal")
-                    }
-                }
-            )
-        }
-
-        if (showFoldersDialog) {
-            FoldersDialog(
-                folders = folders,
-                projects = projects,
-                onDismiss = { showFoldersDialog = false },
-                onCreate = { name -> viewModel.createFolder(name) },
-                onRename = { id, name -> viewModel.renameFolder(id, name) },
-                onDelete = { id -> viewModel.deleteFolder(id) }
-            )
-        }
-
-        pendingZip?.let { (file, name) ->
-            AlertDialog(
-                onDismissRequest = {
+            },
+            dismissButton = {
+                TextButton(onClick = {
                     try { file.delete() } catch (_: Exception) {}
                     pendingZip = null
-                },
-                title = { Text("Impor ZIP", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)) },
-                text = {
-                    Text(
-                        "Impor \"$name\"?\n\n" +
-                            "Gambar di root ZIP menjadi folder bernama ZIP; subfolder menjadi folder sendiri. " +
-                            "File .mts di dalamnya ikut diimpor sebagai proyek."
-                    )
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            pendingZip = null
-                            coroutineScope.launch {
-                                viewModel.isLoading.value = true
-                                try {
-                                    val result = viewModel.importZip(Uri.fromFile(file), name)
-                                    when {
-                                        result == null -> toast("Gagal mengimpor ZIP.")
-                                        result.total == 0 -> toast("Tidak ada gambar/.mts yang bisa diimpor.")
-                                        else -> {
-                                            toast("ZIP diimpor: ${result.projects} gambar, ${result.bundles} proyek.")
-                                            if (result.failed > 0) toast("${result.failed} entri gagal.")
-                                        }
-                                    }
-                                } finally {
-                                    viewModel.isLoading.value = false
-                                    try { file.delete() } catch (_: Exception) {}
-                                }
-                            }
-                        },
-                        shape = RoundedCornerShape(10.dp)
-                    ) { Text("Impor") }
-                },
-                dismissButton = {
-                    TextButton(onClick = {
-                        try { file.delete() } catch (_: Exception) {}
-                        pendingZip = null
-                    }) { Text("Batal") }
-                },
-                shape = RoundedCornerShape(20.dp)
-            )
-        }
-
-        if (isLoading) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.5f))
-                    .clickable(enabled = false) {},
-                contentAlignment = Alignment.Center
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp
-                ) {
-                    Row(
-                        modifier = Modifier.padding(24.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                        Text(
-                            text = "Memuat & Mengimpor Gambar...",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
+                }) {
+                    Text("Batal")
                 }
-            }
-        }
-    }
-}
-
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable
-fun RecentProjectCard(
-    project: ProjectEntity,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit = {}
-) {
-    val formattedTime = remember(project.updatedAt) {
-        val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-        sdf.format(Date(project.updatedAt))
-    }
-
-    Card(
-        modifier = Modifier
-            .size(width = 130.dp, height = 150.dp)
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            ),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            ProjectThumbnail(
-                path = project.thumbnailPath,
-                contentDescription = project.title,
-                modifier = Modifier.fillMaxSize()
-            )
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
-                    .padding(vertical = 6.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = formattedTime,
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.primary,
-                    fontSize = 12.sp
-                )
-            }
-        }
+            },
+            shape = RoundedCornerShape(20.dp)
+        )
     }
 }
 

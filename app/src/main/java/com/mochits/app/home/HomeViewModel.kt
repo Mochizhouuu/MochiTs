@@ -92,6 +92,24 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun deleteFolders(ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            ids.forEach { id ->
+                try { repository.deleteFolder(id) } catch (_: Exception) {}
+            }
+        }
+    }
+
+    fun deleteProjects(ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            ids.forEach { id ->
+                try { repository.deleteProject(id) } catch (_: Exception) {}
+            }
+        }
+    }
+
     fun moveProjectToFolder(projectId: String, folderId: String?) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try { repository.moveProjectToFolder(projectId, folderId) } catch (_: Exception) {}
