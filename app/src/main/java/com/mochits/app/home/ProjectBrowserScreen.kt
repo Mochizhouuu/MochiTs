@@ -50,7 +50,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -199,7 +198,7 @@ internal fun FolderCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit = {}
 ) {
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(14.dp)
     Card(
         modifier = modifier
             .then(
@@ -243,7 +242,7 @@ internal fun FolderCard(
                 Column {
                     Text(
                         text = summary.folder.name,
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                         color = Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -252,23 +251,6 @@ internal fun FolderCard(
                         text = "${summary.count} proyek",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.White.copy(alpha = 0.78f)
-                    )
-                }
-            }
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(8.dp)
-                    .size(28.dp),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.FolderOpen,
-                        contentDescription = null,
-                        modifier = Modifier.size(15.dp),
-                        tint = MaterialTheme.colorScheme.primary
                     )
                 }
             }
@@ -284,25 +266,18 @@ internal fun FolderCard(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ProjectGridCard(
     project: ProjectEntity,
+    label: String,
     onOpen: () -> Unit,
-    onMove: () -> Unit,
-    onExport: () -> Unit,
-    onDelete: () -> Unit,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
     selectionMode: Boolean = false,
     onLongClick: () -> Unit = {}
 ) {
-    var menuExpanded by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(16.dp)
-
-    LaunchedEffect(selectionMode) {
-        if (selectionMode) menuExpanded = false
-    }
+    val shape = RoundedCornerShape(14.dp)
 
     Card(
         modifier = modifier
@@ -324,7 +299,7 @@ internal fun ProjectGridCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(0.72f)
+                    .aspectRatio(1f)
             ) {
                 ProjectThumbnail(
                     path = project.thumbnailPath,
@@ -345,96 +320,17 @@ internal fun ProjectGridCard(
                             .align(Alignment.TopEnd)
                             .padding(8.dp)
                     )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(6.dp)
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f)
-                        ) {
-                            IconButton(
-                                onClick = { menuExpanded = true },
-                                modifier = Modifier.size(38.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "Aksi proyek ${project.title}",
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                        DropdownMenu(
-                            expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Buka") },
-                                onClick = {
-                                    menuExpanded = false
-                                    onOpen()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Pindahkan ke folder") },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.FolderOpen,
-                                        contentDescription = null
-                                    )
-                                },
-                                onClick = {
-                                    menuExpanded = false
-                                    onMove()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Ekspor bundel") },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.Save,
-                                        contentDescription = null
-                                    )
-                                },
-                                onClick = {
-                                    menuExpanded = false
-                                    onExport()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Hapus") },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
-                                },
-                                onClick = {
-                                    menuExpanded = false
-                                    onDelete()
-                                }
-                            )
-                        }
-                    }
                 }
             }
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-                Text(
-                    text = project.title,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "${project.width} x ${project.height} px",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text(
+                text = label,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -458,13 +354,17 @@ fun ProjectBrowserScreen(
     val visibleProjects = remember(projects, folderId) {
         if (folderId == null) projects else projects.filter { it.folderId == folderId }
     }
-
     var selectionMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showBulkDelete by remember { mutableStateOf(false) }
+    var showSelectionMenu by remember { mutableStateOf(false) }
     var projectToMove by remember { mutableStateOf<ProjectEntity?>(null) }
-    var projectToDelete by remember { mutableStateOf<ProjectEntity?>(null) }
     var pendingExportId by remember { mutableStateOf<String?>(null) }
+    val selectedProject = visibleProjects.firstOrNull { it.id in selectedIds }
+
+    LaunchedEffect(selectedIds.size) {
+        if (selectedIds.size != 1) showSelectionMenu = false
+    }
 
     fun toast(message: String) {
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
@@ -522,6 +422,51 @@ fun ProjectBrowserScreen(
                             }
                         ) {
                             Text(if (selectedIds.size == visibleProjects.size) "Batal" else "Semua")
+                        }
+                        if (selectedProject != null) {
+                            Box {
+                                IconButton(onClick = { showSelectionMenu = true }) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "Aksi proyek terpilih"
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = showSelectionMenu,
+                                    onDismissRequest = { showSelectionMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Pindahkan ke folder") },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.FolderOpen,
+                                                contentDescription = null
+                                            )
+                                        },
+                                        onClick = {
+                                            showSelectionMenu = false
+                                            projectToMove = selectedProject
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Ekspor bundel") },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Save,
+                                                contentDescription = null
+                                            )
+                                        },
+                                        onClick = {
+                                            showSelectionMenu = false
+                                            pendingExportId = selectedProject.id
+                                            exportLauncher.launch(
+                                                ProjectBundle.fileNameFor(selectedProject.title)
+                                            )
+                                            leaveSelection()
+                                        }
+                                    )
+                                }
+                            }
                         }
                         IconButton(
                             enabled = selectedIds.isNotEmpty(),
@@ -610,16 +555,11 @@ fun ProjectBrowserScreen(
                 gridItems(visibleProjects, key = { it.id }) { project ->
                     ProjectGridCard(
                         project = project,
+                        label = project.title,
                         onOpen = {
                             if (selectionMode) toggleSelection(project.id)
                             else onOpenProject(project.id)
                         },
-                        onMove = { projectToMove = project },
-                        onExport = {
-                            pendingExportId = project.id
-                            exportLauncher.launch(ProjectBundle.fileNameFor(project.title))
-                        },
-                        onDelete = { projectToDelete = project },
                         selected = project.id in selectedIds,
                         selectionMode = selectionMode,
                         onLongClick = {
@@ -644,6 +584,7 @@ fun ProjectBrowserScreen(
             onMove = { targetFolderId ->
                 viewModel.moveProjectToFolder(project.id, targetFolderId)
                 projectToMove = null
+                leaveSelection()
             }
         )
     }
@@ -672,34 +613,6 @@ fun ProjectBrowserScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showBulkDelete = false }) {
-                    Text("Batal")
-                }
-            },
-            shape = RoundedCornerShape(20.dp)
-        )
-    }
-
-    projectToDelete?.let { project ->
-        AlertDialog(
-            onDismissRequest = { projectToDelete = null },
-            title = { Text("Hapus proyek") },
-            text = { Text("Hapus proyek \"${project.title}\"? Tindakan ini tidak bisa dibatalkan.") },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.deleteProject(project.id)
-                        projectToDelete = null
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    ),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Text("Hapus")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { projectToDelete = null }) {
                     Text("Batal")
                 }
             },

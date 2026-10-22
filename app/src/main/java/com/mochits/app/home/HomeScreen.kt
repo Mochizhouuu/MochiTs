@@ -21,14 +21,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -287,13 +285,6 @@ fun HomeScreen(
                         )
                     },
                     actions = {
-                        IconButton(onClick = onOpenSettings) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Settings",
-                                tint = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
                         Box {
                             IconButton(onClick = { showHomeMenu = true }) {
                                 Icon(
@@ -338,6 +329,20 @@ fun HomeScreen(
                                         showFoldersDialog = true
                                     }
                                 )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("Pengaturan") },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Settings,
+                                            contentDescription = null
+                                        )
+                                    },
+                                    onClick = {
+                                        showHomeMenu = false
+                                        onOpenSettings()
+                                    }
+                                )
                             }
                         }
                     },
@@ -354,7 +359,7 @@ fun HomeScreen(
                         .fillMaxWidth()
                         .background(MaterialTheme.colorScheme.background)
                         .padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     FilledTonalButton(
                         onClick = { showCreateDialog = true },
@@ -367,11 +372,6 @@ fun HomeScreen(
                             contentColor = MaterialTheme.colorScheme.onSurface
                         )
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = null
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = "NEW PROJECT",
                             style = MaterialTheme.typography.titleMedium.copy(
@@ -399,11 +399,6 @@ fun HomeScreen(
                             contentColor = MaterialTheme.colorScheme.onSurface
                         )
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.FolderOpen,
-                            contentDescription = null
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = "OPEN PROJECT",
                             style = MaterialTheme.typography.titleMedium.copy(
@@ -432,11 +427,6 @@ fun HomeScreen(
                         ),
                         elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp, pressedElevation = 8.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Image,
-                            contentDescription = null
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = "IMPORT IMAGE",
                             style = MaterialTheme.typography.titleMedium.copy(
@@ -468,7 +458,7 @@ fun HomeScreen(
                 ) {
                     Text(
                         text = "Recent Projects",
-                        style = MaterialTheme.typography.titleLarge.copy(
+                        style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -504,15 +494,15 @@ fun HomeScreen(
                     }
                 } else {
                     LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                         contentPadding = PaddingValues(end = 8.dp)
                     ) {
                         items(folderSummaries, key = { "folder:${it.folder.id}" }) { summary ->
                             FolderCard(
                                 summary = summary,
                                 modifier = Modifier
-                                    .width(132.dp)
-                                    .height(154.dp),
+                                    .width(120.dp)
+                                    .height(120.dp),
                                 selected = summary.folder.id in selectedFolderIds,
                                 selectionMode = selectionMode,
                                 onClick = {
@@ -726,11 +716,11 @@ fun RecentProjectCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit = {}
 ) {
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(14.dp)
     Card(
         modifier = Modifier
-            .width(132.dp)
-            .height(154.dp)
+            .width(120.dp)
+            .height(120.dp)
             .then(
                 if (selected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, shape)
                 else Modifier
@@ -770,7 +760,7 @@ fun RecentProjectCard(
                     text = project.title,
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                     color = Color.White,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
