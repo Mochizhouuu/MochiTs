@@ -21,12 +21,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -285,21 +287,6 @@ fun HomeScreen(
                         )
                     },
                     actions = {
-                        IconButton(onClick = {
-                            zipImportLauncher.launch(
-                                arrayOf(
-                                    "application/zip",
-                                    "application/x-zip-compressed",
-                                    "application/octet-stream"
-                                )
-                            )
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.Download,
-                                contentDescription = "Impor ZIP berisi gambar/folder",
-                                tint = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
                         IconButton(onClick = onOpenSettings) {
                             Icon(
                                 imageVector = Icons.Default.Settings,
@@ -319,6 +306,25 @@ fun HomeScreen(
                                 expanded = showHomeMenu,
                                 onDismissRequest = { showHomeMenu = false }
                             ) {
+                                DropdownMenuItem(
+                                    text = { Text("Impor ZIP") },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Download,
+                                            contentDescription = null
+                                        )
+                                    },
+                                    onClick = {
+                                        showHomeMenu = false
+                                        zipImportLauncher.launch(
+                                            arrayOf(
+                                                "application/zip",
+                                                "application/x-zip-compressed",
+                                                "application/octet-stream"
+                                            )
+                                        )
+                                    }
+                                )
                                 DropdownMenuItem(
                                     text = { Text("Kelola folder") },
                                     leadingIcon = {
@@ -361,6 +367,11 @@ fun HomeScreen(
                             contentColor = MaterialTheme.colorScheme.onSurface
                         )
                     ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = "NEW PROJECT",
                             style = MaterialTheme.typography.titleMedium.copy(
@@ -370,7 +381,15 @@ fun HomeScreen(
                         )
                     }
                     FilledTonalButton(
-                        onClick = { bundleImportLauncher.launch(arrayOf("*/*")) },
+                        onClick = {
+                            bundleImportLauncher.launch(
+                                arrayOf(
+                                    "application/zip",
+                                    "application/x-zip-compressed",
+                                    "application/octet-stream"
+                                )
+                            )
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp),
@@ -380,6 +399,11 @@ fun HomeScreen(
                             contentColor = MaterialTheme.colorScheme.onSurface
                         )
                     ) {
+                        Icon(
+                            imageVector = Icons.Default.FolderOpen,
+                            contentDescription = null
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = "OPEN PROJECT",
                             style = MaterialTheme.typography.titleMedium.copy(
@@ -408,6 +432,11 @@ fun HomeScreen(
                         ),
                         elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp, pressedElevation = 8.dp)
                     ) {
+                        Icon(
+                            imageVector = Icons.Default.Image,
+                            contentDescription = null
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = "IMPORT IMAGE",
                             style = MaterialTheme.typography.titleMedium.copy(
