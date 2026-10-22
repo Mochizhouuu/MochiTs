@@ -447,7 +447,11 @@ fun ProjectBrowserScreen(
     var showSelectionMenu by remember { mutableStateOf(false) }
     var projectToMove by remember { mutableStateOf<ProjectEntity?>(null) }
     var pendingExportId by remember { mutableStateOf<String?>(null) }
-    val selectedProject = visibleProjects.firstOrNull { it.id in selectedIds }
+    val selectedProject = if (selectedIds.size == 1 && selectedFolderIds.isEmpty()) {
+        visibleProjects.firstOrNull { it.id in selectedIds }
+    } else {
+        null
+    }
     val selectedCount = selectedIds.size + selectedFolderIds.size
     val visibleItemCount = visibleProjects.size + visibleFolders.size
     val allVisibleSelected = visibleItemCount > 0 && selectedCount == visibleItemCount
