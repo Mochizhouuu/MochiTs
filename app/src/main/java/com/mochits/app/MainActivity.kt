@@ -65,6 +65,9 @@ class MainActivity : ComponentActivity() {
                                 onBack = { navController.popBackStack() },
                                 onOpenProject = { projectId ->
                                     navController.navigate("editor/$projectId")
+                                },
+                                onOpenFolder = { folderId ->
+                                    navController.navigate("folder/$folderId")
                                 }
                             )
                         }

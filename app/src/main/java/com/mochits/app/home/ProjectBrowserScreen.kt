@@ -78,6 +78,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mochits.app.project.ProjectBundle
 import com.mochits.app.project.ProjectEntity
+import com.mochits.app.project.ZipImportPlanner
 import com.mochits.app.project.ProjectFolderEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -268,6 +269,75 @@ internal fun FolderCard(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
+internal fun FolderGridCard(
+    summary: FolderSummary,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    selectionMode: Boolean = false,
+    onLongClick: () -> Unit = {}
+) {
+    val shape = RoundedCornerShape(14.dp)
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(
+                if (selected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, shape)
+                else Modifier
+            )
+            .combinedClickable(
+                onClick = onOpen,
+                onLongClick = onLongClick
+            ),
+        shape = shape,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+            ) {
+                ProjectThumbnail(
+                    path = summary.coverPath,
+                    contentDescription = summary.folder.name,
+                    modifier = Modifier.fillMaxSize(),
+                    fallbackIcon = Icons.Default.FolderOpen
+                )
+                if (selected) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .background(Color.Black.copy(alpha = 0.28f))
+                    )
+                }
+                if (selectionMode) {
+                    SelectionMark(
+                        selected = selected,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                    )
+                }
+            }
+            Text(
+                text = summary.folder.name,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 internal fun ProjectGridCard(
     project: ProjectEntity,
     label: String,
@@ -341,7 +411,8 @@ fun ProjectBrowserScreen(
     viewModel: HomeViewModel,
     folderId: String? = null,
     onBack: () -> Unit,
-    onOpenProject: (String) -> Unit
+    onOpenProject: (String) -> Unit,
+    onOpenFolder: (String) -> Unit = {}
 ) {
     val projects by viewModel.projects.collectAsState()
     val folders by viewModel.folders.collectAsState()
@@ -351,19 +422,38 @@ fun ProjectBrowserScreen(
     val folder = remember(folders, folderId) {
         folders.firstOrNull { it.id == folderId }
     }
+    val folderSummaries = remember(folders, projects) {
+        buildFolderSummaries(folders, projects)
+    }
+    val looseProjects = remember(projects) {
+        projects.filter { it.folderId == null }
+    }
+    val visibleFolders = remember(folderSummaries, folderId) {
+        if (folderId == null) folderSummaries else emptyList()
+    }
     val visibleProjects = remember(projects, folderId) {
-        if (folderId == null) projects else projects.filter { it.folderId == folderId }
+        if (folderId == null) {
+            looseProjects
+        } else {
+            projects
+                .filter { it.folderId == folderId }
+                .sortedWith { a, b -> ZipImportPlanner.naturalCompare(a.title, b.title) }
+        }
     }
     var selectionMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedFolderIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showBulkDelete by remember { mutableStateOf(false) }
     var showSelectionMenu by remember { mutableStateOf(false) }
     var projectToMove by remember { mutableStateOf<ProjectEntity?>(null) }
     var pendingExportId by remember { mutableStateOf<String?>(null) }
     val selectedProject = visibleProjects.firstOrNull { it.id in selectedIds }
+    val selectedCount = selectedIds.size + selectedFolderIds.size
+    val visibleItemCount = visibleProjects.size + visibleFolders.size
+    val allVisibleSelected = visibleItemCount > 0 && selectedCount == visibleItemCount
 
-    LaunchedEffect(selectedIds.size) {
-        if (selectedIds.size != 1) showSelectionMenu = false
+    LaunchedEffect(selectedProject?.id) {
+        if (selectedProject == null) showSelectionMenu = false
     }
 
     fun toast(message: String) {
@@ -374,9 +464,15 @@ fun ProjectBrowserScreen(
         selectedIds = if (id in selectedIds) selectedIds - id else selectedIds + id
     }
 
+    fun toggleFolderSelection(id: String) {
+        selectedFolderIds =
+            if (id in selectedFolderIds) selectedFolderIds - id else selectedFolderIds + id
+    }
+
     fun leaveSelection() {
         selectionMode = false
         selectedIds = emptySet()
+        selectedFolderIds = emptySet()
     }
 
     BackHandler(enabled = selectionMode) {
@@ -402,7 +498,7 @@ fun ProjectBrowserScreen(
                 TopAppBar(
                     title = {
                         Text(
-                            text = "${selectedIds.size} dipilih",
+                            text = "${selectedCount} dipilih",
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                         )
                     },
@@ -417,11 +513,17 @@ fun ProjectBrowserScreen(
                     actions = {
                         TextButton(
                             onClick = {
-                                val allIds = visibleProjects.mapTo(LinkedHashSet()) { it.id }
-                                selectedIds = if (selectedIds.size == allIds.size) emptySet() else allIds
+                                if (allVisibleSelected) {
+                                    selectedIds = emptySet()
+                                    selectedFolderIds = emptySet()
+                                } else {
+                                    selectedIds = visibleProjects.mapTo(LinkedHashSet()) { it.id }
+                                    selectedFolderIds =
+                                        visibleFolders.mapTo(LinkedHashSet()) { it.folder.id }
+                                }
                             }
                         ) {
-                            Text(if (selectedIds.size == visibleProjects.size) "Batal" else "Semua")
+                            Text(if (allVisibleSelected) "Batal" else "Semua")
                         }
                         if (selectedProject != null) {
                             Box {
@@ -469,13 +571,13 @@ fun ProjectBrowserScreen(
                             }
                         }
                         IconButton(
-                            enabled = selectedIds.isNotEmpty(),
+                            enabled = selectedCount > 0,
                             onClick = { showBulkDelete = true }
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
-                                contentDescription = "Hapus proyek terpilih",
-                                tint = if (selectedIds.isEmpty()) {
+                                contentDescription = "Hapus item terpilih",
+                                tint = if (selectedCount == 0) {
                                     MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                                 } else {
                                     MaterialTheme.colorScheme.error
@@ -520,7 +622,7 @@ fun ProjectBrowserScreen(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            if (visibleProjects.isEmpty()) {
+            if (visibleProjects.isEmpty() && visibleFolders.isEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Column(
                         modifier = Modifier
@@ -536,13 +638,13 @@ fun ProjectBrowserScreen(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = if (folderId == null) "Belum ada proyek" else "Folder ini masih kosong",
+                            text = if (folderId == null) "Belum ada proyek atau folder" else "Folder ini masih kosong",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = if (folderId == null) {
-                                "Buat proyek atau impor gambar untuk memulai."
+                                "Buat proyek, impor ZIP, atau impor gambar untuk memulai."
                             } else {
                                 "Pindahkan proyek ke folder ini lewat menu proyek."
                             },
@@ -552,7 +654,26 @@ fun ProjectBrowserScreen(
                     }
                 }
             } else {
-                gridItems(visibleProjects, key = { it.id }) { project ->
+                gridItems(visibleFolders, key = { "folder:${it.folder.id}" }) { summary ->
+                    FolderGridCard(
+                        summary = summary,
+                        onOpen = {
+                            if (selectionMode) toggleFolderSelection(summary.folder.id)
+                            else onOpenFolder(summary.folder.id)
+                        },
+                        selected = summary.folder.id in selectedFolderIds,
+                        selectionMode = selectionMode,
+                        onLongClick = {
+                            if (!selectionMode) {
+                                selectionMode = true
+                                selectedFolderIds = setOf(summary.folder.id)
+                            } else {
+                                toggleFolderSelection(summary.folder.id)
+                            }
+                        }
+                    )
+                }
+                gridItems(visibleProjects, key = { "project:${it.id}" }) { project ->
                     ProjectGridCard(
                         project = project,
                         label = project.title,
@@ -589,17 +710,24 @@ fun ProjectBrowserScreen(
         )
     }
 
-    if (showBulkDelete && selectedIds.isNotEmpty()) {
+    if (showBulkDelete && selectedCount > 0) {
         AlertDialog(
             onDismissRequest = { showBulkDelete = false },
-            title = { Text("Hapus ${selectedIds.size} proyek") },
-            text = { Text("Proyek yang dipilih akan dihapus permanen. Tindakan ini tidak bisa dibatalkan.") },
+            title = { Text("Hapus $selectedCount item") },
+            text = {
+                Text(
+                    "Proyek yang dipilih akan dihapus permanen. Folder yang dipilih " +
+                        "hanya dilepas; proyek di dalamnya tidak dihapus."
+                )
+            },
             confirmButton = {
                 Button(
                     onClick = {
-                        val ids = selectedIds
-                        viewModel.deleteProjects(ids)
-                        toast("${ids.size} proyek dihapus.")
+                        val projectIds = selectedIds
+                        val folderIds = selectedFolderIds
+                        viewModel.deleteProjects(projectIds)
+                        viewModel.deleteFolders(folderIds)
+                        toast("${projectIds.size + folderIds.size} item dihapus.")
                         showBulkDelete = false
                         leaveSelection()
                     },
