@@ -3,6 +3,9 @@ package com.mochits.app.editor
 import android.graphics.Color
 import com.mochits.app.model.ColorStop
 import com.mochits.app.model.Layer
+import com.mochits.app.model.LayerBlendMode
+import com.mochits.app.model.RadialBlurMode
+import com.mochits.app.model.TexturePreset
 import com.mochits.app.model.TextStyleConfig
 import org.junit.Assert.*
 import org.junit.Test
@@ -348,5 +351,64 @@ class LayerSerializerTest {
         assertEquals(1, deserialized.size)
         val layer = deserialized[0] as Layer.TextLayer
         assertTrue(layer.richSpans.isEmpty())
+    }
+
+    @Test
+    fun testSerializeAndDeserialize_blendClippingAndImageFx() {
+        val layers = listOf(
+            Layer.TextLayer(
+                id = "t_clip",
+                name = "Text Clip",
+                text = "Clip",
+                blendMode = LayerBlendMode.MULTIPLY,
+                clippingMask = true
+            ),
+            Layer.ImageLayer(
+                id = "i_fx",
+                name = "Image FX",
+                blendMode = LayerBlendMode.SCREEN,
+                clippingMask = true,
+                radialBlurStrength = 0.6f,
+                radialBlurMode = RadialBlurMode.ZOOM,
+                radialBlurCenterX = 0.25f,
+                radialBlurCenterY = 0.75f,
+                texturePreset = TexturePreset.CANVAS,
+                textureStrength = 0.4f,
+                textureScale = 2.5f
+            )
+        )
+        val out = serializer.deserialize(serializer.serialize(layers))
+        assertEquals(2, out.size)
+        val t = out[0] as Layer.TextLayer
+        val i = out[1] as Layer.ImageLayer
+        assertEquals(LayerBlendMode.MULTIPLY, t.blendMode)
+        assertTrue(t.clippingMask)
+        assertEquals(LayerBlendMode.SCREEN, i.blendMode)
+        assertTrue(i.clippingMask)
+        assertEquals(0.6f, i.radialBlurStrength, 0.001f)
+        assertEquals(RadialBlurMode.ZOOM, i.radialBlurMode)
+        assertEquals(0.25f, i.radialBlurCenterX, 0.001f)
+        assertEquals(0.75f, i.radialBlurCenterY, 0.001f)
+        assertEquals(TexturePreset.CANVAS, i.texturePreset)
+        assertEquals(0.4f, i.textureStrength, 0.001f)
+        assertEquals(2.5f, i.textureScale, 0.001f)
+    }
+
+    @Test
+    fun testLegacyLayers_defaultBlendAndClipAndFx() {
+        val out = serializer.deserialize(
+            """
+            [
+              {"id":"old","type":"IMAGE","name":"Old","x":0.0,"y":0.0,"rotation":0.0,
+               "scaleX":1.0,"scaleY":1.0,"opacity":1.0,"isVisible":true,"isLocked":false}
+            ]
+            """.trimIndent()
+        )
+        val layer = out.single() as Layer.ImageLayer
+        assertEquals(LayerBlendMode.NORMAL, layer.blendMode)
+        assertFalse(layer.clippingMask)
+        assertEquals(0f, layer.radialBlurStrength, 0.001f)
+        assertEquals(RadialBlurMode.SPIN, layer.radialBlurMode)
+        assertEquals(TexturePreset.NONE, layer.texturePreset)
     }
 }

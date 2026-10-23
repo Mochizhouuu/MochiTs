@@ -5,6 +5,9 @@ import android.graphics.Canvas
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.mochits.app.model.Layer
+import com.mochits.app.model.LayerBlendMode
+import com.mochits.app.model.RadialBlurMode
+import com.mochits.app.model.TexturePreset
 import com.mochits.app.model.TextAlignment
 import com.mochits.app.model.TextContainerShape
 import com.mochits.app.model.TextStyleConfig
@@ -45,7 +48,18 @@ data class LayerJsonDto(
     // Grid warp mesh 4x4 (nullable agar JSON lama tetap terbaca).
     val meshGrid: List<Float>? = null,
     // Rich text per kata (nullable agar JSON lama tetap terbaca).
-    val richSpans: List<com.mochits.app.model.TextSpanStyle>? = null
+    val richSpans: List<com.mochits.app.model.TextSpanStyle>? = null,
+    // Blend + clipping mask (nullable agar JSON lama tetap terbaca).
+    val blendMode: LayerBlendMode? = null,
+    val clippingMask: Boolean? = null,
+    // Radial blur + texture untuk gambar (nullable agar JSON lama tetap terbaca).
+    val radialBlurStrength: Float? = null,
+    val radialBlurMode: RadialBlurMode? = null,
+    val radialBlurCenterX: Float? = null,
+    val radialBlurCenterY: Float? = null,
+    val texturePreset: TexturePreset? = null,
+    val textureStrength: Float? = null,
+    val textureScale: Float? = null
 )
 
 class LayerSerializer {
@@ -73,7 +87,9 @@ class LayerSerializer {
                     boxHeight = layer.boxHeight,
                     perspQuad = layer.perspQuad,
                     meshGrid = layer.meshGrid,
-                    richSpans = layer.richSpans.takeIf { it.isNotEmpty() }
+                    richSpans = layer.richSpans.takeIf { it.isNotEmpty() },
+                    blendMode = layer.blendMode,
+                    clippingMask = layer.clippingMask
                 )
                 is Layer.ImageLayer -> LayerJsonDto(
                     id = layer.id,
@@ -96,7 +112,16 @@ class LayerSerializer {
                     glowColor = layer.glowColor,
                     glowRadius = layer.glowRadius,
                     perspQuad = layer.perspQuad,
-                    meshGrid = layer.meshGrid
+                    meshGrid = layer.meshGrid,
+                    blendMode = layer.blendMode,
+                    clippingMask = layer.clippingMask,
+                    radialBlurStrength = layer.radialBlurStrength,
+                    radialBlurMode = layer.radialBlurMode,
+                    radialBlurCenterX = layer.radialBlurCenterX,
+                    radialBlurCenterY = layer.radialBlurCenterY,
+                    texturePreset = layer.texturePreset,
+                    textureStrength = layer.textureStrength,
+                    textureScale = layer.textureScale
                 )
             }
         }
@@ -168,7 +193,9 @@ class LayerSerializer {
                     )
                 }
                 ?.takeIf { it.isNotEmpty() }
-                ?: emptyList()
+                ?: emptyList(),
+            blendMode = dto.blendMode ?: LayerBlendMode.NORMAL,
+            clippingMask = dto.clippingMask ?: false
         )
     }
 
@@ -218,7 +245,16 @@ class LayerSerializer {
             glowColor = dto.glowColor ?: android.graphics.Color.TRANSPARENT,
             glowRadius = dto.glowRadius ?: 0f,
             perspQuad = dto.perspQuad?.takeIf { it.size == 8 && it.all { v -> v.isFinite() } },
-            meshGrid = dto.meshGrid?.takeIf { it.size == 32 && it.all { v -> v.isFinite() } }
+            meshGrid = dto.meshGrid?.takeIf { it.size == 32 && it.all { v -> v.isFinite() } },
+            blendMode = dto.blendMode ?: LayerBlendMode.NORMAL,
+            clippingMask = dto.clippingMask ?: false,
+            radialBlurStrength = (dto.radialBlurStrength ?: 0f).takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f,
+            radialBlurMode = dto.radialBlurMode ?: RadialBlurMode.SPIN,
+            radialBlurCenterX = (dto.radialBlurCenterX ?: 0.5f).takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0.5f,
+            radialBlurCenterY = (dto.radialBlurCenterY ?: 0.5f).takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0.5f,
+            texturePreset = dto.texturePreset ?: TexturePreset.NONE,
+            textureStrength = (dto.textureStrength ?: 0f).takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f,
+            textureScale = (dto.textureScale ?: 1f).takeIf { it.isFinite() }?.coerceIn(0.5f, 4f) ?: 1f
         )
     }
 }

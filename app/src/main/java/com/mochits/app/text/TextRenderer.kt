@@ -16,6 +16,8 @@ import com.mochits.app.model.TextAlignment
 import com.mochits.app.model.TextContainerShape
 import com.mochits.app.model.TextSpanStyle
 import com.mochits.app.model.TextStyleConfig
+import com.mochits.app.model.TexturePreset
+import com.mochits.app.imaging.ImageEffects
 import kotlin.math.ceil
 import kotlin.math.sqrt
 
@@ -853,8 +855,11 @@ class TextRenderer(private val context: Context) {
             }
         } else null
 
-        if (style.motionBlurRadius > 0f) {
-            // Objeknya sendiri yang blur (tanpa salinan tajam di atasnya,
+        val hasPostProcess = style.motionBlurRadius > 0f ||
+            style.radialBlurStrength > 0f ||
+            (style.texturePreset != TexturePreset.NONE && style.textureStrength > 0f)
+        if (hasPostProcess) {
+            // Objeknya sendiri yang blur/bertekstur (tanpa salinan tajam di atasnya,
             // kalau tidak terbaca sebagai drop shadow).
             val smearKey = "$text|${style.hashCode()}|$shape|$boxWidth|$boxHeight|${spans.hashCode()}"
             drawMotionBlurSmear(
@@ -1031,16 +1036,25 @@ class TextRenderer(private val context: Context) {
         gradient: android.graphics.Shader? = null
     ) {
         val radius = style.motionBlurRadius
-        if (radius <= 0f) return
+        val radialStrength = style.radialBlurStrength.coerceIn(0f, 1f)
+        val hasTexture = style.texturePreset != TexturePreset.NONE && style.textureStrength > 0f
+        if (radius <= 0f && radialStrength <= 0f && !hasTexture) return
         val textW = (layoutResult.maxX - layoutResult.minX).coerceAtLeast(1f)
         val textH = blockHeight(layoutResult.lines, layoutResult.lineHeight).coerceAtLeast(1f)
-        val pad = ceil(radius.toDouble()).toInt() + 4
+        val radialPad = if (radialStrength > 0f) {
+            maxOf(textW, textH) * 0.55f * radialStrength
+        } else 0f
+        val pad = ceil(maxOf(radius, radialPad).toDouble()).toInt() + 4
         val bw = (textW + 2 * pad).toInt().coerceAtLeast(1)
         val bh = (textH + 2 * pad).toInt().coerceAtLeast(1)
         // Kerja di bitmap kecil agar slider tetap mulus, upscale saat ditempel.
         // Radius kerja dibatasi ~48px (downscale ekstra saat radius besar)
         // agar jumlah taps tidak meledak saat streak panjang.
-        val down = minOf(1f, 512f / maxOf(bw, bh).toFloat(), 48f / radius)
+        val down = minOf(
+            1f,
+            512f / maxOf(bw, bh).toFloat(),
+            if (radius > 0f) 48f / radius else 1f
+        )
         val ww = maxOf(1, (bw * down).toInt())
         val hh = maxOf(1, (bh * down).toInt())
 
@@ -1076,8 +1090,30 @@ class TextRenderer(private val context: Context) {
 
         val px = IntArray(ww * hh)
         work.getPixels(px, 0, ww, 0, 0, ww, hh)
-        val blurred = MotionBlur.blurDirectional(px, ww, hh, style.motionBlurAngle, radius * down)
-        work.setPixels(blurred, 0, ww, 0, 0, ww, hh)
+        var processed = px
+        if (radius > 0f) {
+            processed = MotionBlur.blurDirectional(
+                processed, ww, hh, style.motionBlurAngle, radius * down
+            )
+        }
+        if (radialStrength > 0f) {
+            processed = ImageEffects.radialBlurPixels(
+                processed, ww, hh,
+                strength = radialStrength,
+                mode = style.radialBlurMode,
+                centerX = 0.5f,
+                centerY = 0.5f
+            )
+        }
+        if (hasTexture) {
+            processed = ImageEffects.applyTexturePixels(
+                processed, ww, hh,
+                preset = style.texturePreset,
+                strength = style.textureStrength.coerceIn(0f, 1f),
+                scale = (style.textureScale.coerceIn(0.5f, 4f) * down).coerceAtLeast(0.2f)
+            )
+        }
+        work.setPixels(processed, 0, ww, 0, 0, ww, hh)
         // Simpan salinan untuk frame berikutnya (buffer kerja dipakai ulang).
         try {
             work.copy(Bitmap.Config.ARGB_8888, false)?.let { smearCache[cacheKey] = it }
@@ -1147,6 +1183,9 @@ class TextRenderer(private val context: Context) {
                 s.shadowRadius + abs(s.shadowDx) + abs(s.shadowDy),
                 s.strokeWidth,
                 s.motionBlurRadius,
+                if (s.radialBlurStrength > 0f) {
+                    maxOf(b.width(), b.height()) * 0.55f * s.radialBlurStrength.coerceIn(0f, 1f)
+                } else 0f,
                 4f
             ).toDouble()
         ).toFloat() + 2f

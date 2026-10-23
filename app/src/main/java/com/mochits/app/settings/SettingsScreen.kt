@@ -9,6 +9,7 @@ import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -17,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -24,10 +26,13 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FontDownload
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Style
+import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -56,6 +61,14 @@ fun SettingsScreen(
     val currentTheme by viewModel.themeMode.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Tema", "Model", "Style", "Font", "Output", "Script")
+    val tabIcons = listOf(
+        Icons.Default.Palette,
+        Icons.Default.Memory,
+        Icons.Default.Style,
+        Icons.Default.TextFields,
+        Icons.Default.Folder,
+        Icons.Default.Code
+    )
     val settingsScope = rememberCoroutineScope()
     var scriptTestSummary by remember { mutableStateOf<com.mochits.app.script.ScriptTestSummary?>(null) }
     var showScriptTest by remember { mutableStateOf(false) }
@@ -89,10 +102,20 @@ fun SettingsScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = "Pengaturan MochiTs",
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-                    )
+                    Column {
+                        Text(
+                            text = "MochiTs",
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        )
+                        Text(
+                            text = "Pengaturan",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
@@ -116,50 +139,58 @@ fun SettingsScreen(
         ) {
             ScrollableTabRow(
                 selectedTabIndex = selectedTab,
-                edgePadding = 8.dp
+                edgePadding = 8.dp,
+                divider = {}
             ) {
                 tabs.forEachIndexed { index, title ->
                     Tab(
                         selected = selectedTab == index,
                         onClick = { selectedTab = index },
-                        text = { Text(title, fontSize = 13.sp) }
+                        icon = {
+                            Icon(
+                                imageVector = tabIcons[index],
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        text = { Text(title, fontSize = 12.sp) }
                     )
                 }
             }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
 
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 when (selectedTab) {
                     0 -> {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(
-                                text = "Tema Aplikasi",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
+                            SettingsPageHeader(
+                                icon = Icons.Default.Palette,
+                                title = "Tampilan",
+                                subtitle = "Pilih tema, buka panduan, dan lihat versi aplikasi."
                             )
                             Text(
-                                text = "Pilih tema warna aplikasi sesuai kenyamanan Anda:",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = "Tema aplikasi",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
                             ThemeOptionCard(
                                 label = "Ikuti Sistem",
                                 selected = currentTheme == AppThemeMode.SYSTEM,
                                 onClick = { viewModel.setThemeMode(AppThemeMode.SYSTEM) }
                             )
                             ThemeOptionCard(
-                                label = "Lavender Terang (Light)",
+                                label = "Biru Terang (Light)",
                                 selected = currentTheme == AppThemeMode.LIGHT,
                                 onClick = { viewModel.setThemeMode(AppThemeMode.LIGHT) }
                             )
                             ThemeOptionCard(
-                                label = "Lavender Gelap (Dark)",
+                                label = "Biru Gelap (Dark)",
                                 selected = currentTheme == AppThemeMode.DARK,
                                 onClick = { viewModel.setThemeMode(AppThemeMode.DARK) }
                             )
@@ -186,6 +217,38 @@ fun SettingsScreen(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text("Buka Panduan MochiTs")
                             }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Info,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Column {
+                                        Text(
+                                            "MochiTs 1.0.0",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            "Editor teks & gambar untuk komik.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                     1 -> {
@@ -206,10 +269,10 @@ fun SettingsScreen(
                         }
 
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(
-                                text = "Model Inpainting",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
+                            SettingsPageHeader(
+                                icon = Icons.Default.Memory,
+                                title = "Model Inpainting",
+                                subtitle = "Pilih mesin pengisi area: Telea cepat atau LaMa neural."
                             )
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
@@ -383,15 +446,10 @@ fun SettingsScreen(
                         }
 
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(
-                                text = "Manajemen Style Presets",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Preset buatanmu di editor muncul di sini. Sematkan yang sering dipakai agar selalu paling atas, atau bagikan sebagai file JSON.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            SettingsPageHeader(
+                                icon = Icons.Default.Style,
+                                title = "Style Presets",
+                                subtitle = "Sematkan preset favorit atau bagikan sebagai file JSON."
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 OutlinedButton(
@@ -593,15 +651,10 @@ fun SettingsScreen(
                             }
                         }
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(
-                                text = "Font Manager",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Tambahkan font kustom (.ttf / .otf) untuk typesetting komik:",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            SettingsPageHeader(
+                                icon = Icons.Default.TextFields,
+                                title = "Font Manager",
+                                subtitle = "Tambahkan font kustom .ttf / .otf untuk typesetting komik."
                             )
                             Button(
                                 onClick = { fontPicker.launch("*/*") },
@@ -717,17 +770,11 @@ fun SettingsScreen(
                         }
 
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(
-                                text = "Folder Output Default (Export)",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
+                            SettingsPageHeader(
+                                icon = Icons.Default.Folder,
+                                title = "Folder Output",
+                                subtitle = "Tentukan folder default untuk menyimpan hasil ekspor."
                             )
-                            Text(
-                                text = "Tentukan folder default di penyimpanan perangkat Anda untuk menyimpan hasil ekspor gambar proyek.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
 
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
@@ -814,15 +861,10 @@ fun SettingsScreen(
                         var newSymbol by remember { mutableStateOf("") }
 
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(
-                                text = "Script TL (.txt / .docx)",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Simbol = awalan baris (cocok terpanjang). Gabung = teks digabung ke entri sebelumnya (satu balon). Terhubung = entri baru untuk balon/kotak berikutnya yang tersambung (mis. //-). Preset = style saat baris dimasukkan.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            SettingsPageHeader(
+                                icon = Icons.Default.Code,
+                                title = "Script TL",
+                                subtitle = "Simbol = awalan baris. Gabung = satu balon. Terhubung = balon berikutnya."
                             )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1164,6 +1206,45 @@ private fun queryDisplayName(context: Context, uri: Uri): String? {
 }
 
 @Composable
+private fun SettingsPageHeader(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.primaryContainer
+        ) {
+            Box(modifier = Modifier.size(46.dp), contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
 fun ThemeOptionCard(    label: String,
     selected: Boolean,
     onClick: () -> Unit
@@ -1175,8 +1256,13 @@ fun ThemeOptionCard(    label: String,
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-        )
+            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer
+        ),
+        border = if (selected) {
+            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+        } else {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        }
     ) {
         Row(
             modifier = Modifier

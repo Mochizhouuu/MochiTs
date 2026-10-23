@@ -18,6 +18,41 @@ enum class TextContainerShape {
     OVAL
 }
 
+/**
+ * Mode blending layer, dipetakan ke android.graphics.BlendMode (API 29+).
+ * Nama mengikuti istilah Photoshop agar familiar.
+ */
+enum class LayerBlendMode(val label: String) {
+    NORMAL("Normal"),
+    DARKEN("Darken"),
+    MULTIPLY("Multiply"),
+    COLOR_BURN("Color Burn"),
+    LIGHTEN("Lighten"),
+    SCREEN("Screen"),
+    COLOR_DODGE("Color Dodge"),
+    OVERLAY("Overlay"),
+    SOFT_LIGHT("Soft Light"),
+    HARD_LIGHT("Hard Light"),
+    DIFFERENCE("Difference"),
+    EXCLUSION("Exclusion"),
+    HUE("Hue"),
+    SATURATION("Saturation"),
+    COLOR("Color"),
+    LUMINOSITY("Luminosity")
+}
+
+enum class RadialBlurMode(val label: String) {
+    SPIN("Putar"),
+    ZOOM("Zoom")
+}
+
+enum class TexturePreset(val label: String) {
+    NONE("Nonaktif"),
+    GRAIN("Grain"),
+    PAPER("Kertas"),
+    CANVAS("Kanvas")
+}
+
 enum class EditorPanel {
     NONE,
     MASK,
@@ -104,7 +139,14 @@ data class TextStyleConfig(
     val gradientDirection: String = "HORIZONTAL", // "HORIZONTAL", "VERTICAL"
     val gradientAngle: Float = 0f, // Angle in degrees (0-360)
     val motionBlurRadius: Float = 0f, // 0 = mati; px uji searah sudut
-    val motionBlurAngle: Float = 0f // Arah blur derajat (0-360), konvensi sama dgn gradientAngle
+    val motionBlurAngle: Float = 0f, // Arah blur derajat (0-360), konvensi sama dgn gradientAngle
+    // Radial blur: pusat mengikuti pusat blok teks, jadi tepi memutar/memancar.
+    val radialBlurStrength: Float = 0f, // 0..1
+    val radialBlurMode: RadialBlurMode = RadialBlurMode.SPIN,
+    // Texture overlay deterministik (tanpa aset eksternal).
+    val texturePreset: TexturePreset = TexturePreset.NONE,
+    val textureStrength: Float = 0f, // 0..1
+    val textureScale: Float = 1f // 0.5..4
 ) {
     fun calculateGradientPoints(x: Float, y: Float, width: Float, height: Float): FloatArray {
         val cx = x + width / 2f
@@ -142,7 +184,9 @@ sealed class Layer(
     open val scaleY: Float,
     open val opacity: Float,
     open val isVisible: Boolean,
-    open val isLocked: Boolean
+    open val isLocked: Boolean,
+    open val blendMode: LayerBlendMode,
+    open val clippingMask: Boolean
 ) {
     data class ImageLayer(
         override val id: String,
@@ -170,8 +214,17 @@ sealed class Layer(
         val perspQuad: List<Float>? = null,
         // Grid warp mesh 4x4 ternormalisasi [0..1], row-major (32 float).
         // null = mati. Eksklusif dengan perspQuad.
-        val meshGrid: List<Float>? = null
-    ) : Layer(id, name, x, y, rotation, scaleX, scaleY, opacity, isVisible, isLocked)
+        val meshGrid: List<Float>? = null,
+        override val blendMode: LayerBlendMode = LayerBlendMode.NORMAL,
+        override val clippingMask: Boolean = false,
+        val radialBlurStrength: Float = 0f,
+        val radialBlurMode: RadialBlurMode = RadialBlurMode.SPIN,
+        val radialBlurCenterX: Float = 0.5f,
+        val radialBlurCenterY: Float = 0.5f,
+        val texturePreset: TexturePreset = TexturePreset.NONE,
+        val textureStrength: Float = 0f,
+        val textureScale: Float = 1f
+    ) : Layer(id, name, x, y, rotation, scaleX, scaleY, opacity, isVisible, isLocked, blendMode, clippingMask)
 
     data class TextLayer(
         override val id: String,
@@ -196,6 +249,8 @@ sealed class Layer(
         val perspQuad: List<Float>? = null,
         // Grid warp mesh 4x4 ternormalisasi [0..1], row-major (32 float).
         // null = mati. Eksklusif dengan perspQuad.
-        val meshGrid: List<Float>? = null
-    ) : Layer(id, name, x, y, rotation, scaleX, scaleY, opacity, isVisible, isLocked)
+        val meshGrid: List<Float>? = null,
+        override val blendMode: LayerBlendMode = LayerBlendMode.NORMAL,
+        override val clippingMask: Boolean = false
+    ) : Layer(id, name, x, y, rotation, scaleX, scaleY, opacity, isVisible, isLocked, blendMode, clippingMask)
 }

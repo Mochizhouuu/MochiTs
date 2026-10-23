@@ -8,147 +8,147 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 // ═══════════════════════════════════════════════════════════════
-// Lavender Color Palette — Complete Material 3 Schema
+// MochiTs Blue Palette - selaras logo biru + putih
 // ═══════════════════════════════════════════════════════════════
 
 // Primary
-val LavenderPrimary = Color(0xFF7E57C2)
-val LavenderOnPrimary = Color(0xFFFFFFFF)
-val LavenderPrimaryContainer = Color(0xFFEDE7F6)
-val LavenderOnPrimaryContainer = Color(0xFF321959)
+val BluePrimary = Color(0xFF0A6EF0)
+val BlueOnPrimary = Color(0xFFFFFFFF)
+val BluePrimaryContainer = Color(0xFFD9E7FF)
+val BlueOnPrimaryContainer = Color(0xFF0B2B54)
 
 // Secondary
-val LavenderSecondary = Color(0xFF9575CD)
-val LavenderOnSecondary = Color(0xFFFFFFFF)
-val LavenderSecondaryContainer = Color(0xFFD1C4E9)
-val LavenderOnSecondaryContainer = Color(0xFF261247)
+val BlueSecondary = Color(0xFF3F6EA8)
+val BlueOnSecondary = Color(0xFFFFFFFF)
+val BlueSecondaryContainer = Color(0xFFD7E3FF)
+val BlueOnSecondaryContainer = Color(0xFF0D2A4A)
 
 // Tertiary
-val LavenderTertiary = Color(0xFFAB47BC)
-val LavenderOnTertiary = Color(0xFFFFFFFF)
-val LavenderTertiaryContainer = Color(0xFFF3E5F5)
-val LavenderOnTertiaryContainer = Color(0xFF4A148C)
+val BlueTertiary = Color(0xFF0077B6)
+val BlueOnTertiary = Color(0xFFFFFFFF)
+val BlueTertiaryContainer = Color(0xFFD0ECFF)
+val BlueOnTertiaryContainer = Color(0xFF00344F)
 
 // Error
-val LavenderError = Color(0xFFBA1A1A)
-val LavenderOnError = Color(0xFFFFFFFF)
-val LavenderErrorContainer = Color(0xFFFFDAD6)
-val LavenderOnErrorContainer = Color(0xFF410E0B)
+val BlueError = Color(0xFFBA1A1A)
+val BlueOnError = Color(0xFFFFFFFF)
+val BlueErrorContainer = Color(0xFFFFDAD6)
+val BlueOnErrorContainer = Color(0xFF410E0B)
 
 // Surface (Light)
-val LavenderBackground = Color(0xFFF9F8FD)
-val LavenderSurface = Color(0xFFFFFFFF)
-val LavenderSurfaceVariant = Color(0xFFF3EFEF)
-val LavenderSurfaceContainer = Color(0xFFF5F2FF)
-val LavenderSurfaceContainerHigh = Color(0xFFEFE9FF)
-val LavenderSurfaceContainerHighest = Color(0xFFE9E0FF)
-val LavenderOnSurface = Color(0xFF1D1B20)
-val LavenderOnSurfaceVariant = Color(0xFF49454F)
-val LavenderOutline = Color(0xFF79747E)
-val LavenderOutlineVariant = Color(0xFFCAC4D0)
-val LavenderInverseSurface = Color(0xFF322935)
-val LavenderInverseOnSurface = Color(0xFFF5EFF7)
-val LavenderInversePrimary = Color(0xFFD0BCFF)
+val BlueBackground = Color(0xFFF7F9FF)
+val BlueSurface = Color(0xFFFFFFFF)
+val BlueSurfaceVariant = Color(0xFFEEF2F9)
+val BlueSurfaceContainer = Color(0xFFF1F5FC)
+val BlueSurfaceContainerHigh = Color(0xFFE9F0FA)
+val BlueSurfaceContainerHighest = Color(0xFFE1EAF7)
+val BlueOnSurface = Color(0xFF111827)
+val BlueOnSurfaceVariant = Color(0xFF465366)
+val BlueOutline = Color(0xFF6F7B8F)
+val BlueOutlineVariant = Color(0xFFC6D0DF)
+val BlueInverseSurface = Color(0xFF28313D)
+val BlueInverseOnSurface = Color(0xFFEDF2FA)
+val BlueInversePrimary = Color(0xFFA9C7FF)
 
-// Dark Theme Colors — Defined BEFORE scheme to avoid forward reference
-val LavenderDarkPrimary = Color(0xFFD0BCFF)
-val LavenderDarkOnPrimary = Color(0xFF381E72)
-val LavenderDarkPrimaryContainer = Color(0xFF4F378B)
-val LavenderDarkOnPrimaryContainer = Color(0xFFEDE7F6)
-val LavenderDarkSecondary = Color(0xFFCCC2DC)
-val LavenderDarkOnSecondary = Color(0xFF332D41)
-val LavenderDarkSecondaryContainer = Color(0xFF4A4058)
-val LavenderDarkOnSecondaryContainer = Color(0xFFE8DEF8)
-val LavenderDarkTertiary = Color(0xFFEFB8C8)
-val LavenderDarkOnTertiary = Color(0xFF492532)
-val LavenderDarkTertiaryContainer = Color(0xFF633B48)
-val LavenderDarkOnTertiaryContainer = Color(0xFFF9D8E4)
-val LavenderDarkError = Color(0xFFFFB4AB)
-val LavenderDarkOnError = Color(0xFF690005)
-val LavenderDarkErrorContainer = Color(0xFF93000A)
-val LavenderDarkOnErrorContainer = Color(0xFFFFDAD6)
+// Dark Theme Colors
+val BlueDarkPrimary = Color(0xFFA9C7FF)
+val BlueDarkOnPrimary = Color(0xFF002E63)
+val BlueDarkPrimaryContainer = Color(0xFF0B4A8F)
+val BlueDarkOnPrimaryContainer = Color(0xFFD9E7FF)
+val BlueDarkSecondary = Color(0xFFB4C7E7)
+val BlueDarkOnSecondary = Color(0xFF1F3A5F)
+val BlueDarkSecondaryContainer = Color(0xFF2A4468)
+val BlueDarkOnSecondaryContainer = Color(0xFFD7E3FF)
+val BlueDarkTertiary = Color(0xFF80D4F5)
+val BlueDarkOnTertiary = Color(0xFF003544)
+val BlueDarkTertiaryContainer = Color(0xFF004D63)
+val BlueDarkOnTertiaryContainer = Color(0xFFD0ECFF)
+val BlueDarkError = Color(0xFFFFB4AB)
+val BlueDarkOnError = Color(0xFF690005)
+val BlueDarkErrorContainer = Color(0xFF93000A)
+val BlueDarkOnErrorContainer = Color(0xFFFFDAD6)
 
 // Surface (Dark)
-val LavenderDarkBackground = Color(0xFF141218)
-val LavenderDarkSurface = Color(0xFF1D1B24)
-val LavenderDarkSurfaceVariant = Color(0xFF2D2938)
-val LavenderDarkSurfaceContainer = Color(0xFF25232D)
-val LavenderDarkSurfaceContainerHigh = Color(0xFF2F2C39)
-val LavenderDarkSurfaceContainerHighest = Color(0xFF3A3744)
-val LavenderDarkOnSurface = Color(0xFFE6E0E9)
-val LavenderDarkOnSurfaceVariant = Color(0xFFCAC4D0)
-val LavenderDarkOutline = Color(0xFF938F99)
-val LavenderDarkOutlineVariant = Color(0xFF49454F)
-val LavenderDarkInverseSurface = Color(0xFFE6E0E9)
-val LavenderDarkInverseOnSurface = Color(0xFF322935)
-val LavenderDarkInversePrimary = Color(0xFF7E57C2)
+val BlueDarkBackground = Color(0xFF0F141D)
+val BlueDarkSurface = Color(0xFF151C27)
+val BlueDarkSurfaceVariant = Color(0xFF263243)
+val BlueDarkSurfaceContainer = Color(0xFF1C2532)
+val BlueDarkSurfaceContainerHigh = Color(0xFF243042)
+val BlueDarkSurfaceContainerHighest = Color(0xFF2C3A4E)
+val BlueDarkOnSurface = Color(0xFFE5ECF6)
+val BlueDarkOnSurfaceVariant = Color(0xFFBDC9DA)
+val BlueDarkOutline = Color(0xFF8796AA)
+val BlueDarkOutlineVariant = Color(0xFF3C4A5D)
+val BlueDarkInverseSurface = Color(0xFFE5ECF6)
+val BlueDarkInverseOnSurface = Color(0xFF28313D)
+val BlueDarkInversePrimary = Color(0xFF0A6EF0)
 
 // ═══════════════════════════════════════════════════════════════
 // Color Schemes
 // ═══════════════════════════════════════════════════════════════
 
-val LightLavenderColorScheme = lightColorScheme(
-    primary = LavenderPrimary,
-    onPrimary = LavenderOnPrimary,
-    primaryContainer = LavenderPrimaryContainer,
-    onPrimaryContainer = LavenderOnPrimaryContainer,
-    secondary = LavenderSecondary,
-    onSecondary = LavenderOnSecondary,
-    secondaryContainer = LavenderSecondaryContainer,
-    onSecondaryContainer = LavenderOnSecondaryContainer,
-    tertiary = LavenderTertiary,
-    onTertiary = LavenderOnTertiary,
-    tertiaryContainer = LavenderTertiaryContainer,
-    onTertiaryContainer = LavenderOnTertiaryContainer,
-    error = LavenderError,
-    onError = LavenderOnError,
-    errorContainer = LavenderErrorContainer,
-    onErrorContainer = LavenderOnErrorContainer,
-    background = LavenderBackground,
-    surface = LavenderSurface,
-    onSurface = LavenderOnSurface,
-    surfaceVariant = LavenderSurfaceVariant,
-    onSurfaceVariant = LavenderOnSurfaceVariant,
-    surfaceContainer = LavenderSurfaceContainer,
-    surfaceContainerHigh = LavenderSurfaceContainerHigh,
-    surfaceContainerHighest = LavenderSurfaceContainerHighest,
-    outline = LavenderOutline,
-    outlineVariant = LavenderOutlineVariant,
-    inverseSurface = LavenderInverseSurface,
-    inverseOnSurface = LavenderInverseOnSurface,
-    inversePrimary = LavenderInversePrimary
+val LightBlueColorScheme = lightColorScheme(
+    primary = BluePrimary,
+    onPrimary = BlueOnPrimary,
+    primaryContainer = BluePrimaryContainer,
+    onPrimaryContainer = BlueOnPrimaryContainer,
+    secondary = BlueSecondary,
+    onSecondary = BlueOnSecondary,
+    secondaryContainer = BlueSecondaryContainer,
+    onSecondaryContainer = BlueOnSecondaryContainer,
+    tertiary = BlueTertiary,
+    onTertiary = BlueOnTertiary,
+    tertiaryContainer = BlueTertiaryContainer,
+    onTertiaryContainer = BlueOnTertiaryContainer,
+    error = BlueError,
+    onError = BlueOnError,
+    errorContainer = BlueErrorContainer,
+    onErrorContainer = BlueOnErrorContainer,
+    background = BlueBackground,
+    surface = BlueSurface,
+    onSurface = BlueOnSurface,
+    surfaceVariant = BlueSurfaceVariant,
+    onSurfaceVariant = BlueOnSurfaceVariant,
+    surfaceContainer = BlueSurfaceContainer,
+    surfaceContainerHigh = BlueSurfaceContainerHigh,
+    surfaceContainerHighest = BlueSurfaceContainerHighest,
+    outline = BlueOutline,
+    outlineVariant = BlueOutlineVariant,
+    inverseSurface = BlueInverseSurface,
+    inverseOnSurface = BlueInverseOnSurface,
+    inversePrimary = BlueInversePrimary
 )
 
-val DarkLavenderColorScheme = darkColorScheme(
-    primary = LavenderDarkPrimary,
-    onPrimary = LavenderDarkOnPrimary,
-    primaryContainer = LavenderDarkPrimaryContainer,
-    onPrimaryContainer = LavenderDarkOnPrimaryContainer,
-    secondary = LavenderDarkSecondary,
-    onSecondary = LavenderDarkOnSecondary,
-    secondaryContainer = LavenderDarkSecondaryContainer,
-    onSecondaryContainer = LavenderDarkOnSecondaryContainer,
-    tertiary = LavenderDarkTertiary,
-    onTertiary = LavenderDarkOnTertiary,
-    tertiaryContainer = LavenderDarkTertiaryContainer,
-    onTertiaryContainer = LavenderDarkOnTertiaryContainer,
-    error = LavenderDarkError,
-    onError = LavenderDarkOnError,
-    errorContainer = LavenderDarkErrorContainer,
-    onErrorContainer = LavenderDarkOnErrorContainer,
-    background = LavenderDarkBackground,
-    surface = LavenderDarkSurface,
-    onSurface = LavenderDarkOnSurface,
-    surfaceVariant = LavenderDarkSurfaceVariant,
-    onSurfaceVariant = LavenderDarkOnSurfaceVariant,
-    surfaceContainer = LavenderDarkSurfaceContainer,
-    surfaceContainerHigh = LavenderDarkSurfaceContainerHigh,
-    surfaceContainerHighest = LavenderDarkSurfaceContainerHighest,
-    outline = LavenderDarkOutline,
-    outlineVariant = LavenderDarkOutlineVariant,
-    inverseSurface = LavenderDarkInverseSurface,
-    inverseOnSurface = LavenderDarkInverseOnSurface,
-    inversePrimary = LavenderDarkInversePrimary
+val DarkBlueColorScheme = darkColorScheme(
+    primary = BlueDarkPrimary,
+    onPrimary = BlueDarkOnPrimary,
+    primaryContainer = BlueDarkPrimaryContainer,
+    onPrimaryContainer = BlueDarkOnPrimaryContainer,
+    secondary = BlueDarkSecondary,
+    onSecondary = BlueDarkOnSecondary,
+    secondaryContainer = BlueDarkSecondaryContainer,
+    onSecondaryContainer = BlueDarkOnSecondaryContainer,
+    tertiary = BlueDarkTertiary,
+    onTertiary = BlueDarkOnTertiary,
+    tertiaryContainer = BlueDarkTertiaryContainer,
+    onTertiaryContainer = BlueDarkOnTertiaryContainer,
+    error = BlueDarkError,
+    onError = BlueDarkOnError,
+    errorContainer = BlueDarkErrorContainer,
+    onErrorContainer = BlueDarkOnErrorContainer,
+    background = BlueDarkBackground,
+    surface = BlueDarkSurface,
+    onSurface = BlueDarkOnSurface,
+    surfaceVariant = BlueDarkSurfaceVariant,
+    onSurfaceVariant = BlueDarkOnSurfaceVariant,
+    surfaceContainer = BlueDarkSurfaceContainer,
+    surfaceContainerHigh = BlueDarkSurfaceContainerHigh,
+    surfaceContainerHighest = BlueDarkSurfaceContainerHighest,
+    outline = BlueDarkOutline,
+    outlineVariant = BlueDarkOutlineVariant,
+    inverseSurface = BlueDarkInverseSurface,
+    inverseOnSurface = BlueDarkInverseOnSurface,
+    inversePrimary = BlueDarkInversePrimary
 )
 
 // ═══════════════════════════════════════════════════════════════
@@ -172,7 +172,7 @@ fun MochiTsTheme(
         AppThemeMode.DARK -> true
     }
 
-    val colorScheme = if (darkTheme) DarkLavenderColorScheme else LightLavenderColorScheme
+    val colorScheme = if (darkTheme) DarkBlueColorScheme else LightBlueColorScheme
 
     MaterialTheme(
         colorScheme = colorScheme,

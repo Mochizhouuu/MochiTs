@@ -843,6 +843,9 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onSliderDragEnd = { viewModel.onSliderDragEnd() },
                         onStartEyedropper = { onColorSelected -> viewModel.startEyedropper(onColorSelected) },
                         onUpdateImageLayer = { updated -> viewModel.updateImageLayer(updated, false) },
+                        canClip = layers.indexOfFirst { it.id == selectedLayerId } > 0,
+                        onUpdateBlendMode = { viewModel.updateSelectedLayerBlendMode(it) },
+                        onToggleClipping = { selectedLayerId?.let { viewModel.toggleLayerClippingMask(it) } },
                         perspEditId = perspEditId,
                         onTogglePerspEdit = { id ->
                             viewModel.setPerspEdit(if (viewModel.perspEditId.value == id) null else id)
@@ -865,6 +868,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onToggleVisibility = { viewModel.toggleLayerVisibility(it) },
                         onDeleteLayer = { viewModel.deleteLayer(it) },
                         onDuplicateLayer = { viewModel.duplicateLayer(it) },
+                        onToggleClipping = { viewModel.toggleLayerClippingMask(it) },
                         onLoadBaseImage = { baseImagePickerLauncher.launch("image/*") },
                         onDuplicateBackground = { viewModel.duplicateBackground() },
                         isCollapsed = EditorPanel.LAYERS in collapsedPanels,
@@ -1886,20 +1890,34 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
 
 
 
-                    layers.forEach { layer ->
+                    var clipBase: Layer? = null
+                    layers.forEach layerLoop@ { layer ->
+                        if (!layer.clippingMask) clipBase = layer
+                        val maskBase = if (layer.clippingMask) clipBase else null
+                        if (layer.clippingMask && (maskBase == null || !maskBase.isVisible)) {
+                            return@layerLoop
+                        }
+                        val clipW = baseBitmap?.width ?: (project?.width ?: 1080)
+                        val clipH = baseBitmap?.height ?: (project?.height ?: 1920)
+                        val clipMask = if (layer.clippingMask && maskBase != null && layer.isVisible) {
+                            viewModel.clipMaskCache.maskFor(maskBase, clipW, clipH)
+                        } else null
                         if (layer.isVisible) {
                             when (layer) {
                                 is Layer.TextLayer -> {
                                     val layerAlpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
-                                    val alphaPaint = alphaPaintCache.apply {
-                                        alpha = layerAlpha
-                                    }
-                                    // Opacity penuh: save() biasa (tanpa buffer offscreen
-                                    // saveLayer yang mahal tiap frame).
-                                    val count = if (layerAlpha >= 255) {
-                                        drawContext.canvas.nativeCanvas.save()
+                                    // saveLayer hanya bila perlu opacity/blend/clipping;
+                                    // layer normal penuh tetap jalur cepat save().
+                                    val needsLayer = layerAlpha < 255 ||
+                                        layer.blendMode != com.mochits.app.model.LayerBlendMode.NORMAL ||
+                                        clipMask != null
+                                    val count = if (needsLayer) {
+                                        drawContext.canvas.nativeCanvas.saveLayer(
+                                            null,
+                                            LayerCompositing.layerPaint(layerAlpha, layer.blendMode)
+                                        )
                                     } else {
-                                        drawContext.canvas.nativeCanvas.saveLayer(null, alphaPaint)
+                                        drawContext.canvas.nativeCanvas.save()
                                     }
 
                                     val bounds: RectF = textRenderer.getTextBounds(layer)
@@ -2145,12 +2163,32 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                     }
 
                                     drawContext.canvas.nativeCanvas.restore()
+                                    if (clipMask != null) {
+                                        LayerCompositing.applyClipMask(
+                                            drawContext.canvas.nativeCanvas,
+                                            clipMask,
+                                            clipW,
+                                            clipH
+                                        )
+                                    }
                                     drawContext.canvas.nativeCanvas.restoreToCount(count)
                                 }
                                 is Layer.ImageLayer -> {
                                     val imgBmp = viewModel.resolveImageBitmap(layer)
                                     if (imgBmp != null && !imgBmp.isRecycled) {
                                         val layerAlpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
+                                        val needsLayer = layerAlpha < 255 ||
+                                            layer.blendMode != com.mochits.app.model.LayerBlendMode.NORMAL ||
+                                            clipMask != null
+                                        val count = if (needsLayer) {
+                                            drawContext.canvas.nativeCanvas.saveLayer(
+                                                null,
+                                                LayerCompositing.layerPaint(layerAlpha, layer.blendMode)
+                                            )
+                                        } else {
+                                            drawContext.canvas.nativeCanvas.save()
+                                        }
+                                        val contentAlpha = if (needsLayer) 255 else layerAlpha
                                         val imgQuad = layer.perspQuad
                                         val imgQuadActive = imgQuad != null &&
                                             com.mochits.app.imaging.Perspective.isActive(imgQuad)
@@ -2164,7 +2202,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                     viewModel.resolveWarpedImageGlow(layer)?.let { ge ->
                                                         val gsc = ge.scale.coerceAtLeast(1e-6f)
                                                         val glowPaint = perspPaintCache.apply {
-                                                            alpha = layerAlpha
+                                                            alpha = contentAlpha
                                                             colorFilter = null
                                                         }
                                                         drawContext.canvas.nativeCanvas.drawBitmap(
@@ -2188,7 +2226,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                     viewModel.meshGlowData(layer)?.let { mg ->
                                                         if (!mg.bitmap.isRecycled) {
                                                             val glowPaint = perspPaintCache.apply {
-                                                                alpha = layerAlpha
+                                                                alpha = contentAlpha
                                                                 colorFilter = null
                                                             }
                                                             com.mochits.app.imaging.Perspective.drawMeshBitmap(
@@ -2208,7 +2246,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                             viewModel.resolveImageGlow(layer)?.let { (glowBmp, pad) ->
                                                 if (!glowBmp.isRecycled) {
                                                     val glowPaint = alphaPaintCache.apply {
-                                                        alpha = layerAlpha
+                                                        alpha = contentAlpha
                                                         colorFilter = null
                                                     }
                                                     drawContext.canvas.nativeCanvas.drawBitmap(
@@ -2218,7 +2256,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                             }
                                         }
                                         val imgPaint = alphaPaintCache.apply {
-                                            alpha = layerAlpha
+                                            alpha = contentAlpha
                                             colorFilter = com.mochits.app.imaging.ImageEffects.imageColorFilter(
                                                 layer.grayscale, layer.brightness, layer.contrast
                                             )
@@ -2230,7 +2268,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                         if (imgWarped != null) {
                                             val sc = imgWarped.scale.coerceAtLeast(1e-6f)
                                             val warpPaint = perspPaintCache.apply {
-                                                alpha = layerAlpha
+                                                alpha = contentAlpha
                                                 colorFilter = imgPaint.colorFilter
                                             }
                                             drawContext.canvas.nativeCanvas.drawBitmap(
@@ -2246,7 +2284,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                             )
                                         } else {
                                             val meshPaint = perspPaintCache.apply {
-                                                alpha = layerAlpha
+                                                alpha = contentAlpha
                                                 colorFilter = imgPaint.colorFilter
                                             }
                                             // Warp mesh langsung full-res; fallback ke normal.
@@ -2262,6 +2300,15 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                 drawContext.canvas.nativeCanvas.drawBitmap(imgBmp, layer.x, layer.y, imgPaint)
                                             }
                                         }
+                                        if (clipMask != null) {
+                                            LayerCompositing.applyClipMask(
+                                                drawContext.canvas.nativeCanvas,
+                                                clipMask,
+                                                clipW,
+                                                clipH
+                                            )
+                                        }
+                                        drawContext.canvas.nativeCanvas.restoreToCount(count)
                                     }
                                 }
                             }
@@ -2867,7 +2914,7 @@ fun EraseToolPanel(
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (isCollapsed) Modifier.heightIn(max = 120.dp) else Modifier.height(250.dp))
+            .then(if (isCollapsed) Modifier.heightIn(max = 120.dp) else Modifier.height(290.dp))
     ) {
         Column(
             modifier = Modifier
@@ -2889,11 +2936,18 @@ fun EraseToolPanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Erase",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Column {
+                    Text(
+                        text = "Hapus Objek",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Seleksi area, lalu hapus dengan Telea atau LaMa.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 IconButton(
                     onClick = onToggleCollapse,
                     modifier = Modifier.size(28.dp)
@@ -2908,26 +2962,45 @@ fun EraseToolPanel(
             if (!isCollapsed) {
             Spacer(modifier = Modifier.height(2.dp))
 
-            SectionCard(title = "Tool") {
-                OptionCycler(
-                        label = "Tool",
-                        options = listOf(
-                            MaskToolMode.BRUSH,
-                            MaskToolMode.ERASER,
-                            MaskToolMode.LASSO,
-                            MaskToolMode.MAGIC_WAND
-                        ),
-                        selected = mode,
-                        onSelect = onModeSelected,
-                        labelOf = {
-                            when (it) {
-                                MaskToolMode.BRUSH -> "Brush"
-                                MaskToolMode.ERASER -> "Eraser"
-                                MaskToolMode.LASSO -> "Lasso"
-                                MaskToolMode.MAGIC_WAND -> "Magic Wand"
+            SectionCard(title = "Alat Seleksi") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        MaskToolMode.BRUSH,
+                        MaskToolMode.ERASER,
+                        MaskToolMode.LASSO,
+                        MaskToolMode.MAGIC_WAND
+                    ).forEach { tool ->
+                        FilterChip(
+                            selected = mode == tool,
+                            onClick = { onModeSelected(tool) },
+                            label = {
+                                Text(
+                                    when (tool) {
+                                        MaskToolMode.BRUSH -> "Brush"
+                                        MaskToolMode.ERASER -> "Eraser"
+                                        MaskToolMode.LASSO -> "Lasso"
+                                        MaskToolMode.MAGIC_WAND -> "Magic Wand"
+                                    }
+                                )
                             }
-                        }
-                    )
+                        )
+                    }
+                }
+                Text(
+                    text = when (mode) {
+                        MaskToolMode.BRUSH -> "Brush menambah area seleksi."
+                        MaskToolMode.ERASER -> "Eraser mengurangi area seleksi, bukan menghapus gambar."
+                        MaskToolMode.LASSO -> "Tarik untuk membuat seleksi bebas."
+                        MaskToolMode.MAGIC_WAND -> "Ketuk objek untuk memilih area berwarna mirip."
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
                 Spacer(modifier = Modifier.height(2.dp))
@@ -2968,32 +3041,47 @@ fun EraseToolPanel(
                 Spacer(modifier = Modifier.height(2.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedButton(
                         onClick = onClear,
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
-                    ) { Text("Bersihkan", style = MaterialTheme.typography.labelLarge) }
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) {
+                        Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Bersihkan", style = MaterialTheme.typography.labelLarge)
+                    }
                     OutlinedButton(
                         onClick = onInvert,
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
-                    ) { Text("Balik", style = MaterialTheme.typography.labelLarge) }
-                    Button(
-                        onClick = onRunErase,
-                        enabled = !isProcessing && !isDownloading && hasMask,
                         modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                     ) {
-                        if (isProcessing) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Proses...")
-                        } else {
-                            Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Hapus")
-                        }
+                        Icon(Icons.Default.Flip, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Invert Seleksi", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+                Text(
+                    text = "Invert Seleksi menukar area terpilih dengan area di luarnya.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Button(
+                    onClick = onRunErase,
+                    enabled = !isProcessing && !isDownloading && hasMask,
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    if (isProcessing) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Memproses...")
+                    } else {
+                        Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(if (hasMask) "Hapus Area Terpilih" else "Seleksi Area Dulu")
                     }
                 }
 
@@ -3700,7 +3788,9 @@ private enum class EffectType {
     IMAGE_MOTION_BLUR,
     IMAGE_GLOW,
     IMAGE_PERSPECTIVE,
-    IMAGE_WARP
+    IMAGE_WARP,
+    RADIAL_BLUR,
+    TEXTURE
 }
 
 /**
@@ -3804,6 +3894,9 @@ fun EffectToolPanel(
     selectedLayer: Layer?,
     onUpdateOpacity: (Float, Boolean) -> Unit,
     onUpdateStyle: (TextStyleConfig, Boolean) -> Unit,
+    canClip: Boolean = true,
+    onUpdateBlendMode: (com.mochits.app.model.LayerBlendMode) -> Unit = {},
+    onToggleClipping: (() -> Unit)? = null,
     onSliderDragStart: () -> Unit = {},
     onSliderDragEnd: () -> Unit = {},
     onStartEyedropper: ((Int) -> Unit) -> Unit = {},
@@ -3885,9 +3978,9 @@ fun EffectToolPanel(
             } else {
                 val availableEffects = remember(selectedLayer) {
                     if (selectedLayer is Layer.TextLayer) {
-                        listOf(EffectType.OPACITY, EffectType.TEXT_COLOR, EffectType.STROKE, EffectType.DROP_SHADOW, EffectType.MOTION_BLUR, EffectType.GLOW, EffectType.PERSPECTIVE, EffectType.WARP)
+                        listOf(EffectType.OPACITY, EffectType.TEXT_COLOR, EffectType.STROKE, EffectType.DROP_SHADOW, EffectType.MOTION_BLUR, EffectType.RADIAL_BLUR, EffectType.TEXTURE, EffectType.GLOW, EffectType.PERSPECTIVE, EffectType.WARP)
                     } else if (selectedLayer is Layer.ImageLayer) {
-                        listOf(EffectType.OPACITY, EffectType.IMAGE_TONE, EffectType.IMAGE_MOTION_BLUR, EffectType.IMAGE_GLOW, EffectType.IMAGE_PERSPECTIVE, EffectType.IMAGE_WARP)
+                        listOf(EffectType.OPACITY, EffectType.IMAGE_TONE, EffectType.IMAGE_MOTION_BLUR, EffectType.RADIAL_BLUR, EffectType.TEXTURE, EffectType.IMAGE_GLOW, EffectType.IMAGE_PERSPECTIVE, EffectType.IMAGE_WARP)
                     } else {
                         listOf(EffectType.OPACITY)
                     }
@@ -3900,7 +3993,9 @@ fun EffectToolPanel(
                     items(availableEffects) { effect ->
                         val isSelected = expandedEffect == effect
                         val isActive = when (effect) {
-                            EffectType.OPACITY -> selectedLayer.opacity < 1.0f
+                            EffectType.OPACITY -> selectedLayer.opacity < 1.0f ||
+                                selectedLayer.blendMode != com.mochits.app.model.LayerBlendMode.NORMAL ||
+                                selectedLayer.clippingMask
                             EffectType.TEXT_COLOR -> if (selectedLayer is Layer.TextLayer) {
                                 selectedLayer.style.isGradientEnabled ||
                                 selectedLayer.style.textColor != AndroidColor.BLACK ||
@@ -3947,6 +4042,16 @@ fun EffectToolPanel(
                             EffectType.IMAGE_WARP -> if (selectedLayer is Layer.ImageLayer) {
                                 com.mochits.app.imaging.Perspective.isMeshActive(selectedLayer.meshGrid)
                             } else false
+                            EffectType.RADIAL_BLUR -> when (selectedLayer) {
+                                is Layer.TextLayer -> selectedLayer.style.radialBlurStrength > 0f
+                                is Layer.ImageLayer -> selectedLayer.radialBlurStrength > 0f
+                            }
+                            EffectType.TEXTURE -> when (selectedLayer) {
+                                is Layer.TextLayer -> selectedLayer.style.texturePreset != com.mochits.app.model.TexturePreset.NONE &&
+                                    selectedLayer.style.textureStrength > 0f
+                                is Layer.ImageLayer -> selectedLayer.texturePreset != com.mochits.app.model.TexturePreset.NONE &&
+                                    selectedLayer.textureStrength > 0f
+                            }
                         }
 
                         val (icon, title) = when (effect) {
@@ -3963,6 +4068,8 @@ fun EffectToolPanel(
                             EffectType.IMAGE_GLOW -> Icons.Default.BlurCircular to "Glow"
                             EffectType.IMAGE_PERSPECTIVE -> Icons.Default.Transform to "Perspective"
                             EffectType.IMAGE_WARP -> Icons.Default.GridOn to "Warp"
+                            EffectType.RADIAL_BLUR -> Icons.Default.RotateRight to "Radial Blur"
+                            EffectType.TEXTURE -> Icons.Default.Texture to "Texture"
                         }
 
                         Card(
@@ -4040,6 +4147,34 @@ fun EffectToolPanel(
                                     },
                                     valueRange = 0f..1f
                                 )
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+                                OptionCycler(
+                                    label = "Blend",
+                                    options = com.mochits.app.model.LayerBlendMode.values().toList(),
+                                    selected = selectedLayer.blendMode,
+                                    onSelect = onUpdateBlendMode,
+                                    labelOf = { it.label }
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Clipping Mask", style = MaterialTheme.typography.bodyMedium)
+                                        Text(
+                                            if (canClip) "Potong layer ini mengikuti alpha layer di bawahnya."
+                                            else "Butuh layer dasar di bawahnya.",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Switch(
+                                        checked = selectedLayer.clippingMask,
+                                        onCheckedChange = { onToggleClipping?.invoke() },
+                                        enabled = canClip
+                                    )
+                                }
                             }
                             EffectType.TEXT_COLOR -> {
                                 if (selectedLayer is Layer.TextLayer) {
@@ -4494,6 +4629,155 @@ fun EffectToolPanel(
                                     )
                                 }
                             }
+                            EffectType.RADIAL_BLUR -> {
+                                when (selectedLayer) {
+                                    is Layer.TextLayer -> {
+                                        val st = selectedLayer.style
+                                        Text(
+                                            "Radial blur berpusat di tengah teks; bagian tengah tetap tajam.",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        OptionCycler(
+                                            label = "Mode",
+                                            options = com.mochits.app.model.RadialBlurMode.values().toList(),
+                                            selected = st.radialBlurMode,
+                                            onSelect = { onUpdateStyle(st.copy(radialBlurMode = it), true) },
+                                            labelOf = { it.label }
+                                        )
+                                        Text("Kekuatan: ${(st.radialBlurStrength * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                                        Slider(
+                                            value = st.radialBlurStrength,
+                                            onValueChange = {
+                                                onSliderDragStart()
+                                                onUpdateStyle(st.copy(radialBlurStrength = it), false)
+                                            },
+                                            onValueChangeFinished = { onSliderDragEnd() },
+                                            valueRange = 0f..1f
+                                        )
+                                    }
+                                    is Layer.ImageLayer -> if (onUpdateImageLayer != null) {
+                                        Text(
+                                            "Radial blur berpusat di titik kontrol; bagian tengah tetap tajam.",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        OptionCycler(
+                                            label = "Mode",
+                                            options = com.mochits.app.model.RadialBlurMode.values().toList(),
+                                            selected = selectedLayer.radialBlurMode,
+                                            onSelect = {
+                                                onSliderDragStart()
+                                                onUpdateImageLayer(selectedLayer.copy(radialBlurMode = it))
+                                                onSliderDragEnd()
+                                            },
+                                            labelOf = { it.label }
+                                        )
+                                        Text("Kekuatan: ${(selectedLayer.radialBlurStrength * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                                        Slider(
+                                            value = selectedLayer.radialBlurStrength,
+                                            onValueChange = {
+                                                onSliderDragStart()
+                                                onUpdateImageLayer(selectedLayer.copy(radialBlurStrength = it))
+                                            },
+                                            onValueChangeFinished = { onSliderDragEnd() },
+                                            valueRange = 0f..1f
+                                        )
+                                        Text("Pusat X: ${(selectedLayer.radialBlurCenterX * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                                        Slider(
+                                            value = selectedLayer.radialBlurCenterX,
+                                            onValueChange = {
+                                                onSliderDragStart()
+                                                onUpdateImageLayer(selectedLayer.copy(radialBlurCenterX = it))
+                                            },
+                                            onValueChangeFinished = { onSliderDragEnd() },
+                                            valueRange = 0f..1f
+                                        )
+                                        Text("Pusat Y: ${(selectedLayer.radialBlurCenterY * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                                        Slider(
+                                            value = selectedLayer.radialBlurCenterY,
+                                            onValueChange = {
+                                                onSliderDragStart()
+                                                onUpdateImageLayer(selectedLayer.copy(radialBlurCenterY = it))
+                                            },
+                                            onValueChangeFinished = { onSliderDragEnd() },
+                                            valueRange = 0f..1f
+                                        )
+                                    }
+                                }
+                            }
+                            EffectType.TEXTURE -> {
+                                when (selectedLayer) {
+                                    is Layer.TextLayer -> {
+                                        val st = selectedLayer.style
+                                        OptionCycler(
+                                            label = "Jenis",
+                                            options = com.mochits.app.model.TexturePreset.values().toList(),
+                                            selected = st.texturePreset,
+                                            onSelect = { onUpdateStyle(st.copy(texturePreset = it), true) },
+                                            labelOf = { it.label }
+                                        )
+                                        Text("Kekuatan: ${(st.textureStrength * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                                        Slider(
+                                            value = st.textureStrength,
+                                            onValueChange = {
+                                                onSliderDragStart()
+                                                onUpdateStyle(st.copy(textureStrength = it), false)
+                                            },
+                                            onValueChangeFinished = { onSliderDragEnd() },
+                                            valueRange = 0f..1f
+                                        )
+                                        Text("Skala: ${String.format(java.util.Locale.US, "%.1f", st.textureScale)}x", style = MaterialTheme.typography.bodySmall)
+                                        Slider(
+                                            value = st.textureScale,
+                                            onValueChange = {
+                                                onSliderDragStart()
+                                                onUpdateStyle(st.copy(textureScale = it), false)
+                                            },
+                                            onValueChangeFinished = { onSliderDragEnd() },
+                                            valueRange = 0.5f..4f
+                                        )
+                                    }
+                                    is Layer.ImageLayer -> if (onUpdateImageLayer != null) {
+                                        OptionCycler(
+                                            label = "Jenis",
+                                            options = com.mochits.app.model.TexturePreset.values().toList(),
+                                            selected = selectedLayer.texturePreset,
+                                            onSelect = {
+                                                onSliderDragStart()
+                                                onUpdateImageLayer(selectedLayer.copy(texturePreset = it))
+                                                onSliderDragEnd()
+                                            },
+                                            labelOf = { it.label }
+                                        )
+                                        Text("Kekuatan: ${(selectedLayer.textureStrength * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                                        Slider(
+                                            value = selectedLayer.textureStrength,
+                                            onValueChange = {
+                                                onSliderDragStart()
+                                                onUpdateImageLayer(selectedLayer.copy(textureStrength = it))
+                                            },
+                                            onValueChangeFinished = { onSliderDragEnd() },
+                                            valueRange = 0f..1f
+                                        )
+                                        Text("Skala: ${String.format(java.util.Locale.US, "%.1f", selectedLayer.textureScale)}x", style = MaterialTheme.typography.bodySmall)
+                                        Slider(
+                                            value = selectedLayer.textureScale,
+                                            onValueChange = {
+                                                onSliderDragStart()
+                                                onUpdateImageLayer(selectedLayer.copy(textureScale = it))
+                                            },
+                                            onValueChangeFinished = { onSliderDragEnd() },
+                                            valueRange = 0.5f..4f
+                                        )
+                                        Text(
+                                            "Diproses di latar; hasil muncul setelah slider dilepas.",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
                             EffectType.PERSPECTIVE -> {
                                 if (selectedLayer is Layer.TextLayer) {
                                     PerspectivePanel(
@@ -4868,6 +5152,7 @@ fun LayersToolPanel(
     onToggleVisibility: (String) -> Unit,
     onDeleteLayer: (String) -> Unit,
     onDuplicateLayer: (String) -> Unit,
+    onToggleClipping: (String) -> Unit = {},
     onLoadBaseImage: () -> Unit = {},
     onDuplicateBackground: () -> Unit = {},
     backgroundLabel: String = "",
@@ -4949,6 +5234,7 @@ fun LayersToolPanel(
                 // front), so "Naik" (toward front) moves the row upward.
                 items(layers.reversed(), key = { it.id }) { layer ->
                     val isSelected = layer.id == selectedId
+                    val canClip = layers.indexOfFirst { it.id == layer.id } > 0
                     Card(
                         colors = CardDefaults.cardColors(
                             containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
@@ -4983,8 +5269,29 @@ fun LayersToolPanel(
                                     modifier = Modifier.size(20.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                if (canClip) {
+                                    IconButton(
+                                        onClick = { onToggleClipping(layer.id) },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Link,
+                                            contentDescription = "Clipping mask",
+                                            modifier = Modifier.size(17.dp),
+                                            tint = if (layer.clippingMask) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                                            }
+                                        )
+                                    }
+                                }
                                 Text(
-                                    text = layer.name + " • ${(layer.opacity * 100).toInt()}%",
+                                    text = layer.name + " • ${(layer.opacity * 100).toInt()}%" + when {
+                                        layer.clippingMask -> " • Clip"
+                                        layer.blendMode != com.mochits.app.model.LayerBlendMode.NORMAL -> " • ${layer.blendMode.label}"
+                                        else -> ""
+                                    },
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f)
@@ -5011,6 +5318,26 @@ fun LayersToolPanel(
                                         text = { Text("Turun") },
                                         leadingIcon = { Icon(Icons.Default.ArrowDownward, contentDescription = null) },
                                         onClick = { layerMenuOpen = false; onMoveLayer(layer.id, -1) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (layer.clippingMask) "Matikan Clipping Mask"
+                                                else "Clipping Mask"
+                                            )
+                                        },
+                                        enabled = canClip,
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Default.Link,
+                                                contentDescription = null,
+                                                tint = if (layer.clippingMask) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                                            )
+                                        },
+                                        onClick = {
+                                            layerMenuOpen = false
+                                            onToggleClipping(layer.id)
+                                        }
                                     )
                                     DropdownMenuItem(
                                         text = { Text("Duplikat") },

@@ -22,10 +22,13 @@ import com.mochits.app.imaging.LaMaInpaintEngine
 import com.mochits.app.imaging.LaMaModelManager
 import com.mochits.app.model.EditorPanel
 import com.mochits.app.model.Layer
+import com.mochits.app.model.LayerBlendMode
 import com.mochits.app.model.MaskToolMode
 import com.mochits.app.ui.color.ColorUtils
 import androidx.compose.ui.geometry.Offset
 import com.mochits.app.model.TextStyleConfig
+import com.mochits.app.model.TexturePreset
+import com.mochits.app.model.RadialBlurMode
 import com.mochits.app.model.TextStylePreset
 import com.mochits.app.model.UiMessage
 import com.mochits.app.project.ProjectEntity
@@ -101,6 +104,7 @@ class EditorViewModel @Inject constructor(
     val serializer = LayerSerializer()
     val exporter = ProjectExporter(context)
     val textRenderer = com.mochits.app.text.TextRenderer(context)
+    val clipMaskCache = ClipMaskCache(textRenderer) { resolveImageBitmap(it) }
     /** Satu-satunya sumber path file (S2). */
     val fileStore = com.mochits.app.project.ProjectFileStore(context)
 
@@ -1863,7 +1867,7 @@ data class HistoryManifest(
             // cocok cache jadi no-op di dalam refresh).
             layers.value.forEach { layer ->
                 if (layer is Layer.ImageLayer) {
-                    refreshImageMotionBlur(layer)
+                    refreshImageEffects(layer)
                     refreshImageGlow(layer)
                 }
             }
@@ -1892,19 +1896,107 @@ data class HistoryManifest(
     }
 
     // ---------- Efek gambar (ImageLayer) ----------
+    /** Ubah blend mode layer terpilih (Photoshop-like). */
+    fun updateSelectedLayerBlendMode(mode: LayerBlendMode) {
+        val id = selectedLayerId.value ?: return
+        val current = layers.value.find { it.id == id } ?: return
+        if (current.blendMode == mode) return
+        saveUndoSnapshot("Blend mode layer")
+        layers.value = layers.value.map { layer ->
+            if (layer.id != id) layer
+            else when (layer) {
+                is Layer.TextLayer -> layer.copy(blendMode = mode)
+                is Layer.ImageLayer -> layer.copy(blendMode = mode)
+            }
+        }
+        invalidateFlattenedCache()
+        autoSave()
+    }
 
-    private data class ImageBlurEntry(
+    /**
+     * Clipping mask selalu mengikuti layer tepat di bawahnya. Layer paling
+     * bawah tidak bisa di-clip karena tidak punya base.
+     */
+    fun toggleLayerClippingMask(id: String) {
+        val list = layers.value
+        val index = list.indexOfFirst { it.id == id }
+        if (index <= 0) {
+            userMessage.value = UiMessage(
+                "Clipping mask butuh layer dasar di bawahnya.",
+                UiMessage.Kind.WARNING
+            )
+            return
+        }
+        saveUndoSnapshot("Clipping mask")
+        layers.value = list.mapIndexed { i, layer ->
+            if (i != index) layer
+            else when (layer) {
+                is Layer.TextLayer -> layer.copy(clippingMask = !layer.clippingMask)
+                is Layer.ImageLayer -> layer.copy(clippingMask = !layer.clippingMask)
+            }
+        }
+        clipMaskCache.clear()
+        invalidateFlattenedCache()
+        autoSave()
+    }
+
+
+    private data class ImageFxEntry(
         val srcBitmap: Bitmap,
-        val radius: Float,
-        val angle: Float,
+        val motionRadius: Float,
+        val motionAngle: Float,
+        val radialStrength: Float,
+        val radialMode: RadialBlurMode,
+        val radialCenterX: Float,
+        val radialCenterY: Float,
+        val texturePreset: TexturePreset,
+        val textureStrength: Float,
+        val textureScale: Float,
         val result: Bitmap
     )
 
-    private val imageBlurCache = mutableMapOf<String, ImageBlurEntry>()
-    private val imageBlurJobs = mutableMapOf<String, kotlinx.coroutines.Job>()
+    private val imageFxCache = mutableMapOf<String, ImageFxEntry>()
+    private val imageFxJobs = mutableMapOf<String, kotlinx.coroutines.Job>()
 
-    /** Bertambah tiap hasil blur gambar siap; pemicu redraw kanvas. */
+    /** Bertambah tiap hasil efek gambar siap; pemicu redraw kanvas. */
     val imageEffectRevision = MutableStateFlow(0)
+
+    private fun hasImageEffects(layer: Layer.ImageLayer): Boolean =
+        layer.motionBlurRadius > 0f ||
+            layer.radialBlurStrength > 0f ||
+            (layer.texturePreset != TexturePreset.NONE && layer.textureStrength > 0f)
+
+    private fun matchesFx(entry: ImageFxEntry?, layer: Layer.ImageLayer): Boolean =
+        entry != null && entry.srcBitmap === layer.bitmap && !entry.result.isRecycled &&
+            entry.motionRadius == layer.motionBlurRadius &&
+            entry.motionAngle == layer.motionBlurAngle &&
+            entry.radialStrength == layer.radialBlurStrength &&
+            entry.radialMode == layer.radialBlurMode &&
+            entry.radialCenterX == layer.radialBlurCenterX &&
+            entry.radialCenterY == layer.radialBlurCenterY &&
+            entry.texturePreset == layer.texturePreset &&
+            entry.textureStrength == layer.textureStrength &&
+            entry.textureScale == layer.textureScale
+
+    private fun newFxEntry(layer: Layer.ImageLayer, src: Bitmap, result: Bitmap) = ImageFxEntry(
+        srcBitmap = src,
+        motionRadius = layer.motionBlurRadius,
+        motionAngle = layer.motionBlurAngle,
+        radialStrength = layer.radialBlurStrength,
+        radialMode = layer.radialBlurMode,
+        radialCenterX = layer.radialBlurCenterX,
+        radialCenterY = layer.radialBlurCenterY,
+        texturePreset = layer.texturePreset,
+        textureStrength = layer.textureStrength,
+        textureScale = layer.textureScale,
+        result = result
+    )
+
+    private fun applyImageFx(layer: Layer.ImageLayer): Bitmap? {
+        val cached = imageFxCache[layer.id]
+        if (matchesFx(cached, layer)) return cached!!.result
+        return null
+    }
 
     /**
      * Update parameter efek satu ImageLayer. Pola undo sama seperti teks:
@@ -1921,89 +2013,93 @@ data class HistoryManifest(
             autoSave()
         }
         invalidateFlattenedCache()
-        // Selama drag slider: tunda job blur/glow (pratinjau FX memang
+        // Selama drag slider: tunda job efek/glow (pratinjau FX memang
         // muncul setelah slider dilepas); hemat N-1 job terbuang per drag.
         if (!isSliderDragging) {
-            refreshImageMotionBlur(updated)
+            refreshImageEffects(updated)
             refreshImageGlow(updated)
         }
     }
 
     /**
      * Bitmap yang ditampilkan/diekspor untuk layer gambar:
-     * hasil motion blur bila aktif dan siap, oreginal bila belum/tidak.
+     * hasil efek bila aktif dan siap, original bila belum/tidak.
      */
     fun resolveImageBitmap(layer: Layer.ImageLayer): Bitmap? {
         val src = layer.bitmap ?: return null
         if (src.isRecycled) return null
-        if (layer.motionBlurRadius <= 0f) return src
-        val entry = imageBlurCache[layer.id]
-        if (entry != null && entry.srcBitmap === src && !entry.result.isRecycled &&
-            entry.radius == layer.motionBlurRadius && entry.angle == layer.motionBlurAngle
-        ) {
-            return entry.result
-        }
-        return src
+        if (!hasImageEffects(layer)) return src
+        return applyImageFx(layer) ?: src
     }
 
-    /** Pastikan cache blur sesuai parameter; dipanggil tiap update + sebelum ekspor. */
-    fun refreshImageMotionBlur(layer: Layer.ImageLayer) {
-        imageBlurJobs.remove(layer.id)?.cancel()
+    /** Pastikan cache efek gambar sesuai parameter; dipanggil tiap update + sebelum ekspor. */
+    fun refreshImageEffects(layer: Layer.ImageLayer) {
+        imageFxJobs.remove(layer.id)?.cancel()
         val src = layer.bitmap
-        if (src == null || src.isRecycled || layer.motionBlurRadius <= 0f) {
-            if (layer.motionBlurRadius <= 0f) {
-                imageBlurCache.remove(layer.id)?.let { recycleBlurEntry(it) }
+        if (src == null || src.isRecycled || !hasImageEffects(layer)) {
+            if (!hasImageEffects(layer)) {
+                imageFxCache.remove(layer.id)?.let { recycleFxEntry(it) }
             }
             return
         }
-        val cached = imageBlurCache[layer.id]
-        if (cached != null && cached.srcBitmap === src && !cached.result.isRecycled &&
-            cached.radius == layer.motionBlurRadius && cached.angle == layer.motionBlurAngle
-        ) {
-            return
-        }
-        val radius = layer.motionBlurRadius
-        val angle = layer.motionBlurAngle
-        imageBlurJobs[layer.id] = viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
-            val blurred = ImageEffects.motionBlurredBitmap(src, radius, angle) ?: return@launch
-            val current = layers.value.find { it.id == layer.id } as? Layer.ImageLayer ?: run {
-                try { blurred.recycle() } catch (_: Exception) {}
+        if (matchesFx(imageFxCache[layer.id], layer)) return
+
+        val snapshot = layer
+        imageFxJobs[layer.id] = viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            val result = ImageEffects.processedBitmap(
+                src = src,
+                motionBlurRadius = snapshot.motionBlurRadius,
+                motionBlurAngle = snapshot.motionBlurAngle,
+                radialBlurStrength = snapshot.radialBlurStrength,
+                radialBlurMode = snapshot.radialBlurMode,
+                radialBlurCenterX = snapshot.radialBlurCenterX,
+                radialBlurCenterY = snapshot.radialBlurCenterY,
+                texturePreset = snapshot.texturePreset,
+                textureStrength = snapshot.textureStrength,
+                textureScale = snapshot.textureScale
+            ) ?: return@launch
+
+            val current = layers.value.find { it.id == snapshot.id } as? Layer.ImageLayer
+            if (current == null || !matchesFx(newFxEntry(current, src, result), current)) {
+                try { result.recycle() } catch (_: Exception) {}
                 return@launch
             }
-            if (current.bitmap !== src || current.motionBlurRadius != radius || current.motionBlurAngle != angle) {
-                try { blurred.recycle() } catch (_: Exception) {}
-                return@launch
-            }
-            imageBlurCache[layer.id]?.let { recycleBlurEntry(it) }
-            imageBlurCache[layer.id] = ImageBlurEntry(src, radius, angle, blurred)
+            imageFxCache[layer.id]?.let { recycleFxEntry(it) }
+            imageFxCache[layer.id] = newFxEntry(current, src, result)
             imageEffectRevision.value += 1
             invalidateFlattenedCache()
         }
     }
 
-    /** Hitung semua blur/glow yang tertunda; dipanggil sebelum ekspor/flatten. */
+    /** Hitung semua efek/glow yang tertunda; dipanggil sebelum ekspor/flatten. */
     suspend fun prepareImageEffects(layers: List<Layer>) {
         layers.filterIsInstance<Layer.ImageLayer>()
             .filter { it.bitmap != null && !it.bitmap!!.isRecycled }
             .forEach { layer ->
                 val src = layer.bitmap!!
-                if (layer.motionBlurRadius > 0f) {
-                    val cached = imageBlurCache[layer.id]
-                    val valid = cached != null && cached.srcBitmap === src && !cached.result.isRecycled &&
-                        cached.radius == layer.motionBlurRadius && cached.angle == layer.motionBlurAngle
-                    if (!valid) {
-                        val blurred = ImageEffects.motionBlurredBitmap(src, layer.motionBlurRadius, layer.motionBlurAngle)
-                        if (blurred != null) {
-                            imageBlurCache[layer.id]?.let { recycleBlurEntry(it) }
-                            imageBlurCache[layer.id] = ImageBlurEntry(src, layer.motionBlurRadius, layer.motionBlurAngle, blurred)
-                        }
+                if (hasImageEffects(layer) && !matchesFx(imageFxCache[layer.id], layer)) {
+                    val result = ImageEffects.processedBitmap(
+                        src = src,
+                        motionBlurRadius = layer.motionBlurRadius,
+                        motionBlurAngle = layer.motionBlurAngle,
+                        radialBlurStrength = layer.radialBlurStrength,
+                        radialBlurMode = layer.radialBlurMode,
+                        radialBlurCenterX = layer.radialBlurCenterX,
+                        radialBlurCenterY = layer.radialBlurCenterY,
+                        texturePreset = layer.texturePreset,
+                        textureStrength = layer.textureStrength,
+                        textureScale = layer.textureScale
+                    )
+                    if (result != null) {
+                        imageFxCache[layer.id]?.let { recycleFxEntry(it) }
+                        imageFxCache[layer.id] = newFxEntry(layer, src, result)
                     }
                 }
                 prepareImageGlow(layer)
             }
     }
 
-    private fun recycleBlurEntry(entry: ImageBlurEntry) {
+    private fun recycleFxEntry(entry: ImageFxEntry) {
         try {
             if (!entry.result.isRecycled) entry.result.recycle()
         } catch (_: Exception) {}
@@ -2095,8 +2191,8 @@ data class HistoryManifest(
     }
 
     private fun clearImageBlurCache(id: String) {
-        imageBlurJobs.remove(id)?.cancel()
-        imageBlurCache.remove(id)?.let { recycleBlurEntry(it) }
+        imageFxJobs.remove(id)?.cancel()
+        imageFxCache.remove(id)?.let { recycleFxEntry(it) }
         imageGlowJobs.remove(id)?.cancel()
         imageGlowCache.remove(id)?.let {
             try { if (!it.result.isRecycled) it.result.recycle() } catch (_: Exception) {}

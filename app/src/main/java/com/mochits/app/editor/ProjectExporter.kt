@@ -61,19 +61,32 @@ class ProjectExporter(private val context: Context) {
         textRenderer.customFontPathResolver = fontLookup
         val outputBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(outputBitmap)
+        val clipMasks = ClipMaskCache(textRenderer) { image ->
+            image.bitmap ?: imageBitmapFor?.invoke(image)
+        }
 
         // Render base bitmap
         canvas.drawBitmap(baseBitmap, 0f, 0f, null)
 
-        // Render visible layers
+        // Render visible layers. Base clipping = layer non-clip terdekat di bawah.
+        var clipBase: Layer? = null
         layers.forEach { layer ->
+            if (!layer.clippingMask) clipBase = layer
+            val maskBase = if (layer.clippingMask) clipBase else null
+            if (layer.clippingMask && (maskBase == null || !maskBase.isVisible)) {
+                return@forEach
+            }
+            val clipMask = if (layer.clippingMask && maskBase != null && layer.isVisible) {
+                clipMasks.maskFor(maskBase, width, height)
+            } else null
             if (layer.isVisible) {
                 when (layer) {
                     is Layer.TextLayer -> {
-                        val alphaPaint = android.graphics.Paint().apply {
-                            alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
-                        }
-                        val count = canvas.saveLayer(null, alphaPaint)
+                        val layerAlpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
+                        val count = canvas.saveLayer(
+                            null,
+                            LayerCompositing.layerPaint(layerAlpha, layer.blendMode)
+                        )
 
                         val bounds = textRenderer.getTextBounds(layer)
                         val textCenterX = bounds.centerX()
@@ -128,6 +141,9 @@ class ProjectExporter(private val context: Context) {
                         }
 
                         canvas.restore()
+                        if (clipMask != null) {
+                            LayerCompositing.applyClipMask(canvas, clipMask, width, height)
+                        }
                         canvas.restoreToCount(count)
                     }
                     is Layer.ImageLayer -> {
@@ -135,11 +151,16 @@ class ProjectExporter(private val context: Context) {
                             ?: layer.bitmap?.takeIf { !it.isRecycled }
                         if (imgBmp != null) {
                             val layerAlpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
+                            val count = canvas.saveLayer(
+                                null,
+                                LayerCompositing.layerPaint(layerAlpha, layer.blendMode)
+                            )
+                            val contentAlpha = 255
                             val glowWarped = imageGlowWarpFor?.invoke(layer)
                                 ?.takeIf { !it.bitmap.isRecycled && it.scale > 1e-6f }
                             if (glowWarped != null) {
                                 val glowPaint = android.graphics.Paint().apply {
-                                    alpha = layerAlpha
+                                    alpha = contentAlpha
                                     isFilterBitmap = true
                                 }
                                 canvas.drawBitmap(
@@ -158,7 +179,7 @@ class ProjectExporter(private val context: Context) {
                                 var drewGlowMesh = false
                                 if (meshGlow != null) {
                                     val glowMeshPaint = android.graphics.Paint().apply {
-                                        alpha = layerAlpha
+                                        alpha = contentAlpha
                                         isFilterBitmap = true
                                     }
                                     drewGlowMesh = Perspective.drawMeshBitmap(
@@ -175,7 +196,7 @@ class ProjectExporter(private val context: Context) {
                                     imageGlowFor?.invoke(layer)?.let { (glowBmp, pad) ->
                                         if (!glowBmp.isRecycled) {
                                             val glowPaint = android.graphics.Paint().apply {
-                                                alpha = layerAlpha
+                                                alpha = contentAlpha
                                             }
                                             canvas.drawBitmap(glowBmp, layer.x - pad, layer.y - pad, glowPaint)
                                         }
@@ -183,7 +204,7 @@ class ProjectExporter(private val context: Context) {
                                 }
                             }
                             val imgPaint = android.graphics.Paint().apply {
-                                alpha = layerAlpha
+                                alpha = contentAlpha
                                 colorFilter = ImageEffects.imageColorFilter(
                                     layer.grayscale, layer.brightness, layer.contrast
                                 )
@@ -192,7 +213,7 @@ class ProjectExporter(private val context: Context) {
                                 ?.takeIf { !it.bitmap.isRecycled && it.scale > 1e-6f }
                             if (imgWarped != null) {
                                 val wPaint = android.graphics.Paint().apply {
-                                    alpha = layerAlpha
+                                    alpha = contentAlpha
                                     colorFilter = imgPaint.colorFilter
                                     isFilterBitmap = true
                                 }
@@ -208,7 +229,7 @@ class ProjectExporter(private val context: Context) {
                                 )
                             } else {
                                 val imgMeshPaint = android.graphics.Paint().apply {
-                                    alpha = layerAlpha
+                                    alpha = contentAlpha
                                     colorFilter = imgPaint.colorFilter
                                     isFilterBitmap = true
                                 }
@@ -224,12 +245,17 @@ class ProjectExporter(private val context: Context) {
                                     canvas.drawBitmap(imgBmp, layer.x, layer.y, imgPaint)
                                 }
                             }
+                            if (clipMask != null) {
+                                LayerCompositing.applyClipMask(canvas, clipMask, width, height)
+                            }
+                            canvas.restoreToCount(count)
                         }
                     }
                 }
             }
         }
 
+        clipMasks.clear()
         outputBitmap
     }
 

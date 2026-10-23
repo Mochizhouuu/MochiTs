@@ -4,7 +4,10 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import com.mochits.app.model.RadialBlurMode
+import com.mochits.app.model.TexturePreset
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -113,5 +116,50 @@ class ImageEffectsTest {
         val edge = glow.getPixel((10 + pad.toInt() + 3), (10 + pad.toInt()))
         assertTrue(Color.alpha(edge) > 0)
         assertTrue((edge and 0x00FFFFFF) != 0)
+    }
+
+    @Test
+    fun radialBlur_keepsCenterAndSpreadsRing() {
+        val w = 33
+        val h = 33
+        val px = IntArray(w * h)
+        // Cincin putih di sekitar tengah.
+        for (x in 0 until w) {
+            px[8 * w + x] = Color.WHITE
+            px[24 * w + x] = Color.WHITE
+        }
+        val out = ImageEffects.radialBlurPixels(
+            px, w, h, 0.8f, RadialBlurMode.SPIN, 0.5f, 0.5f
+        )
+        // Pusat tetap transparan (tidak ikut tersapu).
+        assertEquals(0, Color.alpha(out[16 * w + 16]))
+        // Bagian cincin masih memiliki piksel.
+        var lit = 0
+        for (p in out) if (Color.alpha(p) > 0) lit++
+        assertTrue(lit > 0)
+    }
+
+    @Test
+    fun texture_isDeterministicAndPreservesAlpha() {
+        val w = 8
+        val h = 8
+        val src = IntArray(w * h) { Color.argb(128, 120, 140, 160) }
+        val a = ImageEffects.applyTexturePixels(src, w, h, TexturePreset.GRAIN, 0.75f, 1.5f)
+        val b = ImageEffects.applyTexturePixels(src, w, h, TexturePreset.GRAIN, 0.75f, 1.5f)
+        assertArrayEquals(a, b)
+        for (p in a) assertEquals(128, Color.alpha(p))
+        assertTrue(a.any { it != src[0] })
+    }
+
+    @Test
+    fun processedBitmap_neutralReturnsNull() = runBlocking {
+        val src = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888)
+        assertNull(
+            ImageEffects.processedBitmap(
+                src,
+                texturePreset = TexturePreset.NONE,
+                textureStrength = 0f
+            )
+        )
     }
 }

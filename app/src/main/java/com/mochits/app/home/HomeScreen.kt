@@ -38,8 +38,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,7 +51,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private val MochiTsLogoFont = FontFamily(Font(com.mochits.app.R.font.bebas_neue))
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -275,14 +272,21 @@ fun HomeScreen(
             } else {
                 TopAppBar(
                     title = {
-                        Text(
-                            text = "MochiTs",
-                            style = MaterialTheme.typography.headlineMedium.copy(
-                                fontFamily = MochiTsLogoFont,
-                                fontWeight = FontWeight.Normal,
-                                color = MaterialTheme.colorScheme.primary
+                        Column {
+                            Text(
+                                text = "MochiTs",
+                                style = MaterialTheme.typography.headlineMedium.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = (-0.8).sp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
                             )
-                        )
+                            Text(
+                                text = "Editor teks & gambar",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     },
                     actions = {
                         Box {
@@ -791,7 +795,7 @@ fun CreateProjectDialog(
         Color.Black,
         Color(0xFFE0E0E0), // Soft Gray
         Color(0xFFFFFDD0), // Cream
-        Color(0xFFE6E6FA)  // Lavender
+        Color(0xFFE3F2FD)  // Soft Blue
     )
 
     var selectedColor by remember { mutableStateOf(Color.White) }
