@@ -782,7 +782,7 @@ fun SettingsScreen(
                         ) { uri ->
                             uri?.let {
                                 viewModel.updateExportFolderUri(it)
-                                Toast.makeText(context, "Folder simpan disimpan.", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Folder tujuan disimpan.", Toast.LENGTH_SHORT).show()
                             }
                         }
 

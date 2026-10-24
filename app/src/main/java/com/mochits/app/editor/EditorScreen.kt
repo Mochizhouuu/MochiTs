@@ -2740,7 +2740,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                     )
                                 } else {
                                     Text(
-                                        text = "Belum ada folder. Kamu akan diminta memilih saat menyimpan.",
+                                        text = "Belum ada folder. Pilih saat menyimpan.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.error
                                     )
