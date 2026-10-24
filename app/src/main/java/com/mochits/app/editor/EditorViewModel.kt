@@ -1676,7 +1676,7 @@ data class HistoryManifest(
                         is Result.Error -> {
                             val msg = lamaResult.exception.message ?: "Memori rendah"
                             userMessage.value = if (msg.contains("memori rendah", ignoreCase = true) || lamaResult.exception is OutOfMemoryError) {
-                                UiMessage("Inpainting gagal karena memori rendah. Coba pilih area yang lebih kecil. Mengalihkan ke Telea...", UiMessage.Kind.WARNING)
+                                UiMessage("Memori tidak cukup. Area dialihkan ke Telea.", UiMessage.Kind.WARNING)
                             } else {
                                 UiMessage("Inference LaMa gagal: $msg. Mengalihkan ke Telea...", UiMessage.Kind.WARNING)
                             }
@@ -1686,7 +1686,7 @@ data class HistoryManifest(
                     }
                 } catch (oom: OutOfMemoryError) {
                     System.gc()
-                    userMessage.value = UiMessage("Inpainting gagal karena memori rendah. Coba pilih area yang lebih kecil. Mengalihkan ke Telea...", UiMessage.Kind.WARNING)
+                    userMessage.value = UiMessage("Memori tidak cukup. Area dialihkan ke Telea.", UiMessage.Kind.WARNING)
                     runTeleaFallback(currentBase, tools)
                 } catch (t: Throwable) {
                     userMessage.value = UiMessage("Inference LaMa gagal: ${t.message}. Mengalihkan ke Telea...", UiMessage.Kind.WARNING)

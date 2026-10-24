@@ -310,7 +310,7 @@ class LaMaInpaintEngine(
         } catch (oom: OutOfMemoryError) {
             Logger.e("LaMa Inpainting OutOfMemoryError: ${oom.message}", oom)
             System.gc()
-            Result.Error(Exception("Inpainting gagal karena memori rendah. Coba pilih area yang lebih kecil.", oom))
+            Result.Error(Exception("Memori tidak cukup. Pilih area yang lebih kecil.", oom))
         } catch (t: Throwable) {
             Logger.e("Error: ${t.message}", t)
             Result.Error(Exception("Inference LaMa Manga gagal: ${t.message}", t))

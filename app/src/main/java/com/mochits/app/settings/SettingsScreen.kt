@@ -18,7 +18,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -26,7 +27,6 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FontDownload
-import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PushPin
@@ -60,14 +60,14 @@ fun SettingsScreen(
     val formattedDetail by remember { mutableStateOf<String?>(null) }
     val currentTheme by viewModel.themeMode.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Tema", "Model", "Style", "Font", "Output", "Script")
+    val tabs = listOf("Tampilan", "Hapus Objek", "Gaya", "Huruf", "Simpan", "Naskah")
     val tabIcons = listOf(
         Icons.Default.Palette,
-        Icons.Default.Memory,
+        Icons.Default.CleaningServices,
         Icons.Default.Style,
         Icons.Default.TextFields,
         Icons.Default.Folder,
-        Icons.Default.Code
+        Icons.Default.Description
     )
     val settingsScope = rememberCoroutineScope()
     var scriptTestSummary by remember { mutableStateOf<com.mochits.app.script.ScriptTestSummary?>(null) }
@@ -135,7 +135,8 @@ fun SettingsScreen(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
+                .background(MaterialTheme.colorScheme.background),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             ScrollableTabRow(
                 selectedTabIndex = selectedTab,
@@ -161,7 +162,9 @@ fun SettingsScreen(
 
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .fillMaxHeight()
+                    .widthIn(max = 720.dp)
+                    .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -172,7 +175,7 @@ fun SettingsScreen(
                             SettingsPageHeader(
                                 icon = Icons.Default.Palette,
                                 title = "Tampilan",
-                                subtitle = "Pilih tema, buka panduan, dan lihat versi aplikasi."
+                                subtitle = "Atur warna aplikasi dan buka panduan."
                             )
                             Text(
                                 text = "Tema aplikasi",
@@ -181,16 +184,19 @@ fun SettingsScreen(
                             )
                             ThemeOptionCard(
                                 label = "Ikuti Sistem",
+                                description = "Terang atau gelap mengikuti pengaturan HP.",
                                 selected = currentTheme == AppThemeMode.SYSTEM,
                                 onClick = { viewModel.setThemeMode(AppThemeMode.SYSTEM) }
                             )
                             ThemeOptionCard(
-                                label = "Biru Terang (Light)",
+                                label = "Terang",
+                                description = "Latar putih dengan aksen biru.",
                                 selected = currentTheme == AppThemeMode.LIGHT,
                                 onClick = { viewModel.setThemeMode(AppThemeMode.LIGHT) }
                             )
                             ThemeOptionCard(
-                                label = "Biru Gelap (Dark)",
+                                label = "Gelap",
+                                description = "Nyaman dipakai di ruangan redup.",
                                 selected = currentTheme == AppThemeMode.DARK,
                                 onClick = { viewModel.setThemeMode(AppThemeMode.DARK) }
                             )
@@ -201,7 +207,7 @@ fun SettingsScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Panduan fitur, format script TL, dan tips ekspor.",
+                                text = "Cara memakai fitur, membaca naskah, dan mengekspor.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -215,7 +221,7 @@ fun SettingsScreen(
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Buka Panduan MochiTs")
+                                Text("Buka Panduan")
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Card(
@@ -270,9 +276,9 @@ fun SettingsScreen(
 
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             SettingsPageHeader(
-                                icon = Icons.Default.Memory,
-                                title = "Model Inpainting",
-                                subtitle = "Pilih mesin pengisi area: Telea cepat atau LaMa neural."
+                                icon = Icons.Default.CleaningServices,
+                                title = "Hapus Objek",
+                                subtitle = "Pilih cara mengisi area yang sudah diseleksi."
                             )
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
@@ -287,11 +293,11 @@ fun SettingsScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column {
-                                        Text("Telea (OpenCV)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
-                                        Text("Bawaan Sistem (Aktif)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("Telea", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                                        Text("Cepat dan tanpa unduhan", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                     Badge(containerColor = MaterialTheme.colorScheme.primary) {
-                                        Text("Terpasang", modifier = Modifier.padding(4.dp))
+                                        Text("Siap", modifier = Modifier.padding(4.dp))
                                     }
                                 }
                             }
@@ -311,12 +317,12 @@ fun SettingsScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
-                                            Text("LaMa AI Neural Inpaint", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                                            Text("LaMa AI", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
                                             val statusText = when (modelStatus) {
-                                                com.mochits.app.imaging.LaMaModelStatus.DOWNLOADED -> "Model AI Kualitas Tinggi (~196MB) — Terpasang"
-                                                com.mochits.app.imaging.LaMaModelStatus.DOWNLOADING -> "Mengunduh... ${(downloadProgress * 100).toInt()}%"
-                                                com.mochits.app.imaging.LaMaModelStatus.CORRUPTED_ERROR -> "File model rusak / gagal diunduh"
-                                                com.mochits.app.imaging.LaMaModelStatus.NOT_DOWNLOADED -> "Model AI Kualitas Tinggi (~196MB)"
+                                                com.mochits.app.imaging.LaMaModelStatus.DOWNLOADED -> "Hasil lebih halus • sudah tersimpan"
+                                                com.mochits.app.imaging.LaMaModelStatus.DOWNLOADING -> "Mengunduh model ${(downloadProgress * 100).toInt()}%"
+                                                com.mochits.app.imaging.LaMaModelStatus.CORRUPTED_ERROR -> "Unduhan gagal • ulangi"
+                                                com.mochits.app.imaging.LaMaModelStatus.NOT_DOWNLOADED -> "Untuk latar rumit • unduh ~196 MB"
                                             }
                                             val statusColor = if (modelStatus == com.mochits.app.imaging.LaMaModelStatus.CORRUPTED_ERROR) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                                             Text(statusText, style = MaterialTheme.typography.bodySmall, color = statusColor)
@@ -325,7 +331,7 @@ fun SettingsScreen(
                                         when (modelStatus) {
                                             com.mochits.app.imaging.LaMaModelStatus.DOWNLOADED -> {
                                                 Badge(containerColor = MaterialTheme.colorScheme.primary) {
-                                                    Text("Terpasang", modifier = Modifier.padding(4.dp))
+                                                    Text("Siap", modifier = Modifier.padding(4.dp))
                                                 }
                                             }
                                             com.mochits.app.imaging.LaMaModelStatus.DOWNLOADING -> {
@@ -343,7 +349,7 @@ fun SettingsScreen(
                                                             coroutineScope.launch {
                                                                 val success = lamaModelManager.downloadModel()
                                                                 if (success) {
-                                                                    Toast.makeText(context, "Model LaMa berhasil diunduh!", Toast.LENGTH_SHORT).show()
+                                                                    Toast.makeText(context, "Model LaMa siap dipakai.", Toast.LENGTH_SHORT).show()
                                                                 } else {
                                                                     showErrorDialog = true
                                                                 }
@@ -358,17 +364,22 @@ fun SettingsScreen(
                                                 }
                                             }
                                             com.mochits.app.imaging.LaMaModelStatus.NOT_DOWNLOADED -> {
-                                                IconButton(onClick = {
-                                                    coroutineScope.launch {
-                                                        val success = lamaModelManager.downloadModel()
-                                                        if (success) {
-                                                            Toast.makeText(context, "Model LaMa berhasil diunduh!", Toast.LENGTH_SHORT).show()
-                                                        } else {
-                                                            showErrorDialog = true
+                                                Button(
+                                                    onClick = {
+                                                        coroutineScope.launch {
+                                                            val success = lamaModelManager.downloadModel()
+                                                            if (success) {
+                                                                Toast.makeText(context, "Model LaMa siap dipakai.", Toast.LENGTH_SHORT).show()
+                                                            } else {
+                                                                showErrorDialog = true
+                                                            }
                                                         }
-                                                    }
-                                                }) {
-                                                    Icon(Icons.Default.Download, contentDescription = "Unduh Model")
+                                                    },
+                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("Unduh")
                                                 }
                                             }
                                         }
@@ -438,7 +449,7 @@ fun SettingsScreen(
                                     }
                                     Toast.makeText(
                                         context,
-                                        if (ok) "Preset Style diekspor." else "Gagal mengekspor preset.",
+                                        if (ok) "Gaya diekspor." else "Gagal mengekspor gaya.",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 }
@@ -448,8 +459,8 @@ fun SettingsScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             SettingsPageHeader(
                                 icon = Icons.Default.Style,
-                                title = "Style Presets",
-                                subtitle = "Sematkan preset favorit atau bagikan sebagai file JSON."
+                                title = "Gaya Tersimpan",
+                                subtitle = "Simpan kombinasi huruf dan warna untuk dipakai lagi."
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 OutlinedButton(
@@ -483,13 +494,13 @@ fun SettingsScreen(
                                 }
                             }
                             Text(
-                                text = "Semua preset (${stylePresets.size})",
+                                text = "Daftar gaya (${stylePresets.size})",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
                             if (stylePresets.isEmpty()) {
                                 Text(
-                                    text = "Belum ada preset. Buat preset baru dari menu Style di editor.",
+                                    text = "Belum ada gaya tersimpan. Buat dari panel Gaya di editor.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -514,11 +525,17 @@ fun SettingsScreen(
                                                         style = MaterialTheme.typography.bodyMedium,
                                                         fontWeight = FontWeight.SemiBold
                                                     )
+                                                    val styleLabel = when (preset.fontStyle) {
+                                                        "Bold" -> "Tebal"
+                                                        "Italic" -> "Miring"
+                                                        "BoldItalic" -> "Tebal + Miring"
+                                                        else -> "Biasa"
+                                                    }
                                                     Text(
                                                         text = if (preset.isBuiltIn) {
-                                                            "Bawaan • ${preset.fontName} ${preset.fontStyle}"
+                                                            "Bawaan • ${preset.fontName} • $styleLabel"
                                                         } else {
-                                                            "${preset.fontName} ${preset.fontStyle} • ${preset.alignment} • ${preset.shape}"
+                                                            "${preset.fontName} • $styleLabel"
                                                         },
                                                         style = MaterialTheme.typography.bodySmall,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -572,14 +589,14 @@ fun SettingsScreen(
                                 OutlinedButton(
                                     onClick = {
                                         styleRepo.restoreAllBuiltIns()
-                                        Toast.makeText(context, "Preset bawaan dikembalikan.", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Gaya bawaan dikembalikan.", Toast.LENGTH_SHORT).show()
                                     },
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(10.dp)
                                 ) {
                                     Icon(Icons.Default.Refresh, contentDescription = null)
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Kembalikan preset bawaan (${hiddenBuiltIns.size})")
+                                    Text("Kembalikan gaya bawaan (${hiddenBuiltIns.size})")
                                 }
                             }
                         }
@@ -587,13 +604,13 @@ fun SettingsScreen(
                         if (doomedPreset != null) {
                             AlertDialog(
                                 onDismissRequest = { presetToDelete = null },
-                                title = { Text("Hapus Preset") },
+                                title = { Text("Hapus Gaya") },
                                 text = {
                                     Text(
                                         if (doomedPreset.isBuiltIn) {
-                                            "Sembunyikan preset bawaan \"${doomedPreset.name}\"? Bisa dikembalikan lagi lewat tombol di bawah daftar."
+                                            "Sembunyikan gaya bawaan \"${doomedPreset.name}\"? Bisa dikembalikan lagi."
                                         } else {
-                                            "Hapus preset \"${doomedPreset.name}\"? Layer teks yang sudah memakainya tidak berubah."
+                                            "Hapus gaya \"${doomedPreset.name}\"? Teks yang sudah memakainya tidak berubah."
                                         }
                                     )
                                 },
@@ -605,9 +622,9 @@ fun SettingsScreen(
                                             Toast.makeText(
                                                 context,
                                                 if (doomedPreset.isBuiltIn) {
-                                                    "Preset \"${doomedPreset.name}\" disembunyikan."
+                                                    "Gaya \"${doomedPreset.name}\" disembunyikan."
                                                 } else {
-                                                    "Preset \"${doomedPreset.name}\" dihapus."
+                                                    "Gaya \"${doomedPreset.name}\" dihapus."
                                                 },
                                                 Toast.LENGTH_SHORT
                                             ).show()
@@ -642,10 +659,10 @@ fun SettingsScreen(
                                     isImporting = false
                                     result
                                         .onSuccess {
-                                            Toast.makeText(context, "Font \"${it.name}\" ditambahkan.", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Huruf \"${it.name}\" ditambahkan.", Toast.LENGTH_SHORT).show()
                                         }
                                         .onFailure { e ->
-                                            fontError = e.message ?: "Gagal mengimpor font."
+                                            fontError = e.message ?: "Gagal mengimpor huruf."
                                         }
                                 }
                             }
@@ -653,8 +670,8 @@ fun SettingsScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             SettingsPageHeader(
                                 icon = Icons.Default.TextFields,
-                                title = "Font Manager",
-                                subtitle = "Tambahkan font kustom .ttf / .otf untuk typesetting komik."
+                                title = "Huruf",
+                                subtitle = "Tambah huruf dari file .ttf atau .otf."
                             )
                             Button(
                                 onClick = { fontPicker.launch("*/*") },
@@ -672,7 +689,7 @@ fun SettingsScreen(
                                 } else {
                                     Icon(Icons.Default.FontDownload, contentDescription = null)
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Tambah Font TTF/OTF Baru")
+                                    Text("Tambah Huruf")
                                 }
                             }
                             fontError?.let { err ->
@@ -683,13 +700,13 @@ fun SettingsScreen(
                                 )
                             }
                             Text(
-                                text = "Font kustom terpasang (${customFonts.size})",
+                                text = "Huruf terpasang (${customFonts.size})",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
                             if (customFonts.isEmpty()) {
                                 Text(
-                                    text = "Belum ada font kustom. Font bawaan selalu tersedia di editor.",
+                                    text = "Belum ada huruf kustom. Huruf bawaan tetap bisa dipakai.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -733,14 +750,14 @@ fun SettingsScreen(
                         if (doomedFont != null) {
                             AlertDialog(
                                 onDismissRequest = { fontToDelete = null },
-                                title = { Text("Hapus Font") },
-                                text = { Text("Hapus \"${doomedFont.name}\" dari daftar font kustom? Layer teks yang memakainya akan kembali ke font default.") },
+                                title = { Text("Hapus Huruf") },
+                                text = { Text("Hapus \"${doomedFont.name}\"? Teks yang memakainya akan kembali ke huruf bawaan.") },
                                 confirmButton = {
                                     TextButton(
                                         onClick = {
                                             viewModel.deleteCustomFont(doomedFont)
                                             fontToDelete = null
-                                            Toast.makeText(context, "Font \"${doomedFont.name}\" dihapus.", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Huruf \"${doomedFont.name}\" dihapus.", Toast.LENGTH_SHORT).show()
                                         }
                                     ) {
                                         Text("Hapus", color = MaterialTheme.colorScheme.error)
@@ -765,15 +782,15 @@ fun SettingsScreen(
                         ) { uri ->
                             uri?.let {
                                 viewModel.updateExportFolderUri(it)
-                                Toast.makeText(context, "Folder output default berhasil disimpan.", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Folder simpan disimpan.", Toast.LENGTH_SHORT).show()
                             }
                         }
 
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             SettingsPageHeader(
                                 icon = Icons.Default.Folder,
-                                title = "Folder Output",
-                                subtitle = "Tentukan folder default untuk menyimpan hasil ekspor."
+                                title = "Folder Simpan",
+                                subtitle = "Tentukan tempat hasil ekspor disimpan."
                             )
 
                             Card(
@@ -783,7 +800,7 @@ fun SettingsScreen(
                             ) {
                                 Column(modifier = Modifier.padding(16.dp)) {
                                     Text(
-                                        text = "Folder Aktif saat ini:",
+                                        text = "Folder aktif",
                                         style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -805,7 +822,7 @@ fun SettingsScreen(
                                                     fontWeight = FontWeight.Bold
                                                 )
                                                 Text(
-                                                    text = if (isFolderValid) "Status: Siap Digunakan & Izin Aktif" else "Status: Folder Tidak Valid / Izin Hilang",
+                                                    text = if (isFolderValid) "Siap digunakan" else "Izin folder hilang",
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = if (isFolderValid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                                                 )
@@ -813,7 +830,7 @@ fun SettingsScreen(
                                         }
                                     } else {
                                         Text(
-                                            text = "Belum ada folder default yang dipilih.",
+                                            text = "Belum ada folder yang dipilih.",
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.error
                                         )
@@ -828,7 +845,7 @@ fun SettingsScreen(
                             ) {
                                 Icon(Icons.Default.FolderOpen, contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text(if (currentFolderUri != null) "Ganti Folder Output" else "Pilih Folder Output")
+                                Text(if (currentFolderUri != null) "Ganti Folder" else "Pilih Folder")
                             }
                         }
                     }
@@ -862,30 +879,37 @@ fun SettingsScreen(
 
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             SettingsPageHeader(
-                                icon = Icons.Default.Code,
-                                title = "Script TL",
-                                subtitle = "Simbol = awalan baris. Gabung = satu balon. Terhubung = balon berikutnya."
+                                icon = Icons.Default.Description,
+                                title = "Naskah",
+                                subtitle = "Atur cara membaca file naskah terjemahan."
                             )
-                            Row(
+                            Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Muat ulang file TL otomatis",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = "Saat project dibuka, file script terakhir dimuat lagi beserta posisi halaman/barisnya.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Buka naskah terakhir",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "Lanjut dari halaman dan baris terakhir.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Switch(
+                                        checked = autoRestore,
+                                        onCheckedChange = { scriptSettingsRepo.setAutoRestore(it) }
                                     )
                                 }
-                                Switch(
-                                    checked = autoRestore,
-                                    onCheckedChange = { scriptSettingsRepo.setAutoRestore(it) }
-                                )
                             }
                             OutlinedButton(
                                 onClick = {
@@ -898,15 +922,46 @@ fun SettingsScreen(
                                 },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("Tes file script (.txt/.docx)")
+                                Text("Uji File Naskah")
                             }
-                            OutlinedTextField(
-                                value = separator,
-                                onValueChange = { scriptRepo.setSeparator(it) },
-                                label = { Text("Pemisah halaman (regex)") },
-                                placeholder = { Text("P\\d+") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = "Pemisah Halaman",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Penanda awal halaman baru.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    OutlinedTextField(
+                                        value = separator,
+                                        onValueChange = { scriptRepo.setSeparator(it) },
+                                        label = { Text("Pola") },
+                                        placeholder = { Text("P\\d+") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "Gaya per Simbol",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Awalan baris menentukan gaya teksnya.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             mappings.forEach { entry ->
                                 ScriptMappingRow(
@@ -931,7 +986,7 @@ fun SettingsScreen(
                                 OutlinedTextField(
                                     value = newSymbol,
                                     onValueChange = { newSymbol = it },
-                                    label = { Text("Simbol baru") },
+                                    label = { Text("Simbol") },
                                     singleLine = true,
                                     modifier = Modifier.weight(1f)
                                 )
@@ -954,7 +1009,7 @@ fun SettingsScreen(
                                     com.mochits.app.script.ScriptMappingRepository.DEFAULT_SEPARATOR
                                 )
                             }) {
-                                Text("Kembalikan default")
+                                Text("Kembalikan Bawaan")
                             }
                         }
                     }
@@ -967,7 +1022,7 @@ fun SettingsScreen(
     if (showScriptTest && testSummary != null) {
         AlertDialog(
             onDismissRequest = { showScriptTest = false },
-            title = { Text("Tes Script") },
+            title = { Text("Uji Naskah") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
@@ -976,7 +1031,7 @@ fun SettingsScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "${testSummary.pages} halaman • ${testSummary.entries} entri • ${testSummary.linkedEntries} terhubung",
+                        "${testSummary.pages} halaman • ${testSummary.entries} baris • ${testSummary.linkedEntries} tersambung",
                         style = MaterialTheme.typography.bodyMedium
                     )
                     if (testSummary.symbolCounts.isNotEmpty()) {
@@ -1029,7 +1084,7 @@ fun DownloadErrorDialog(
                     .verticalScroll(rememberScrollState())
             ) {
                 Text(
-                    text = "Terjadi kesalahan saat mengunduh file model LaMa AI. Berikut detail teknis kegagalan:",
+                    text = "Unduhan model gagal. Detail teknis:",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -1125,7 +1180,7 @@ private fun ScriptMappingRow(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            currentPreset?.name ?: "Tanpa preset",
+                            currentPreset?.name ?: "Tanpa gaya",
                             maxLines = 1,
                             style = MaterialTheme.typography.labelLarge
                         )
@@ -1135,7 +1190,7 @@ private fun ScriptMappingRow(
                         onDismissRequest = { menuOpen = false }
                     ) {
                         DropdownMenuItem(
-                            text = { Text("Tanpa preset") },
+                            text = { Text("Tanpa gaya") },
                             onClick = {
                                 menuOpen = false
                                 onUpdate(entry.copy(presetId = ""))
@@ -1160,7 +1215,7 @@ private fun ScriptMappingRow(
                 IconButton(onClick = onDelete) {
                     Icon(
                         Icons.Default.Delete,
-                        contentDescription = "Hapus pemetaan",
+                        contentDescription = "Hapus simbol",
                         tint = MaterialTheme.colorScheme.error
                     )
                 }
@@ -1173,7 +1228,7 @@ private fun ScriptMappingRow(
                     }
                 )
                 Text(
-                    "Gabung teks ke entri sebelumnya",
+                    "Gabung ke baris sebelumnya",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1186,7 +1241,7 @@ private fun ScriptMappingRow(
                     }
                 )
                 Text(
-                    "Entri baru, terhubung ke sebelumnya (//)",
+                    "Balon baru, tersambung (//)",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1211,41 +1266,49 @@ private fun SettingsPageHeader(
     title: String,
     subtitle: String
 ) {
-    Row(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant
     ) {
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = MaterialTheme.colorScheme.primaryContainer
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Box(modifier = Modifier.size(46.dp), contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Box(modifier = Modifier.size(42.dp), contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall.copy(lineHeight = 17.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
     }
 }
 
 @Composable
-fun ThemeOptionCard(    label: String,
+fun ThemeOptionCard(
+    label: String,
+    description: String = "",
     selected: Boolean,
     onClick: () -> Unit
 ) {
@@ -1275,11 +1338,20 @@ fun ThemeOptionCard(    label: String,
                 onClick = onClick
             )
             Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal),
-                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal),
+                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                )
+                if (description.isNotBlank()) {
+                    Text(
+                        text = description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f) else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         }
     }
 }
