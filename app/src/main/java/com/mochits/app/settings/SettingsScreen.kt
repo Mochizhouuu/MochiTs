@@ -60,7 +60,7 @@ fun SettingsScreen(
     val formattedDetail by remember { mutableStateOf<String?>(null) }
     val currentTheme by viewModel.themeMode.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Tampilan", "Hapus Objek", "Gaya", "Huruf", "Simpan", "Naskah")
+    val tabs = listOf("Tema", "Model", "Style", "Font", "Output", "Script")
     val tabIcons = listOf(
         Icons.Default.Palette,
         Icons.Default.CleaningServices,
@@ -189,13 +189,13 @@ fun SettingsScreen(
                                 onClick = { viewModel.setThemeMode(AppThemeMode.SYSTEM) }
                             )
                             ThemeOptionCard(
-                                label = "Terang",
+                                label = "Biru Terang (Light)",
                                 description = "Latar putih dengan aksen biru.",
                                 selected = currentTheme == AppThemeMode.LIGHT,
                                 onClick = { viewModel.setThemeMode(AppThemeMode.LIGHT) }
                             )
                             ThemeOptionCard(
-                                label = "Gelap",
+                                label = "Biru Gelap (Dark)",
                                 description = "Nyaman dipakai di ruangan redup.",
                                 selected = currentTheme == AppThemeMode.DARK,
                                 onClick = { viewModel.setThemeMode(AppThemeMode.DARK) }
@@ -277,8 +277,8 @@ fun SettingsScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             SettingsPageHeader(
                                 icon = Icons.Default.CleaningServices,
-                                title = "Hapus Objek",
-                                subtitle = "Pilih cara mengisi area yang sudah diseleksi."
+                                title = "Model Inpainting",
+                                subtitle = "Pilih cara mengisi area yang diseleksi."
                             )
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
@@ -293,7 +293,7 @@ fun SettingsScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column {
-                                        Text("Telea", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                                        Text("Telea (OpenCV)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
                                         Text("Cepat dan tanpa unduhan", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                     Badge(containerColor = MaterialTheme.colorScheme.primary) {
@@ -317,7 +317,7 @@ fun SettingsScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
-                                            Text("LaMa AI", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                                            Text("LaMa AI Neural Inpaint", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
                                             val statusText = when (modelStatus) {
                                                 com.mochits.app.imaging.LaMaModelStatus.DOWNLOADED -> "Hasil lebih halus • sudah tersimpan"
                                                 com.mochits.app.imaging.LaMaModelStatus.DOWNLOADING -> "Mengunduh model ${(downloadProgress * 100).toInt()}%"
@@ -449,7 +449,7 @@ fun SettingsScreen(
                                     }
                                     Toast.makeText(
                                         context,
-                                        if (ok) "Gaya diekspor." else "Gagal mengekspor gaya.",
+                                        if (ok) "Preset diekspor." else "Gagal mengekspor preset.",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 }
@@ -459,7 +459,7 @@ fun SettingsScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             SettingsPageHeader(
                                 icon = Icons.Default.Style,
-                                title = "Gaya Tersimpan",
+                                title = "Style Presets",
                                 subtitle = "Simpan kombinasi huruf dan warna untuk dipakai lagi."
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -494,13 +494,13 @@ fun SettingsScreen(
                                 }
                             }
                             Text(
-                                text = "Daftar gaya (${stylePresets.size})",
+                                text = "Semua preset (${stylePresets.size})",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
                             if (stylePresets.isEmpty()) {
                                 Text(
-                                    text = "Belum ada gaya tersimpan. Buat dari panel Gaya di editor.",
+                                    text = "Belum ada preset. Buat dari menu Style di editor.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -525,17 +525,11 @@ fun SettingsScreen(
                                                         style = MaterialTheme.typography.bodyMedium,
                                                         fontWeight = FontWeight.SemiBold
                                                     )
-                                                    val styleLabel = when (preset.fontStyle) {
-                                                        "Bold" -> "Tebal"
-                                                        "Italic" -> "Miring"
-                                                        "BoldItalic" -> "Tebal + Miring"
-                                                        else -> "Biasa"
-                                                    }
                                                     Text(
                                                         text = if (preset.isBuiltIn) {
-                                                            "Bawaan • ${preset.fontName} • $styleLabel"
+                                                            "Bawaan • ${preset.fontName} ${preset.fontStyle}"
                                                         } else {
-                                                            "${preset.fontName} • $styleLabel"
+                                                            "${preset.fontName} ${preset.fontStyle} • ${preset.alignment} • ${preset.shape}"
                                                         },
                                                         style = MaterialTheme.typography.bodySmall,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -589,14 +583,14 @@ fun SettingsScreen(
                                 OutlinedButton(
                                     onClick = {
                                         styleRepo.restoreAllBuiltIns()
-                                        Toast.makeText(context, "Gaya bawaan dikembalikan.", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Preset bawaan dikembalikan.", Toast.LENGTH_SHORT).show()
                                     },
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(10.dp)
                                 ) {
                                     Icon(Icons.Default.Refresh, contentDescription = null)
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Kembalikan gaya bawaan (${hiddenBuiltIns.size})")
+                                    Text("Kembalikan preset bawaan (${hiddenBuiltIns.size})")
                                 }
                             }
                         }
@@ -604,13 +598,13 @@ fun SettingsScreen(
                         if (doomedPreset != null) {
                             AlertDialog(
                                 onDismissRequest = { presetToDelete = null },
-                                title = { Text("Hapus Gaya") },
+                                title = { Text("Hapus Preset") },
                                 text = {
                                     Text(
                                         if (doomedPreset.isBuiltIn) {
-                                            "Sembunyikan gaya bawaan \"${doomedPreset.name}\"? Bisa dikembalikan lagi."
+                                            "Sembunyikan preset bawaan \"${doomedPreset.name}\"? Bisa dikembalikan lagi."
                                         } else {
-                                            "Hapus gaya \"${doomedPreset.name}\"? Teks yang sudah memakainya tidak berubah."
+                                            "Hapus preset \"${doomedPreset.name}\"? Teks yang sudah memakainya tidak berubah."
                                         }
                                     )
                                 },
@@ -622,9 +616,9 @@ fun SettingsScreen(
                                             Toast.makeText(
                                                 context,
                                                 if (doomedPreset.isBuiltIn) {
-                                                    "Gaya \"${doomedPreset.name}\" disembunyikan."
+                                                    "Preset \"${doomedPreset.name}\" disembunyikan."
                                                 } else {
-                                                    "Gaya \"${doomedPreset.name}\" dihapus."
+                                                    "Preset \"${doomedPreset.name}\" dihapus."
                                                 },
                                                 Toast.LENGTH_SHORT
                                             ).show()
@@ -659,10 +653,10 @@ fun SettingsScreen(
                                     isImporting = false
                                     result
                                         .onSuccess {
-                                            Toast.makeText(context, "Huruf \"${it.name}\" ditambahkan.", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Font \"${it.name}\" ditambahkan.", Toast.LENGTH_SHORT).show()
                                         }
                                         .onFailure { e ->
-                                            fontError = e.message ?: "Gagal mengimpor huruf."
+                                            fontError = e.message ?: "Gagal mengimpor font."
                                         }
                                 }
                             }
@@ -670,8 +664,8 @@ fun SettingsScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             SettingsPageHeader(
                                 icon = Icons.Default.TextFields,
-                                title = "Huruf",
-                                subtitle = "Tambah huruf dari file .ttf atau .otf."
+                                title = "Font Manager",
+                                subtitle = "Tambah font dari file .ttf atau .otf."
                             )
                             Button(
                                 onClick = { fontPicker.launch("*/*") },
@@ -689,7 +683,7 @@ fun SettingsScreen(
                                 } else {
                                     Icon(Icons.Default.FontDownload, contentDescription = null)
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Tambah Huruf")
+                                    Text("Tambah Font TTF/OTF Baru")
                                 }
                             }
                             fontError?.let { err ->
@@ -700,13 +694,13 @@ fun SettingsScreen(
                                 )
                             }
                             Text(
-                                text = "Huruf terpasang (${customFonts.size})",
+                                text = "Font kustom terpasang (${customFonts.size})",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
                             if (customFonts.isEmpty()) {
                                 Text(
-                                    text = "Belum ada huruf kustom. Huruf bawaan tetap bisa dipakai.",
+                                    text = "Belum ada font kustom. Font bawaan tetap tersedia.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -750,14 +744,14 @@ fun SettingsScreen(
                         if (doomedFont != null) {
                             AlertDialog(
                                 onDismissRequest = { fontToDelete = null },
-                                title = { Text("Hapus Huruf") },
-                                text = { Text("Hapus \"${doomedFont.name}\"? Teks yang memakainya akan kembali ke huruf bawaan.") },
+                                title = { Text("Hapus Font") },
+                                text = { Text("Hapus \"${doomedFont.name}\"? Teks yang memakainya akan kembali ke font bawaan.") },
                                 confirmButton = {
                                     TextButton(
                                         onClick = {
                                             viewModel.deleteCustomFont(doomedFont)
                                             fontToDelete = null
-                                            Toast.makeText(context, "Huruf \"${doomedFont.name}\" dihapus.", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Font \"${doomedFont.name}\" dihapus.", Toast.LENGTH_SHORT).show()
                                         }
                                     ) {
                                         Text("Hapus", color = MaterialTheme.colorScheme.error)
@@ -789,8 +783,8 @@ fun SettingsScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             SettingsPageHeader(
                                 icon = Icons.Default.Folder,
-                                title = "Folder Simpan",
-                                subtitle = "Tentukan tempat hasil ekspor disimpan."
+                                title = "Folder Output",
+                                subtitle = "Tentukan folder untuk hasil ekspor."
                             )
 
                             Card(
@@ -845,7 +839,7 @@ fun SettingsScreen(
                             ) {
                                 Icon(Icons.Default.FolderOpen, contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text(if (currentFolderUri != null) "Ganti Folder" else "Pilih Folder")
+                                Text(if (currentFolderUri != null) "Ganti Folder Output" else "Pilih Folder Output")
                             }
                         }
                     }
@@ -880,8 +874,8 @@ fun SettingsScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             SettingsPageHeader(
                                 icon = Icons.Default.Description,
-                                title = "Naskah",
-                                subtitle = "Atur cara membaca file naskah terjemahan."
+                                title = "Script TL",
+                                subtitle = "Atur cara membaca file script terjemahan."
                             )
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
@@ -895,7 +889,7 @@ fun SettingsScreen(
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = "Buka naskah terakhir",
+                                            text = "Muat ulang script otomatis",
                                             style = MaterialTheme.typography.titleSmall,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -922,7 +916,7 @@ fun SettingsScreen(
                                 },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("Uji File Naskah")
+                                Text("Tes File Script")
                             }
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
@@ -954,12 +948,12 @@ fun SettingsScreen(
                                 }
                             }
                             Text(
-                                text = "Gaya per Simbol",
+                                text = "Style per Simbol",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Awalan baris menentukan gaya teksnya.",
+                                text = "Awalan baris menentukan preset teksnya.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -986,7 +980,7 @@ fun SettingsScreen(
                                 OutlinedTextField(
                                     value = newSymbol,
                                     onValueChange = { newSymbol = it },
-                                    label = { Text("Simbol") },
+                                    label = { Text("Simbol baru") },
                                     singleLine = true,
                                     modifier = Modifier.weight(1f)
                                 )
@@ -1009,7 +1003,7 @@ fun SettingsScreen(
                                     com.mochits.app.script.ScriptMappingRepository.DEFAULT_SEPARATOR
                                 )
                             }) {
-                                Text("Kembalikan Bawaan")
+                                Text("Kembalikan default")
                             }
                         }
                     }
@@ -1022,7 +1016,7 @@ fun SettingsScreen(
     if (showScriptTest && testSummary != null) {
         AlertDialog(
             onDismissRequest = { showScriptTest = false },
-            title = { Text("Uji Naskah") },
+            title = { Text("Tes Script") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
@@ -1031,7 +1025,7 @@ fun SettingsScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "${testSummary.pages} halaman • ${testSummary.entries} baris • ${testSummary.linkedEntries} tersambung",
+                        "${testSummary.pages} halaman • ${testSummary.entries} entri • ${testSummary.linkedEntries} terhubung",
                         style = MaterialTheme.typography.bodyMedium
                     )
                     if (testSummary.symbolCounts.isNotEmpty()) {
@@ -1180,7 +1174,7 @@ private fun ScriptMappingRow(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            currentPreset?.name ?: "Tanpa gaya",
+                            currentPreset?.name ?: "Tanpa preset",
                             maxLines = 1,
                             style = MaterialTheme.typography.labelLarge
                         )
@@ -1190,7 +1184,7 @@ private fun ScriptMappingRow(
                         onDismissRequest = { menuOpen = false }
                     ) {
                         DropdownMenuItem(
-                            text = { Text("Tanpa gaya") },
+                            text = { Text("Tanpa preset") },
                             onClick = {
                                 menuOpen = false
                                 onUpdate(entry.copy(presetId = ""))
@@ -1215,7 +1209,7 @@ private fun ScriptMappingRow(
                 IconButton(onClick = onDelete) {
                     Icon(
                         Icons.Default.Delete,
-                        contentDescription = "Hapus simbol",
+                        contentDescription = "Hapus pemetaan",
                         tint = MaterialTheme.colorScheme.error
                     )
                 }

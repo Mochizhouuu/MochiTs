@@ -700,7 +700,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                     ) {
                         Icon(
                             Icons.Default.List,
-                            contentDescription = "Naskah",
+                            contentDescription = "Script TL",
                             tint = if (activePanel == EditorPanel.SCRIPT) {
                                 MaterialTheme.colorScheme.primary
                             } else {
@@ -2578,7 +2578,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             modifier = Modifier.fillMaxWidth()
                         )
                         OptionCycler(
-                            label = "Bentuk",
+                            label = "Shape",
                             options = listOf(
                                 com.mochits.app.model.TextContainerShape.BOX,
                                 com.mochits.app.model.TextContainerShape.OVAL
@@ -2730,7 +2730,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                             )
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
-                                Text("Folder Simpan", style = MaterialTheme.typography.labelSmall)
+                                Text("Folder Output", style = MaterialTheme.typography.labelSmall)
                                 Spacer(modifier = Modifier.height(2.dp))
                                 if (defaultFolderUri != null && isFolderValid) {
                                     Text(
@@ -2849,36 +2849,36 @@ fun EditorBottomBar(
             NavigationBarItem(
             selected = activePanel == EditorPanel.ERASE || activePanel == EditorPanel.MASK || activePanel == EditorPanel.INPAINT,
             onClick = { onPanelSelect(EditorPanel.ERASE) },
-            icon = { Icon(Icons.Default.CleaningServices, contentDescription = "Hapus objek") },
-            label = { Text("Hapus", maxLines = 1) },
+            icon = { Icon(Icons.Default.CleaningServices, contentDescription = "Erase") },
+            label = { Text("Erase", maxLines = 1) },
             modifier = Modifier.widthIn(min = 60.dp)
         )
         NavigationBarItem(
             selected = activePanel == EditorPanel.TEXT,
             onClick = { onPanelSelect(EditorPanel.TEXT) },
-            icon = { Icon(Icons.Default.TextFields, contentDescription = "Teks") },
-            label = { Text("Teks", maxLines = 1) },
+            icon = { Icon(Icons.Default.TextFields, contentDescription = "Text") },
+            label = { Text("Text", maxLines = 1) },
             modifier = Modifier.widthIn(min = 60.dp)
         )
         NavigationBarItem(
             selected = activePanel == EditorPanel.EFFECT,
             onClick = { onPanelSelect(EditorPanel.EFFECT) },
-            icon = { Icon(Icons.Default.AutoAwesome, contentDescription = "Efek") },
-            label = { Text("Efek", maxLines = 1) },
+            icon = { Icon(Icons.Default.AutoAwesome, contentDescription = "Effect") },
+            label = { Text("Effect", maxLines = 1) },
             modifier = Modifier.widthIn(min = 60.dp)
         )
         NavigationBarItem(
             selected = activePanel == EditorPanel.FONT,
             onClick = { onPanelSelect(EditorPanel.FONT) },
-            icon = { Icon(Icons.Default.FontDownload, contentDescription = "Huruf") },
-            label = { Text("Huruf", maxLines = 1) },
+            icon = { Icon(Icons.Default.FontDownload, contentDescription = "Font") },
+            label = { Text("Font", maxLines = 1) },
             modifier = Modifier.widthIn(min = 60.dp)
         )
         NavigationBarItem(
             selected = activePanel == EditorPanel.STYLE,
             onClick = { onPanelSelect(EditorPanel.STYLE) },
-            icon = { Icon(Icons.Default.Style, contentDescription = "Gaya") },
-            label = { Text("Gaya", maxLines = 1) },
+            icon = { Icon(Icons.Default.Style, contentDescription = "Style") },
+            label = { Text("Style", maxLines = 1) },
             modifier = Modifier.widthIn(min = 60.dp)
         )
         }
@@ -2964,7 +2964,7 @@ fun EraseToolPanel(
             if (!isCollapsed) {
             Spacer(modifier = Modifier.height(2.dp))
 
-            SectionCard(title = "Alat") {
+            SectionCard(title = "Alat Seleksi") {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2983,8 +2983,8 @@ fun EraseToolPanel(
                             label = {
                                 Text(
                                     when (tool) {
-                                        MaskToolMode.BRUSH -> "Kuas"
-                                        MaskToolMode.ERASER -> "Penghapus"
+                                        MaskToolMode.BRUSH -> "Brush"
+                                        MaskToolMode.ERASER -> "Eraser"
                                         MaskToolMode.LASSO -> "Lasso"
                                         MaskToolMode.MAGIC_WAND -> "Magic Wand"
                                     }
@@ -3007,9 +3007,9 @@ fun EraseToolPanel(
 
                 Spacer(modifier = Modifier.height(2.dp))
 
-            SectionCard(title = "Metode") {
+            SectionCard(title = "Model") {
                 OptionCycler(
-                    label = "Cara hapus",
+                    label = "Model",
                     options = listOf(
                         EditorViewModel.InpaintModel.TELEA,
                         EditorViewModel.InpaintModel.LAMA
@@ -3018,8 +3018,8 @@ fun EraseToolPanel(
                     onSelect = onModelSelected,
                     labelOf = {
                         when (it) {
-                            EditorViewModel.InpaintModel.TELEA -> "Telea • Cepat"
-                            EditorViewModel.InpaintModel.LAMA -> "LaMa • AI"
+                            EditorViewModel.InpaintModel.TELEA -> "Telea (Cepat)"
+                            EditorViewModel.InpaintModel.LAMA -> "LaMa (AI)"
                         }
                     }
                 )
@@ -3062,7 +3062,7 @@ fun EraseToolPanel(
                     ) {
                         Icon(Icons.Default.Flip, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Balik", style = MaterialTheme.typography.labelLarge)
+                        Text("Invert Seleksi", style = MaterialTheme.typography.labelLarge)
                     }
                 }
                 Button(
@@ -3083,7 +3083,7 @@ fun EraseToolPanel(
                 }
 
                 Spacer(modifier = Modifier.height(2.dp))
-            SectionCard(title = "Seleksi") {
+            SectionCard(title = "Strength") {
                 if (mode == MaskToolMode.MAGIC_WAND) {
                     if (!hasMask) {
                         Text(
@@ -3125,7 +3125,7 @@ fun EraseToolPanel(
                     // release, keeping the slider smooth on big masks.
                     var localExpandValue by remember(magicWandExpand) { mutableFloatStateOf(magicWandExpand) }
 
-                    Text("Perluas seleksi: ${localExpandValue.toInt()} px", style = MaterialTheme.typography.labelLarge)
+                    Text("Perluas: ${localExpandValue.toInt()} px", style = MaterialTheme.typography.labelLarge)
                     Slider(
                         value = localExpandValue,
                         onValueChange = { localExpandValue = it },
@@ -3138,7 +3138,7 @@ fun EraseToolPanel(
                     )
 
                 } else {
-                    Text("Ukuran kuas: ${brushSize.toInt()} px", style = MaterialTheme.typography.labelLarge)
+                    Text("Kuas: ${brushSize.toInt()} px", style = MaterialTheme.typography.labelLarge)
                     Slider(
                         value = brushSize.coerceIn(5f, 200f),
                         onValueChange = onSizeChange,
@@ -3249,7 +3249,7 @@ fun TextToolPanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Teks",
+                    text = "Text",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -3265,7 +3265,7 @@ fun TextToolPanel(
                 }
             }
             if (!isCollapsed) {
-            SectionCard(title = "Isi") {
+            SectionCard(title = "Content") {
             OutlinedTextField(
                 value = fieldValue,
                 onValueChange = { fv ->
@@ -3423,7 +3423,7 @@ fun TextToolPanel(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "Huruf kata: $fontShown",
+                                        text = "Font kata: $fontShown",
                                         style = MaterialTheme.typography.labelLarge,
                                         modifier = Modifier.weight(1f),
                                         maxLines = 1
@@ -3565,9 +3565,9 @@ fun TextToolPanel(
             }
             }
 
-            SectionCard(title = "Tata Letak") {
+            SectionCard(title = "Layout") {
             OptionCycler(
-                label = "Perataan",
+                label = "Alignment",
                 options = listOf(
                     com.mochits.app.model.TextAlignment.LEFT,
                     com.mochits.app.model.TextAlignment.CENTER,
@@ -3597,7 +3597,7 @@ fun TextToolPanel(
 
             if (selectedLayer != null) {
                 OptionCycler(
-                    label = "Bentuk",
+                    label = "Shape",
                     options = listOf(
                         com.mochits.app.model.TextContainerShape.BOX,
                         com.mochits.app.model.TextContainerShape.OVAL
@@ -3614,7 +3614,7 @@ fun TextToolPanel(
             } else {
                 // Belum ada teks terpilih: pilih bentuk untuk teks baru.
                 OptionCycler(
-                    label = "Bentuk Baru",
+                    label = "New Shape",
                     options = listOf(
                         com.mochits.app.model.TextContainerShape.BOX,
                         com.mochits.app.model.TextContainerShape.OVAL
@@ -3631,28 +3631,28 @@ fun TextToolPanel(
             }
             }
 
-            SectionCard(title = "Huruf") {
+            SectionCard(title = "Case") {
             if (selectedLayer != null && onCapitalizationTransform != null) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.horizontalScroll(rememberScrollState())
                 ) {
-                    Text("Ubah:", style = MaterialTheme.typography.labelLarge)
+                    Text("Case:", style = MaterialTheme.typography.labelLarge)
                     FilterChip(
                         selected = false,
                         onClick = { onCapitalizationTransform("uppercase") },
-                        label = { Text("BESAR") }
+                        label = { Text("UPPERCASE") }
                     )
                     FilterChip(
                         selected = false,
                         onClick = { onCapitalizationTransform("lowercase") },
-                        label = { Text("kecil") }
+                        label = { Text("lowercase") }
                     )
                     FilterChip(
                         selected = false,
                         onClick = { onCapitalizationTransform("titlecase") },
-                        label = { Text("Kapital") }
+                        label = { Text("Title Case") }
                     )
                 }
             }
@@ -3950,7 +3950,7 @@ fun EffectToolPanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Efek",
+                    text = "Effect",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -4052,21 +4052,21 @@ fun EffectToolPanel(
                         }
 
                         val (icon, title) = when (effect) {
-                            EffectType.OPACITY -> Icons.Default.Opacity to "Opasitas"
-                            EffectType.TEXT_COLOR -> Icons.Default.Palette to "Warna"
-                            EffectType.STROKE -> Icons.Default.FormatPaint to "Garis Tepi"
-                            EffectType.DROP_SHADOW -> Icons.Default.WbSunny to "Bayangan"
-                            EffectType.MOTION_BLUR -> Icons.Default.BlurLinear to "Blur Gerak"
-                            EffectType.GLOW -> Icons.Default.BlurCircular to "Cahaya"
-                            EffectType.PERSPECTIVE -> Icons.Default.Transform to "Perspektif"
-                            EffectType.WARP -> Icons.Default.GridOn to "Pelintir"
-                            EffectType.IMAGE_TONE -> Icons.Default.Tune to "Nada Warna"
-                            EffectType.IMAGE_MOTION_BLUR -> Icons.Default.BlurLinear to "Blur Gerak"
-                            EffectType.IMAGE_GLOW -> Icons.Default.BlurCircular to "Cahaya"
-                            EffectType.IMAGE_PERSPECTIVE -> Icons.Default.Transform to "Perspektif"
-                            EffectType.IMAGE_WARP -> Icons.Default.GridOn to "Pelintir"
-                            EffectType.RADIAL_BLUR -> Icons.Default.RotateRight to "Blur Radial"
-                            EffectType.TEXTURE -> Icons.Default.Texture to "Tekstur"
+                            EffectType.OPACITY -> Icons.Default.Opacity to "Opacity"
+                            EffectType.TEXT_COLOR -> Icons.Default.Palette to "Warna Teks"
+                            EffectType.STROKE -> Icons.Default.FormatPaint to "Stroke"
+                            EffectType.DROP_SHADOW -> Icons.Default.WbSunny to "Drop Shadow"
+                            EffectType.MOTION_BLUR -> Icons.Default.BlurLinear to "Motion Blur"
+                            EffectType.GLOW -> Icons.Default.BlurCircular to "Glow"
+                            EffectType.PERSPECTIVE -> Icons.Default.Transform to "Perspective"
+                            EffectType.WARP -> Icons.Default.GridOn to "Warp"
+                            EffectType.IMAGE_TONE -> Icons.Default.Tune to "Tone"
+                            EffectType.IMAGE_MOTION_BLUR -> Icons.Default.BlurLinear to "Motion Blur"
+                            EffectType.IMAGE_GLOW -> Icons.Default.BlurCircular to "Glow"
+                            EffectType.IMAGE_PERSPECTIVE -> Icons.Default.Transform to "Perspective"
+                            EffectType.IMAGE_WARP -> Icons.Default.GridOn to "Warp"
+                            EffectType.RADIAL_BLUR -> Icons.Default.RotateRight to "Radial Blur"
+                            EffectType.TEXTURE -> Icons.Default.Texture to "Texture"
                         }
 
                         Card(
@@ -4132,7 +4132,7 @@ fun EffectToolPanel(
                     ) {
                         when (expandedEffect) {
                             EffectType.OPACITY -> {
-                                Text("Opasitas: ${(selectedLayer.opacity * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
+                                Text("Opasitas Layer: ${(selectedLayer.opacity * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
                                 Slider(
                                     value = selectedLayer.opacity,
                                     onValueChange = {
@@ -4146,7 +4146,7 @@ fun EffectToolPanel(
                                 )
                                 HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
                                 OptionCycler(
-                                    label = "Campuran",
+                                    label = "Blend",
                                     options = com.mochits.app.model.LayerBlendMode.values().toList(),
                                     selected = selectedLayer.blendMode,
                                     onSelect = onUpdateBlendMode,
@@ -4158,7 +4158,7 @@ fun EffectToolPanel(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text("Potong ke Bawah", style = MaterialTheme.typography.bodyMedium)
+                                        Text("Clipping Mask", style = MaterialTheme.typography.bodyMedium)
                                         Text(
                                             if (canClip) "Ikuti bentuk layer di bawahnya."
                                             else "Perlu layer di bawah.",
@@ -4922,7 +4922,7 @@ private fun ScriptPanel(
                     modifier = Modifier.weight(1f)
                 ) {
                     Text(
-                        text = "Naskah",
+                        text = "Script",
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -4962,7 +4962,7 @@ private fun ScriptPanel(
             if (!isCollapsed) {
             val q = scriptQueue
             if (q == null) {
-                SectionCard(title = "Belum ada naskah") {
+                SectionCard(title = "Queue") {
                     Text(
                         "Muat file .txt atau .docx untuk mengisi teks per baris.",
                         style = MaterialTheme.typography.bodySmall,
@@ -4974,13 +4974,13 @@ private fun ScriptPanel(
                     ) {
                         Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Muat Naskah")
+                        Text("Muat file .txt / .docx")
                     }
                 }
             } else {
                 val entries = q.pages.getOrNull(q.pageIdx)?.entries ?: emptyList()
                 val entry = q.currentEntry
-                SectionCard(title = "Daftar Baris") {
+                SectionCard(title = "Queue") {
                     // Info baris.
                     Text(
                         text = if (entry != null) {
@@ -5090,7 +5090,7 @@ private fun ScriptPanel(
                                 .weight(1f)
                                 .height(36.dp)
                         ) {
-                            Text(if (hasSelection) "Pakai Baris" else "Buat Teks")
+                            Text(if (hasSelection) "Masukkan" else "Buat baru")
                         }
                         OutlinedButton(
                             onClick = onSkipScriptLine,
@@ -5186,7 +5186,7 @@ fun LayersToolPanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Lapisan",
+                    text = "Layers",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -5202,14 +5202,14 @@ fun LayersToolPanel(
                 }
             }
             if (!isCollapsed) {
-            SectionCard(title = "Layer Aktif") {
+            SectionCard(title = "Active Layer") {
             if (selectedLayer != null) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Opasitas: ${(selectedLayer.opacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                    Text("Opasitas Layer: ${(selectedLayer.opacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
                     Slider(
                         value = selectedLayer.opacity.coerceIn(0f, 1f),
                         onValueChange = {
@@ -5482,7 +5482,7 @@ fun FontToolPanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Huruf",
+                    text = "Font",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -5498,17 +5498,17 @@ fun FontToolPanel(
                 }
             }
             if (!isCollapsed) {
-            SectionCard(title = "Cari") {
+            SectionCard(title = "Search") {
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text("Cari huruf...") },
+                placeholder = { Text("Cari font...") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 trailingIcon = {
                     IconButton(onClick = onImportCustomFont, modifier = Modifier.size(40.dp)) {
                         Icon(
                             imageVector = Icons.Default.Add,
-                            contentDescription = "Impor huruf",
+                            contentDescription = "Impor font",
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -5532,7 +5532,7 @@ fun FontToolPanel(
                 )
             }
             }
-            SectionCard(title = "Daftar Huruf") {
+            SectionCard(title = "Fonts") {
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -5585,20 +5585,13 @@ fun FontToolPanel(
             }
             }
 
-            SectionCard(title = "Gaya & Ukuran") {
+            SectionCard(title = "Style & Size") {
             OptionCycler(
-                label = "Gaya",
+                label = "Style",
                 options = listOf("Regular", "Bold", "Italic", "BoldItalic"),
                 selected = currentStyle.fontStyle,
                 onSelect = { onUpdateStyle(currentStyle.copy(fontStyle = it), true) },
-                labelOf = {
-                    when (it) {
-                        "Bold" -> "Tebal"
-                        "Italic" -> "Miring"
-                        "BoldItalic" -> "Tebal + Miring"
-                        else -> "Biasa"
-                    }
-                }
+                labelOf = { if (it == "BoldItalic") "Bold+Italic" else it }
             )
 
             Text("Ukuran: ${currentStyle.fontSize.toInt()} px", style = MaterialTheme.typography.labelLarge)
@@ -5707,7 +5700,7 @@ fun StylePresetPanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Gaya",
+                    text = "Style",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -5723,7 +5716,7 @@ fun StylePresetPanel(
                 }
             }
             if (!isCollapsed) {
-            SectionCard(title = "Simpan") {
+            SectionCard(title = "Save") {
             if (onDeleteAllBuiltIns != null && presets.any { it.isBuiltIn }) {
                 TextButton(
                     onClick = { onDeleteAllBuiltIns() },
@@ -5752,7 +5745,7 @@ fun StylePresetPanel(
                 OutlinedTextField(
                     value = presetName,
                     onValueChange = { presetName = it },
-                    placeholder = { Text("Nama gaya baru") },
+                    placeholder = { Text("Nama preset baru") },
                     singleLine = true,
                     modifier = Modifier.weight(1f)
                 )
@@ -5765,23 +5758,12 @@ fun StylePresetPanel(
                     },
                     enabled = presetName.isNotBlank()
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = "Simpan gaya")
+                    Icon(Icons.Default.Add, contentDescription = "Simpan preset")
                 }
             }
             }
 
             presets.forEach { preset ->
-                val styleLabel = when (preset.fontStyle) {
-                    "Bold" -> "Tebal"
-                    "Italic" -> "Miring"
-                    "BoldItalic" -> "Tebal + Miring"
-                    else -> "Biasa"
-                }
-                val alignLabel = when (preset.alignment.name) {
-                    "CENTER" -> "tengah"
-                    "RIGHT" -> "kanan"
-                    else -> "kiri"
-                }
                 Surface(
                     tonalElevation = 2.dp,
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
@@ -5796,7 +5778,8 @@ fun StylePresetPanel(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(preset.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
                             Text(
-                                text = "${preset.fontName} • $styleLabel • Rata $alignLabel • " +
+                                text = "${preset.fontName} • ${preset.fontStyle} • " +
+                                    "${preset.alignment.name.lowercase().replaceFirstChar { it.titlecase() }} • " +
                                     (if (preset.shape == com.mochits.app.model.TextContainerShape.OVAL) "Oval" else "Kotak") +
                                     (if (preset.isBuiltIn) " • Bawaan" else ""),
                                 style = MaterialTheme.typography.bodySmall,
@@ -5812,7 +5795,7 @@ fun StylePresetPanel(
                             ) {
                                 Icon(
                                     Icons.Default.PushPin,
-                                    contentDescription = if (pinned) "Lepas gaya" else "Sematkan ke atas",
+                                    contentDescription = if (pinned) "Lepas preset" else "Sematkan ke atas",
                                     tint = if (pinned) MaterialTheme.colorScheme.primary
                                     else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(18.dp)
@@ -5826,7 +5809,7 @@ fun StylePresetPanel(
                             ) {
                                 Icon(
                                     Icons.Default.Delete,
-                                    contentDescription = "Hapus gaya",
+                                    contentDescription = "Hapus preset",
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
