@@ -843,9 +843,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onSliderDragEnd = { viewModel.onSliderDragEnd() },
                         onStartEyedropper = { onColorSelected -> viewModel.startEyedropper(onColorSelected) },
                         onUpdateImageLayer = { updated -> viewModel.updateImageLayer(updated, false) },
-                        canClip = layers.indexOfFirst { it.id == selectedLayerId } > 0,
                         onUpdateBlendMode = { viewModel.updateSelectedLayerBlendMode(it) },
-                        onToggleClipping = { selectedLayerId?.let { viewModel.toggleLayerClippingMask(it) } },
                         perspEditId = perspEditId,
                         onTogglePerspEdit = { id ->
                             viewModel.setPerspEdit(if (viewModel.perspEditId.value == id) null else id)
@@ -2681,7 +2679,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
 
             AlertDialog(
                 onDismissRequest = { showExportDialog = false },
-                title = { Text("Simpan Sebagai", style = MaterialTheme.typography.titleLarge) },
+                title = { Text("Save As", style = MaterialTheme.typography.titleLarge) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         OutlinedTextField(
@@ -2938,7 +2936,7 @@ fun EraseToolPanel(
             ) {
                 Column {
                     Text(
-                        text = "Hapus Objek",
+                        text = "Erase",
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -3891,9 +3889,7 @@ fun EffectToolPanel(
     selectedLayer: Layer?,
     onUpdateOpacity: (Float, Boolean) -> Unit,
     onUpdateStyle: (TextStyleConfig, Boolean) -> Unit,
-    canClip: Boolean = true,
     onUpdateBlendMode: (com.mochits.app.model.LayerBlendMode) -> Unit = {},
-    onToggleClipping: (() -> Unit)? = null,
     onSliderDragStart: () -> Unit = {},
     onSliderDragEnd: () -> Unit = {},
     onStartEyedropper: ((Int) -> Unit) -> Unit = {},
@@ -4053,7 +4049,7 @@ fun EffectToolPanel(
 
                         val (icon, title) = when (effect) {
                             EffectType.OPACITY -> Icons.Default.Opacity to "Opacity"
-                            EffectType.TEXT_COLOR -> Icons.Default.Palette to "Warna Teks"
+                            EffectType.TEXT_COLOR -> Icons.Default.Palette to "Color"
                             EffectType.STROKE -> Icons.Default.FormatPaint to "Stroke"
                             EffectType.DROP_SHADOW -> Icons.Default.WbSunny to "Drop Shadow"
                             EffectType.MOTION_BLUR -> Icons.Default.BlurLinear to "Motion Blur"
@@ -4152,26 +4148,6 @@ fun EffectToolPanel(
                                     onSelect = onUpdateBlendMode,
                                     labelOf = { it.label }
                                 )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text("Clipping Mask", style = MaterialTheme.typography.bodyMedium)
-                                        Text(
-                                            if (canClip) "Ikuti bentuk layer di bawahnya."
-                                            else "Perlu layer di bawah.",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Switch(
-                                        checked = selectedLayer.clippingMask,
-                                        onCheckedChange = { onToggleClipping?.invoke() },
-                                        enabled = canClip
-                                    )
-                                }
                             }
                             EffectType.TEXT_COLOR -> {
                                 if (selectedLayer is Layer.TextLayer) {

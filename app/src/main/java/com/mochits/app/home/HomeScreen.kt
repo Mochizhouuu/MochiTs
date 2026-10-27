@@ -780,6 +780,39 @@ fun RecentProjectCard(
     }
 }
 
+/** Baris slider satu kanal warna (R/G/B) untuk color picker New Project. */
+@Composable
+private fun ChannelSliderRow(
+    label: String,
+    value: Int,
+    onValueChange: (Int) -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(14.dp)
+        )
+        Slider(
+            value = value.toFloat(),
+            onValueChange = { onValueChange(it.toInt()) },
+            valueRange = 0f..255f,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = value.toString(),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(28.dp)
+        )
+    }
+}
+
 @Composable
 fun CreateProjectDialog(
     onDismiss: () -> Unit,
@@ -790,12 +823,21 @@ fun CreateProjectDialog(
     var heightText by remember { mutableStateOf("1920") }
     var isTransparent by remember { mutableStateOf(false) }
 
+    // Palet latar: netral untuk konten + warna lembut untuk latangan
+    // komik berwarna. Enam warna per baris agar tetap muat di dialog.
     val presetColors = listOf(
         Color.White,
+        Color(0xFFE0E0E0), // abu muda
+        Color(0xFF9E9E9E), // abu
         Color.Black,
-        Color(0xFFE0E0E0), // Soft Gray
-        Color(0xFFFFFDD0), // Cream
-        Color(0xFFE3F2FD)  // Soft Blue
+        Color(0xFFFFFDD0), // cream
+        Color(0xFFF5E3C3), // beige kertas
+        Color(0xFFFFF3B1), // kuning muda
+        Color(0xFFFFD9C7), // peach
+        Color(0xFFFBD5E0), // pink pastel
+        Color(0xFFE6E6FA), // lavender
+        Color(0xFFE3F2FD), // biru muda
+        Color(0xFFDFF3E4)  // mint
     )
 
     var selectedColor by remember { mutableStateOf(Color.White) }
@@ -852,6 +894,38 @@ fun CreateProjectDialog(
                     )
                 }
 
+                // Preset rasio kanvas: sisi terpanjang selalu 1920 px,
+                // angka di kolom Lebar/Tinggi tetap bisa diubah manual.
+                val ratioPresets = listOf(
+                    "1:1" to (1920 to 1920),
+                    "9:16" to (1080 to 1920),
+                    "16:9" to (1920 to 1080),
+                    "3:4" to (1440 to 1920)
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "Rasio Kanvas:",
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        ratioPresets.forEach { (ratio, size) ->
+                            FilterChip(
+                                selected = widthText.toIntOrNull() == size.first &&
+                                    heightText.toIntOrNull() == size.second,
+                                onClick = {
+                                    widthText = size.first.toString()
+                                    heightText = size.second.toString()
+                                },
+                                label = { Text(ratio) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+
                 // Checkbox: Kanvas Transparan
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -884,37 +958,47 @@ fun CreateProjectDialog(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = alphaContent)
                     )
 
-                    // Preset Color Badges
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        presetColors.forEach { color ->
-                            val isSelected = !isTransparent && selectedColor == color
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(color.copy(alpha = alphaContent))
-                                    .border(
-                                        width = if (isSelected) 3.dp else 1.dp,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = alphaContent),
-                                        shape = CircleShape
-                                    )
-                                    .clickable(enabled = !isTransparent) {
-                                        selectedColor = color
-                                        val argb = color.toArgb()
-                                        hexColorInput = String.format("%06X", (argb and 0xFFFFFF))
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (isSelected) {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = null,
-                                        tint = if (color == Color.White || color == Color(0xFFFFFDD0) || color == Color(0xFFE6E6FA) || color == Color(0xFFE0E0E0)) Color.Black else Color.White,
-                                        modifier = Modifier.size(20.dp)
-                                    )
+                    // Palet: baris potongan (chunk) 6 warna; tanda centang
+                    // otomatis gelap di warna terang, terang di warna gelap
+                    // (berdasar luminance, bukan daftar warna manual).
+                    presetColors.chunked(6).forEach { paletteRow ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            paletteRow.forEach { color ->
+                                val isSelected = !isTransparent && selectedColor == color
+                                val swatchArgb = color.toArgb()
+                                val swatchLum = (
+                                    0.299f * ((swatchArgb shr 16) and 0xFF) +
+                                        0.587f * ((swatchArgb shr 8) and 0xFF) +
+                                        0.114f * (swatchArgb and 0xFF)
+                                    ) / 255f
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(color.copy(alpha = alphaContent))
+                                        .border(
+                                            width = if (isSelected) 3.dp else 1.dp,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = alphaContent),
+                                            shape = CircleShape
+                                        )
+                                        .clickable(enabled = !isTransparent) {
+                                            selectedColor = color
+                                            val argb = color.toArgb()
+                                            hexColorInput = String.format("%06X", (argb and 0xFFFFFF))
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = if (swatchLum > 0.55f) Color.Black else Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -947,6 +1031,27 @@ fun CreateProjectDialog(
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp)
                         )
+                    }
+
+                    // Color Picker manual: slider R/G/B menyusun warna apa
+                    // pun tanpa mengetik kode hex; kotak hex tetap ikut.
+                    if (!isTransparent) {
+                        val curArgb = selectedColor.toArgb()
+                        val curR = (curArgb shr 16) and 0xFF
+                        val curG = (curArgb shr 8) and 0xFF
+                        val curB = curArgb and 0xFF
+                        ChannelSliderRow(label = "R", value = curR, onValueChange = { r ->
+                            selectedColor = Color(r / 255f, curG / 255f, curB / 255f)
+                            hexColorInput = String.format("%06X", (r shl 16) or (curG shl 8) or curB)
+                        })
+                        ChannelSliderRow(label = "G", value = curG, onValueChange = { g ->
+                            selectedColor = Color(curR / 255f, g / 255f, curB / 255f)
+                            hexColorInput = String.format("%06X", (curR shl 16) or (g shl 8) or curB)
+                        })
+                        ChannelSliderRow(label = "B", value = curB, onValueChange = { b ->
+                            selectedColor = Color(curR / 255f, curG / 255f, b / 255f)
+                            hexColorInput = String.format("%06X", (curR shl 16) or (curG shl 8) or b)
+                        })
                     }
                 }
             }
