@@ -780,13 +780,28 @@ fun RecentProjectCard(
     }
 }
 
-/** Baris slider satu kanal warna (R/G/B) untuk color picker New Project. */
+/**
+ * Baris slider satu kanal warna (R/G/B) untuk color picker New Project.
+ * Baris gradien dari 0 -> nilai kanal penuh memberi konteks; nilai
+ * ditulis 3 digit sehingga tetap sejajar.
+ */
 @Composable
 private fun ChannelSliderRow(
     label: String,
     value: Int,
     onValueChange: (Int) -> Unit
 ) {
+    val (r, g, b) = when (label) {
+        "R" -> Triple(255, 0, 0)
+        "G" -> Triple(0, 255, 0)
+        else -> Triple(0, 0, 255)
+    }
+    val brush = Brush.linearGradient(
+        listOf(
+            Color(0.0f, 0.0f, 0.0f),
+            Color(r / 255f, g / 255f, b / 255f)
+        )
+    )
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -802,10 +817,21 @@ private fun ChannelSliderRow(
             value = value.toFloat(),
             onValueChange = { onValueChange(it.toInt()) },
             valueRange = 0f..255f,
+            colors = SliderDefaults.colors(
+                thumbColor = Color(r / 255f, g / 255f, b / 255f),
+                activeTrackColor = Color(r / 255f, g / 255f, b / 255f)
+            ),
             modifier = Modifier.weight(1f)
         )
+        Box(
+            modifier = Modifier
+                .size(14.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(brush)
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
+        )
         Text(
-            text = value.toString(),
+            text = "%03d".format(value),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.width(28.dp)
@@ -844,7 +870,7 @@ fun CreateProjectDialog(
     var hexColorInput by remember { mutableStateOf("FFFFFF") }
 
     fun parseHexColor(input: String): Color? {
-        val clean = input.removePrefix("#").trim()
+        val clean = input.removePrefix("#").trim().uppercase()
         if (clean.length == 6 || clean.length == 8) {
             return try {
                 val parsed = clean.toLong(16)
@@ -999,6 +1025,15 @@ fun CreateProjectDialog(
                                             modifier = Modifier.size(20.dp)
                                         )
                                     }
+                                    // Pengisi transparan: kotak grid abu tipis
+                                    // supaya swatchnya tetap terlihat jelas.
+                                    if (color == Color.Transparent) {
+                                        Box(
+                                            modifier = Modifier
+                                                .matchParentSize()
+                                                .background(Color(0x33000000))
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1014,7 +1049,10 @@ fun CreateProjectDialog(
                             modifier = Modifier
                                 .size(40.dp)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background((if (isTransparent) Color.Transparent else selectedColor).copy(alpha = alphaContent))
+                                .background(
+                                    if (isTransparent) Color(0x1F000000)
+                                    else selectedColor.copy(alpha = alphaContent)
+                                )
                                 .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = alphaContent), RoundedCornerShape(8.dp))
                         )
                         OutlinedTextField(
@@ -1028,29 +1066,39 @@ fun CreateProjectDialog(
                             enabled = !isTransparent,
                             label = { Text("Kode Warna Hex (mis. FFFFFF)") },
                             singleLine = true,
+                            isError = !isTransparent && parseHexColor(hexColorInput) == null,
+                            supportingText = {
+                                if (!isTransparent && parseHexColor(hexColorInput) == null) {
+                                    Text("Hex harus 6 digit (mis. 3A7BD9)", style = MaterialTheme.typography.labelSmall)
+                                }
+                            },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp)
                         )
                     }
 
                     // Color Picker manual: slider R/G/B menyusun warna apa
-                    // pun tanpa mengetik kode hex; kotak hex tetap ikut.
+                    // pun tanpa mengetik kode hex; kotak hex tetap ikut
+                    // (dua arah: hex -> swatch -> slider).
                     if (!isTransparent) {
                         val curArgb = selectedColor.toArgb()
                         val curR = (curArgb shr 16) and 0xFF
                         val curG = (curArgb shr 8) and 0xFF
                         val curB = curArgb and 0xFF
+                        val makeArgb = { r: Int, g: Int, b: Int ->
+                            0xFF000000 or (r shl 8) or (g shl 16) or b
+                        }
                         ChannelSliderRow(label = "R", value = curR, onValueChange = { r ->
                             selectedColor = Color(r / 255f, curG / 255f, curB / 255f)
-                            hexColorInput = String.format("%06X", (r shl 16) or (curG shl 8) or curB)
+                            hexColorInput = String.format("%06X", (makeArgb(r, curG, curB) and 0xFFFFFF))
                         })
                         ChannelSliderRow(label = "G", value = curG, onValueChange = { g ->
                             selectedColor = Color(curR / 255f, g / 255f, curB / 255f)
-                            hexColorInput = String.format("%06X", (curR shl 16) or (g shl 8) or curB)
+                            hexColorInput = String.format("%06X", (makeArgb(curR, g, curB) and 0xFFFFFF))
                         })
                         ChannelSliderRow(label = "B", value = curB, onValueChange = { b ->
                             selectedColor = Color(curR / 255f, curG / 255f, b / 255f)
-                            hexColorInput = String.format("%06X", (curR shl 16) or (curG shl 8) or b)
+                            hexColorInput = String.format("%06X", (makeArgb(curR, curG, b) and 0xFFFFFF))
                         })
                     }
                 }

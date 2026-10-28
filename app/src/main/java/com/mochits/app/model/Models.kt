@@ -113,6 +113,15 @@ data class TextSpanStyle(
     val textColor: Int? = null
 )
 
+/**
+ * Lapisan stroke tambahan (multi-stroke). Digambar di BAWAH stroke utama,
+ * biasanya lebih tebal sehingga terlihat sebagai lapis luar bertingkat.
+ */
+data class StrokeSpec(
+    val color: Int = Color.BLACK,
+    val width: Float = 4f
+)
+
 data class TextStyleConfig(
     val fontName: String = "Default",
     val fontStyle: String = "Regular", // "Regular", "Bold", "Italic", "BoldItalic"
@@ -132,6 +141,11 @@ data class TextStyleConfig(
     val letterSpacing: Float = 0f,
     val lineSpacing: Float = 1.0f,
     val alignment: TextAlignment = TextAlignment.CENTER,
+    // Lapis stroke tambahan di bawah stroke utama (multi-stroke).
+    // Nullable: JSON proyek lama tak memuat field ini (Gson → null).
+    val extraStrokes: List<StrokeSpec>? = null,
+    // Stroke memakai gradasi warna teks (stop/sudut yang sama).
+    val strokeUseGradient: Boolean = false,
     val isGradientEnabled: Boolean = false,
     val gradientStartColor: Int = Color.BLACK,
     val gradientEndColor: Int = Color.WHITE,

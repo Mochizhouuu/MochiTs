@@ -852,8 +852,25 @@ class TextRenderer(private val context: Context) {
                 strokeWidth = style.strokeWidth
                 color = style.strokeColor
                 alpha = strokeAlpha
+                if (style.strokeUseGradient && gradient != null) {
+                    shader = gradient
+                }
             }
         } else null
+
+        // Lapisan stroke tambahan di BAWAH stroke utama. Urut dari yang
+        // TEBAL ke tipis agar yang tipis paling depan; semuanya pakai
+        // opasitas & style stroke yang sama.
+        val extraStrokePaints = style.extraStrokes.orEmpty().map { spec ->
+            Paint().apply {
+                set(paint)
+                if (!style.strokeUseGradient) shader = null
+                style = Paint.Style.STROKE
+                strokeWidth = spec.width.coerceAtLeast(0f)
+                color = spec.color
+                alpha = strokeAlpha
+            }
+        }
 
         val hasPostProcess = style.motionBlurRadius > 0f ||
             style.radialBlurStrength > 0f ||
@@ -864,13 +881,13 @@ class TextRenderer(private val context: Context) {
             val smearKey = "$text|${style.hashCode()}|$shape|$boxWidth|$boxHeight|${spans.hashCode()}"
             drawMotionBlurSmear(
                 canvas, x, y, layoutResult, style,
-                paint, glowPaint, shadowPaint, strokePaint, smearKey, gradient
+                paint, glowPaint, shadowPaint, strokePaint, extraStrokePaints, smearKey, gradient
             )
         } else {
             drawTextRuns(
                 canvas, layoutResult.lines, x, y,
                 layoutResult.topOffset, layoutResult.lineHeight, style, gradient,
-                glowPaint, shadowPaint, strokePaint
+                glowPaint, shadowPaint, strokePaint, extraStrokePaints
             )
         }
     }
@@ -886,7 +903,8 @@ class TextRenderer(private val context: Context) {
         gradient: android.graphics.Shader?,
         glowPaint: Paint?,
         shadowPaint: Paint?,
-        strokePaint: Paint?
+        strokePaint: Paint?,
+        extraStrokePaints: List<Paint> = emptyList()
     ) {
         // Top kumulatif per baris: baris dengan kata besar hanya meninggikan
         // dirinya sendiri, bukan seluruh blok (height = tinggi baris efektif).
@@ -935,6 +953,14 @@ class TextRenderer(private val context: Context) {
                         it.textSize = run.fontSize
                         it.typeface = rp.typeface
                         canvas.drawText(run.text, rx, baselineY, it)
+                    }
+                    // Lapis stroke tambahan (di bawah stroke utama).
+                    for (ep in extraStrokePaints) {
+                        if (ep.style == Paint.Style.STROKE && ep.strokeWidth > 0f) {
+                            ep.textSize = run.fontSize
+                            ep.typeface = rp.typeface
+                            canvas.drawText(run.text, rx, baselineY, ep)
+                        }
                     }
                     strokePaint?.let {
                         it.textSize = run.fontSize
@@ -1032,6 +1058,7 @@ class TextRenderer(private val context: Context) {
         glowPaint: Paint?,
         shadowPaint: Paint?,
         strokePaint: Paint?,
+        extraStrokePaints: List<Paint> = emptyList(),
         cacheKey: String,
         gradient: android.graphics.Shader? = null
     ) {
@@ -1044,7 +1071,11 @@ class TextRenderer(private val context: Context) {
         val radialPad = if (radialStrength > 0f) {
             maxOf(textW, textH) * 0.55f * radialStrength
         } else 0f
-        val pad = ceil(maxOf(radius, radialPad).toDouble()).toInt() + 4
+        // Bantalan ekstra untuk stroke (utama + tambahan) agar tepinya tidak terpotong.
+        val maxStroke = (style.strokeWidth.coerceAtLeast(0f) +
+            style.extraStrokes.orEmpty().maxOfOrNull { it.width.coerceAtLeast(0f) } ?: 0f)
+        val strokePad = (maxStroke * 0.5f).coerceAtLeast(0f)
+        val pad = ceil(maxOf(radius, radialPad, strokePad).toDouble()).toInt() + 4
         val bw = (textW + 2 * pad).toInt().coerceAtLeast(1)
         val bh = (textH + 2 * pad).toInt().coerceAtLeast(1)
         // Kerja di bitmap kecil agar slider tetap mulus, upscale saat ditempel.
@@ -1085,7 +1116,7 @@ class TextRenderer(private val context: Context) {
         drawTextRuns(
             off, layoutResult.lines, x, y,
             layoutResult.topOffset, layoutResult.lineHeight,
-            style, gradient, glowPaint, shadowPaint, strokePaint
+            style, gradient, glowPaint, shadowPaint, strokePaint, extraStrokePaints
         )
 
         val px = IntArray(ww * hh)
@@ -1182,6 +1213,7 @@ class TextRenderer(private val context: Context) {
                 s.glowRadius,
                 s.shadowRadius + abs(s.shadowDx) + abs(s.shadowDy),
                 s.strokeWidth,
+                s.extraStrokes.orEmpty().maxOfOrNull { it.width } ?: 0f,
                 s.motionBlurRadius,
                 if (s.radialBlurStrength > 0f) {
                     maxOf(b.width(), b.height()) * 0.55f * s.radialBlurStrength.coerceIn(0f, 1f)

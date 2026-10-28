@@ -7,7 +7,6 @@ import com.mochits.app.model.RadialBlurMode
 import com.mochits.app.model.TexturePreset
 import com.mochits.app.text.MotionBlur
 import kotlin.math.cos
-import kotlin.math.hypot
 import kotlin.math.sin
 import com.mochits.app.util.Logger
 import kotlinx.coroutines.Dispatchers
@@ -138,6 +137,11 @@ object ImageEffects {
      * Radial blur murni Kotlin (aman API 29). Pusat tidak ikut blur:
      * SPIN memutar sampel di radius yang sama, ZOOM menarik/mendorong sampel
      * sepanjang garis radius. Pinggir memakai bilinear + bobot Gaussian.
+     *
+     * Performa: bobot Gaussian dan trig per-tap TIDAK bergantung piksel,
+     * jadi semuanya dihitung sekali di luar loop (dulu exp/cos/sin dihitung
+     * ulang untuk tiap piksel × tiap tap — ribuan kali lebih berat; inilah
+     * penyebab slider Radial Blur terasa ngelag).
      */
     fun radialBlurPixels(
         pixels: IntArray,
@@ -153,17 +157,33 @@ object ImageEffects {
         val cx = centerX.coerceIn(0f, 1f) * (width - 1)
         val cy = centerY.coerceIn(0f, 1f) * (height - 1)
         val out = IntArray(width * height)
-        val taps = 17
-        val maxAngle = 1.75f * s
-        val maxZoom = 0.55f * s
-        val centerRadius = 1.4f
+        val taps = 25
+        val maxAngle = 2.6f * s
+        val maxZoom = 0.85f * s
+        val centerRadius2 = 1.4f * 1.4f
+        // Konstanta per-tap: bobot Gaussian + sampel geometri (rotasi/zoom).
+        val tapWeight = FloatArray(taps)
+        val tapCa = FloatArray(taps)
+        val tapSa = FloatArray(taps)
+        val tapM = FloatArray(taps)
+        for (t in 0 until taps) {
+            val f = t / (taps - 1f) - 0.5f
+            tapWeight[t] = kotlin.math.exp(-(f * f) * 6f)
+            if (mode == RadialBlurMode.ZOOM) {
+                tapM[t] = 1f + f * maxZoom
+            } else {
+                val ang = f * maxAngle
+                tapCa[t] = cos(ang)
+                tapSa[t] = sin(ang)
+            }
+        }
         for (y in 0 until height) {
             for (x in 0 until width) {
                 val idx = y * width + x
                 val dx = x - cx
                 val dy = y - cy
-                val dist = hypot(dx, dy)
-                if (dist <= centerRadius) {
+                val dist2 = dx * dx + dy * dy
+                if (dist2 <= centerRadius2) {
                     out[idx] = pixels[idx]
                     continue
                 }
@@ -174,18 +194,16 @@ object ImageEffects {
                 var b = 0f
                 var wsum = 0f
                 for (t in 0 until taps) {
-                    val f = t / (taps - 1f) - 0.5f
-                    val weight = kotlin.math.exp(-(f * f) * 9f)
+                    val weight = tapWeight[t]
                     val sx: Float
                     val sy: Float
                     if (mode == RadialBlurMode.ZOOM) {
-                        val m = 1f + f * maxZoom
+                        val m = tapM[t]
                         sx = cx + dx * m
                         sy = cy + dy * m
                     } else {
-                        val ang = f * maxAngle
-                        val ca = cos(ang)
-                        val sa = sin(ang)
+                        val ca = tapCa[t]
+                        val sa = tapSa[t]
                         sx = cx + dx * ca - dy * sa
                         sy = cy + dx * sa + dy * ca
                     }

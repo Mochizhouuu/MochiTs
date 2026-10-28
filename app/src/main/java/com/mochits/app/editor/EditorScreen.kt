@@ -73,6 +73,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.mochits.app.model.EditorPanel
 import com.mochits.app.model.Layer
 import com.mochits.app.model.MaskToolMode
+import com.mochits.app.model.StrokeSpec
 import com.mochits.app.model.TextStyleConfig
 import androidx.documentfile.provider.DocumentFile
 import com.mochits.app.text.TextRenderer
@@ -859,7 +860,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         isCollapsed = EditorPanel.EFFECT in collapsedPanels,
                         onToggleCollapse = { togglePanelCollapse(EditorPanel.EFFECT) }
                     )
-                    EditorPanel.LAYERS -> LayersToolPanel(                        layers = layers,
+                    EditorPanel.LAYERS -> LayersToolPanel(
+                        layers = layers,
                         selectedId = selectedLayerId,
                         onSelectLayer = { viewModel.selectLayer(it) },
                         onMoveLayer = { id, dir -> viewModel.moveLayer(id, dir) },
@@ -871,10 +873,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onDuplicateBackground = { viewModel.duplicateBackground() },
                         isCollapsed = EditorPanel.LAYERS in collapsedPanels,
                         onToggleCollapse = { togglePanelCollapse(EditorPanel.LAYERS) },
-                        backgroundLabel = baseBitmap?.let { "${it.width} x ${it.height}" } ?: "",
-                        onUpdateOpacity = { opacity, saveUndo -> viewModel.updateSelectedLayerOpacity(opacity, saveUndo = saveUndo) },
-                        onSliderDragStart = { viewModel.onSliderDragStart() },
-                        onSliderDragEnd = { viewModel.onSliderDragEnd() }
+                        backgroundLabel = baseBitmap?.let { "${it.width} x ${it.height}" } ?: ""
                     )
                     EditorPanel.SCRIPT -> ScriptPanel(
                         scriptQueue = scriptQueue,
@@ -3005,40 +3004,9 @@ fun EraseToolPanel(
 
                 Spacer(modifier = Modifier.height(2.dp))
 
-            SectionCard(title = "Model") {
-                OptionCycler(
-                    label = "Model",
-                    options = listOf(
-                        EditorViewModel.InpaintModel.TELEA,
-                        EditorViewModel.InpaintModel.LAMA
-                    ),
-                    selected = selectedModel,
-                    onSelect = onModelSelected,
-                    labelOf = {
-                        when (it) {
-                            EditorViewModel.InpaintModel.TELEA -> "Telea (Cepat)"
-                            EditorViewModel.InpaintModel.LAMA -> "LaMa (AI)"
-                        }
-                    }
-                )
-
-                if (isDownloading) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Column {
-                        Text(
-                            text = "Mengunduh LaMa ${(downloadProgress * 100).toInt()}%",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        LinearProgressIndicator(
-                            progress = { downloadProgress },
-                            modifier = Modifier.fillMaxWidth().height(6.dp)
-                        )
-                    }
-                }
-            }
-
-                Spacer(modifier = Modifier.height(2.dp))
+                // Tombol aksi utama diletakkan sebelum kartu Model/Strength
+                // agar "Hapus Area Terpilih" terlihat tanpa perlu scroll —
+                // panel yang penuh kartu membuat scroll terasa tidak enak.
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -3079,6 +3047,41 @@ fun EraseToolPanel(
                         Text(if (hasMask) "Hapus Area Terpilih" else "Seleksi Area Dulu")
                     }
                 }
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+            SectionCard(title = "Model") {
+                OptionCycler(
+                    label = "Model",
+                    options = listOf(
+                        EditorViewModel.InpaintModel.TELEA,
+                        EditorViewModel.InpaintModel.LAMA
+                    ),
+                    selected = selectedModel,
+                    onSelect = onModelSelected,
+                    labelOf = {
+                        when (it) {
+                            EditorViewModel.InpaintModel.TELEA -> "Telea (Cepat)"
+                            EditorViewModel.InpaintModel.LAMA -> "LaMa (AI)"
+                        }
+                    }
+                )
+
+                if (isDownloading) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Column {
+                        Text(
+                            text = "Mengunduh LaMa ${(downloadProgress * 100).toInt()}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        LinearProgressIndicator(
+                            progress = { downloadProgress },
+                            modifier = Modifier.fillMaxWidth().height(6.dp)
+                        )
+                    }
+                }
+            }
 
                 Spacer(modifier = Modifier.height(2.dp))
             SectionCard(title = "Strength") {
@@ -3884,6 +3887,37 @@ private fun PerspectivePanel(    hasQuad: Boolean,
     }
 }
 
+/**
+ * Baris sakelar aktif/nonaktif satu efek. Kontrol efek hanya tampil saat
+ * aktif; saat nonaktif cukup satu petunjuk singkat (saran pengguna: menu
+ * disembunyikan dulu sebelum efek diaktifkan).
+ */
+@Composable
+private fun EffectActiveRow(
+    active: Boolean,
+    onToggle: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = if (active) "Aktif" else "Nonaktif",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Switch(checked = active, onCheckedChange = onToggle)
+    }
+    if (!active) {
+        Text(
+            text = "Nyalakan untuk mengatur.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
 @Composable
 fun EffectToolPanel(
     selectedLayer: Layer?,
@@ -4341,7 +4375,20 @@ fun EffectToolPanel(
                             EffectType.STROKE -> {
                                 if (selectedLayer is Layer.TextLayer) {
                                     val currentStyle = selectedLayer.style
+                                    val strokeActive = currentStyle.strokeWidth > 0f &&
+                                        currentStyle.strokeColor != AndroidColor.TRANSPARENT
+                                    EffectActiveRow(
+                                        active = strokeActive,
+                                        onToggle = { on ->
+                                            if (on) {
+                                                onUpdateStyle(currentStyle.copy(strokeColor = AndroidColor.WHITE, strokeWidth = 6f), true)
+                                            } else {
+                                                onUpdateStyle(currentStyle.copy(strokeWidth = 0f), true)
+                                            }
+                                        }
+                                    )
 
+                                    if (strokeActive) {
                                     ColorPickerRow(
                                         selectedColor = currentStyle.strokeColor,
                                         onColorSelected = { col -> onUpdateStyle(currentStyle.copy(strokeColor = col), true) },
@@ -4381,12 +4428,187 @@ fun EffectToolPanel(
                                         },
                                         valueRange = 0f..1f
                                     )
+
+                                    // Gradasi stroke: ikuti stop/sudut gradasi warna teks.
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Stroke Ikuti Gradasi Teks",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                        Switch(
+                                            checked = currentStyle.strokeUseGradient,
+                                            onCheckedChange = {
+                                                onUpdateStyle(
+                                                    currentStyle.copy(strokeUseGradient = it),
+                                                    true
+                                                )
+                                            }
+                                        )
+                                    }
+                                    if (currentStyle.strokeUseGradient) {
+                                        Text(
+                                            text = "Butuh gradasi teks aktif. Atur warna gradasi di tab Color.",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    // Multi-stroke: lapis tambahan di bawah stroke utama.
+                                    val extras = currentStyle.extraStrokes.orEmpty()
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Stroke Tambahan (${extras.size})",
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        OutlinedButton(
+                                            onClick = {
+                                                val next = StrokeSpec(color = AndroidColor.WHITE, width = 8f)
+                                                onUpdateStyle(
+                                                    currentStyle.copy(
+                                                        extraStrokes = currentStyle.extraStrokes.orEmpty() + next
+                                                    ),
+                                                    true
+                                                )
+                                            },
+                                            enabled = extras.size < 4,
+                                            modifier = Modifier.heightIn(min = 28.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Add,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Tambah Stroke", style = MaterialTheme.typography.labelLarge)
+                                        }
+                                    }
+
+                                    extras.forEachIndexed { index, spec ->
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                        ) {
+                                            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text("Lapis ${index + 1}", style = MaterialTheme.typography.labelSmall)
+                                                    IconButton(
+                                                        onClick = {
+                                                            val list = currentStyle.extraStrokes.orEmpty().toMutableList()
+                                                            list.removeAt(index)
+                                                            onUpdateStyle(currentStyle.copy(extraStrokes = list), true)
+                                                        },
+                                                        modifier = Modifier.size(24.dp)
+                                                    ) {
+                                                        Icon(
+                                                            Icons.Default.Close,
+                                                            contentDescription = "Hapus Lapis",
+                                                            tint = MaterialTheme.colorScheme.error,
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    }
+                                                }
+
+                                                ColorPickerRow(
+                                                    selectedColor = spec.color,
+                                                    onColorSelected = { newColor ->
+                                                        onUpdateStyle(
+                                                            currentStyle.copy(
+                                                                extraStrokes = currentStyle.extraStrokes.orEmpty().mapIndexed { i, s ->
+                                                                    if (i == index) s.copy(color = newColor) else s
+                                                                }
+                                                            ),
+                                                            true
+                                                        )
+                                                    },
+                                                    onCustomColorChange = { newColor ->
+                                                        onUpdateStyle(
+                                                            currentStyle.copy(
+                                                                extraStrokes = currentStyle.extraStrokes.orEmpty().mapIndexed { i, s ->
+                                                                    if (i == index) s.copy(color = newColor) else s
+                                                                }
+                                                            ),
+                                                            false
+                                                        )
+                                                    },
+                                                    onPickStart = { onSliderDragStart() },
+                                                    onPickEnd = { onSliderDragEnd() },
+                                                    onEyedropperClick = {
+                                                        onStartEyedropper { sampledCol ->
+                                                            onUpdateStyle(
+                                                                currentStyle.copy(
+                                                                    extraStrokes = currentStyle.extraStrokes.orEmpty().mapIndexed { i, s ->
+                                                                        if (i == index) s.copy(color = sampledCol) else s
+                                                                    }
+                                                                ),
+                                                                true
+                                                            )
+                                                        }
+                                                    }
+                                                )
+
+                                                Text("Ketebalan: ${spec.width.toInt()} px", style = MaterialTheme.typography.bodySmall)
+                                                Slider(
+                                                    value = spec.width,
+                                                    onValueChange = { newW ->
+                                                        onSliderDragStart()
+                                                        onUpdateStyle(
+                                                            currentStyle.copy(
+                                                                extraStrokes = currentStyle.extraStrokes.orEmpty().mapIndexed { i, s ->
+                                                                    if (i == index) s.copy(width = newW) else s
+                                                                }
+                                                            ),
+                                                            false
+                                                        )
+                                                    },
+                                                    onValueChangeFinished = { onSliderDragEnd() },
+                                                    valueRange = 0f..30f
+                                                )
+                                            }
+                                        }
+                                    }
+                                    }
                                 }
                             }
                             EffectType.DROP_SHADOW -> {
                                 if (selectedLayer is Layer.TextLayer) {
                                     val currentStyle = selectedLayer.style
+                                    val shadowActive = currentStyle.shadowColor != AndroidColor.TRANSPARENT &&
+                                        (currentStyle.shadowRadius > 0f ||
+                                         currentStyle.shadowDx != 0f ||
+                                         currentStyle.shadowDy != 0f)
+                                    EffectActiveRow(
+                                        active = shadowActive,
+                                        onToggle = { on ->
+                                            if (on) {
+                                                onUpdateStyle(
+                                                    currentStyle.copy(
+                                                        shadowColor = AndroidColor.BLACK,
+                                                        shadowRadius = 8f, shadowDx = 2f, shadowDy = 2f
+                                                    ),
+                                                    true
+                                                )
+                                            } else {
+                                                onUpdateStyle(
+                                                    currentStyle.copy(shadowRadius = 0f, shadowDx = 0f, shadowDy = 0f),
+                                                    true
+                                                )
+                                            }
+                                        }
+                                    )
 
+                                    if (shadowActive) {
                                     ColorPickerRow(
                                         selectedColor = currentStyle.shadowColor,
                                         onColorSelected = { col ->
@@ -4443,12 +4665,24 @@ fun EffectToolPanel(
                                         },
                                         valueRange = -30f..30f
                                     )
+                                    }
                                 }
                             }
                             EffectType.MOTION_BLUR -> {
                                 if (selectedLayer is Layer.TextLayer) {
                                     val currentStyle = selectedLayer.style
+                                    val motionActive = currentStyle.motionBlurRadius > 0f
+                                    EffectActiveRow(
+                                        active = motionActive,
+                                        onToggle = { on ->
+                                            onUpdateStyle(
+                                                currentStyle.copy(motionBlurRadius = if (on) 20f else 0f),
+                                                true
+                                            )
+                                        }
+                                    )
 
+                                    if (motionActive) {
                                     Text("Kekuatan: ${currentStyle.motionBlurRadius.toInt()} px", style = MaterialTheme.typography.bodySmall)
                                     Slider(
                                         value = currentStyle.motionBlurRadius,
@@ -4474,12 +4708,26 @@ fun EffectToolPanel(
                                         },
                                         valueRange = 0f..360f
                                     )
+                                    }
                                 }
                             }
                             EffectType.GLOW -> {
                                 if (selectedLayer is Layer.TextLayer) {
                                     val currentStyle = selectedLayer.style
+                                    val glowActive = currentStyle.glowColor != AndroidColor.TRANSPARENT &&
+                                        currentStyle.glowRadius > 0f
+                                    EffectActiveRow(
+                                        active = glowActive,
+                                        onToggle = { on ->
+                                            if (on) {
+                                                onUpdateStyle(currentStyle.copy(glowColor = AndroidColor.WHITE, glowRadius = 12f), true)
+                                            } else {
+                                                onUpdateStyle(currentStyle.copy(glowRadius = 0f), true)
+                                            }
+                                        }
+                                    )
 
+                                    if (glowActive) {
                                     ColorPickerRow(
                                         selectedColor = currentStyle.glowColor,
                                         onColorSelected = { col ->
@@ -4510,6 +4758,7 @@ fun EffectToolPanel(
                                         },
                                         valueRange = 0f..30f
                                     )
+                                    }
                                 }
                             }
                             EffectType.IMAGE_TONE -> {
@@ -4570,6 +4819,16 @@ fun EffectToolPanel(
                             }
                             EffectType.IMAGE_MOTION_BLUR -> {
                                 if (selectedLayer is Layer.ImageLayer && onUpdateImageLayer != null) {
+                                    val motionActive = selectedLayer.motionBlurRadius > 0f
+                                    EffectActiveRow(
+                                        active = motionActive,
+                                        onToggle = { on ->
+                                            onUpdateImageLayer(selectedLayer.copy(motionBlurRadius = if (on) 20f else 0f))
+                                            onSliderDragEnd()
+                                        }
+                                    )
+
+                                    if (motionActive) {
                                     Text("Kekuatan: ${selectedLayer.motionBlurRadius.toInt()} px", style = MaterialTheme.typography.bodySmall)
                                     Slider(
                                         value = selectedLayer.motionBlurRadius,
@@ -4600,12 +4859,22 @@ fun EffectToolPanel(
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+                                    }
                                 }
                             }
                             EffectType.RADIAL_BLUR -> {
                                 when (selectedLayer) {
                                     is Layer.TextLayer -> {
                                         val st = selectedLayer.style
+                                        val radialActive = st.radialBlurStrength > 0f
+                                        EffectActiveRow(
+                                            active = radialActive,
+                                            onToggle = { on ->
+                                                onUpdateStyle(st.copy(radialBlurStrength = if (on) 0.5f else 0f), true)
+                                            }
+                                        )
+
+                                        if (radialActive) {
                                         Text(
                                             "Pusat blur di tengah teks.",
                                             style = MaterialTheme.typography.labelSmall,
@@ -4628,8 +4897,19 @@ fun EffectToolPanel(
                                             onValueChangeFinished = { onSliderDragEnd() },
                                             valueRange = 0f..1f
                                         )
+                                        }
                                     }
                                     is Layer.ImageLayer -> if (onUpdateImageLayer != null) {
+                                        val radialActive = selectedLayer.radialBlurStrength > 0f
+                                        EffectActiveRow(
+                                            active = radialActive,
+                                            onToggle = { on ->
+                                                onUpdateImageLayer(selectedLayer.copy(radialBlurStrength = if (on) 0.5f else 0f))
+                                                onSliderDragEnd()
+                                            }
+                                        )
+
+                                        if (radialActive) {
                                         Text(
                                             "Pusat blur di titik kontrol.",
                                             style = MaterialTheme.typography.labelSmall,
@@ -4676,6 +4956,7 @@ fun EffectToolPanel(
                                             onValueChangeFinished = { onSliderDragEnd() },
                                             valueRange = 0f..1f
                                         )
+                                        }
                                     }
                                 }
                             }
@@ -4683,6 +4964,23 @@ fun EffectToolPanel(
                                 when (selectedLayer) {
                                     is Layer.TextLayer -> {
                                         val st = selectedLayer.style
+                                        val textureActive = st.texturePreset != com.mochits.app.model.TexturePreset.NONE &&
+                                            st.textureStrength > 0f
+                                        EffectActiveRow(
+                                            active = textureActive,
+                                            onToggle = { on ->
+                                                if (on) {
+                                                    val preset = if (st.texturePreset == com.mochits.app.model.TexturePreset.NONE) {
+                                                        com.mochits.app.model.TexturePreset.PAPER
+                                                    } else st.texturePreset
+                                                    onUpdateStyle(st.copy(texturePreset = preset, textureStrength = 0.6f), true)
+                                                } else {
+                                                    onUpdateStyle(st.copy(textureStrength = 0f), true)
+                                                }
+                                            }
+                                        )
+
+                                        if (textureActive) {
                                         OptionCycler(
                                             label = "Jenis",
                                             options = com.mochits.app.model.TexturePreset.values().toList(),
@@ -4710,8 +5008,27 @@ fun EffectToolPanel(
                                             onValueChangeFinished = { onSliderDragEnd() },
                                             valueRange = 0.5f..4f
                                         )
+                                        }
                                     }
                                     is Layer.ImageLayer -> if (onUpdateImageLayer != null) {
+                                        val textureActive = selectedLayer.texturePreset != com.mochits.app.model.TexturePreset.NONE &&
+                                            selectedLayer.textureStrength > 0f
+                                        EffectActiveRow(
+                                            active = textureActive,
+                                            onToggle = { on ->
+                                                if (on) {
+                                                    val preset = if (selectedLayer.texturePreset == com.mochits.app.model.TexturePreset.NONE) {
+                                                        com.mochits.app.model.TexturePreset.PAPER
+                                                    } else selectedLayer.texturePreset
+                                                    onUpdateImageLayer(selectedLayer.copy(texturePreset = preset, textureStrength = 0.6f))
+                                                } else {
+                                                    onUpdateImageLayer(selectedLayer.copy(textureStrength = 0f))
+                                                }
+                                                onSliderDragEnd()
+                                            }
+                                        )
+
+                                        if (textureActive) {
                                         OptionCycler(
                                             label = "Jenis",
                                             options = com.mochits.app.model.TexturePreset.values().toList(),
@@ -4748,6 +5065,7 @@ fun EffectToolPanel(
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
+                                        }
                                     }
                                 }
                             }
@@ -4793,6 +5111,21 @@ fun EffectToolPanel(
                             }
                             EffectType.IMAGE_GLOW -> {
                                 if (selectedLayer is Layer.ImageLayer && onUpdateImageLayer != null) {
+                                    val glowActive = selectedLayer.glowColor != AndroidColor.TRANSPARENT &&
+                                        selectedLayer.glowRadius > 0f
+                                    EffectActiveRow(
+                                        active = glowActive,
+                                        onToggle = { on ->
+                                            if (on) {
+                                                onUpdateImageLayer(selectedLayer.copy(glowColor = AndroidColor.WHITE, glowRadius = 12f))
+                                            } else {
+                                                onUpdateImageLayer(selectedLayer.copy(glowRadius = 0f))
+                                            }
+                                            onSliderDragEnd()
+                                        }
+                                    )
+
+                                    if (glowActive) {
                                     Text("Warna Glow:", style = MaterialTheme.typography.bodySmall)
                                     ColorPickerRow(
                                         selectedColor = selectedLayer.glowColor,
@@ -4833,6 +5166,7 @@ fun EffectToolPanel(
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+                                    }
                                 }
                             }
                             null -> {}
@@ -5129,18 +5463,14 @@ fun LayersToolPanel(
     onLoadBaseImage: () -> Unit = {},
     onDuplicateBackground: () -> Unit = {},
     backgroundLabel: String = "",
-    onUpdateOpacity: ((Float, Boolean) -> Unit)? = null,
-    onSliderDragStart: () -> Unit = {},
-    onSliderDragEnd: () -> Unit = {},
     isCollapsed: Boolean = false,
     onToggleCollapse: () -> Unit = {}
 ) {
-    val selectedLayer = layers.find { it.id == selectedId }
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-        modifier = Modifier.fillMaxWidth().then(if (isCollapsed) Modifier.heightIn(max = 120.dp) else Modifier.height(220.dp))
+        modifier = Modifier.fillMaxWidth().then(if (isCollapsed) Modifier.heightIn(max = 120.dp) else Modifier.height(280.dp))
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
@@ -5178,31 +5508,13 @@ fun LayersToolPanel(
                 }
             }
             if (!isCollapsed) {
-            SectionCard(title = "Active Layer") {
-            if (selectedLayer != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("Opasitas Layer: ${(selectedLayer.opacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
-                    Slider(
-                        value = selectedLayer.opacity.coerceIn(0f, 1f),
-                        onValueChange = {
-                            onSliderDragStart()
-                            onUpdateOpacity?.invoke(it, false)
-                        },
-                        onValueChangeFinished = {
-                            onSliderDragEnd()
-                        },
-                        valueRange = 0f..1f,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-            }
-
-            LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            // Daftar layer mengisi sisa ruang panel. Slider opasitas yang
+            // dulu menumpang di sini dibuang: duplikat Effect -> Opacity dan
+            // penyebab utama daftar layer tergencet (hanya Latar terlihat).
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                contentPadding = PaddingValues(top = 2.dp, bottom = 10.dp)
+            ) {
                 // Display front-first (canvas draw order is index 0 = back, last =
                 // front), so "Naik" (toward front) moves the row upward.
                 items(layers.reversed(), key = { it.id }) { layer ->
@@ -5375,13 +5687,13 @@ fun LayersToolPanel(
                         }
                         IconButton(onClick = onLoadBaseImage) {
                             Icon(Icons.Default.Image, contentDescription = "Ganti gambar latar")
+                        }
                     }
                 }
             }
             }
         }
     }
-}
 }
 
 
