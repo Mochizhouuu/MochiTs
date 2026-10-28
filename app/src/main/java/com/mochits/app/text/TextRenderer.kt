@@ -864,8 +864,8 @@ class TextRenderer(private val context: Context) {
         val extraStrokePaints = style.extraStrokes.orEmpty().map { spec ->
             Paint().apply {
                 set(paint)
-                if (!style.strokeUseGradient) shader = null
-                style = Paint.Style.STROKE
+                if (!style.strokeUseGradient) this.shader = null
+                this.style = Paint.Style.STROKE
                 strokeWidth = spec.width.coerceAtLeast(0f)
                 color = spec.color
                 alpha = strokeAlpha
@@ -1072,8 +1072,8 @@ class TextRenderer(private val context: Context) {
             maxOf(textW, textH) * 0.55f * radialStrength
         } else 0f
         // Bantalan ekstra untuk stroke (utama + tambahan) agar tepinya tidak terpotong.
-        val maxStroke = (style.strokeWidth.coerceAtLeast(0f) +
-            style.extraStrokes.orEmpty().maxOfOrNull { it.width.coerceAtLeast(0f) } ?: 0f)
+        val maxStroke = style.strokeWidth.coerceAtLeast(0f) +
+            (style.extraStrokes.orEmpty().maxOfOrNull { it.width }?.coerceAtLeast(0f) ?: 0f)
         val strokePad = (maxStroke * 0.5f).coerceAtLeast(0f)
         val pad = ceil(maxOf(radius, radialPad, strokePad).toDouble()).toInt() + 4
         val bw = (textW + 2 * pad).toInt().coerceAtLeast(1)

@@ -4381,7 +4381,7 @@ fun EffectToolPanel(
                                         active = strokeActive,
                                         onToggle = { on ->
                                             if (on) {
-                                                onUpdateStyle(currentStyle.copy(strokeColor = AndroidColor.parseColor("#8B0000"), strokeWidth = 6f), true)
+                                                onUpdateStyle(currentStyle.copy(strokeColor = AndroidColor.WHITE, strokeWidth = 6f), true)
                                             } else {
                                                 onUpdateStyle(currentStyle.copy(strokeWidth = 0f), true)
                                             }

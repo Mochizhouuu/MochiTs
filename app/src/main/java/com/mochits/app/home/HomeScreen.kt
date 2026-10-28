@@ -1086,7 +1086,7 @@ fun CreateProjectDialog(
                         val curG = (curArgb shr 8) and 0xFF
                         val curB = curArgb and 0xFF
                         val makeArgb = { r: Int, g: Int, b: Int ->
-                            0xFF000000 or (r shl 8) or (g shl 16) or b
+                            0xFF000000L or (r.toLong() shl 8) or (g.toLong() shl 16) or b.toLong()
                         }
                         ChannelSliderRow(label = "R", value = curR, onValueChange = { r ->
                             selectedColor = Color(r / 255f, curG / 255f, curB / 255f)
