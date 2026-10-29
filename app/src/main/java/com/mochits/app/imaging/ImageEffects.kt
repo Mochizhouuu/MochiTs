@@ -7,6 +7,7 @@ import com.mochits.app.model.RadialBlurMode
 import com.mochits.app.model.TexturePreset
 import com.mochits.app.text.MotionBlur
 import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.sin
 import com.mochits.app.util.Logger
 import kotlinx.coroutines.Dispatchers
@@ -263,20 +264,43 @@ object ImageEffects {
                 }
                 val sx = x / sc
                 val sy = y / sc
-                val noise = when (preset) {
-                    TexturePreset.GRAIN -> hashNoise(sx.toInt(), sy.toInt(), 11)
+                // Setiap preset punya STRUKTUR berbeda (bukan sekadar noise):
+                // Grain = butiran film per piksel; Kertas = mottling lembut
+                // (value noise 2 oktaf) + serat diagonal; Kanvas = pola tenun
+                // benang (grid sin²) + variasi per benang. Amp mengatur
+                // seberapa keras struktur muncul pada strength penuh.
+                val noise: Float
+                val amp: Float
+                when (preset) {
+                    TexturePreset.GRAIN -> {
+                        noise = 0.5f + (hashNoise(sx.toInt(), sy.toInt(), 11) - 0.5f) * 0.9f
+                        amp = 0.45f
+                    }
                     TexturePreset.PAPER -> {
-                        val low = hashNoise(sx.toInt(), sy.toInt(), 23)
-                        val fine = hashNoise((sx * 2.7f).toInt(), (sy * 2.7f).toInt(), 41)
-                        low * 0.65f + fine * 0.35f
+                        val base = valueNoise(sx * 0.055f, sy * 0.055f, 23)
+                        val mid = valueNoise(sx * 0.16f, sy * 0.16f, 29)
+                        val fiber = hashNoise(
+                            (sx * 0.75f + sy * 0.31f).toInt(),
+                            (sy * 0.75f - sx * 0.31f).toInt(),
+                            41
+                        )
+                        noise = base * 0.45f + mid * 0.33f + fiber * 0.22f
+                        amp = 0.62f
                     }
                     TexturePreset.CANVAS -> {
-                        val weave = (sin(sx * 1.7f) * sin(sy * 1.7f) + 1f) * 0.5f
-                        weave * 0.7f + hashNoise(sx.toInt(), sy.toInt(), 67) * 0.3f
+                        val tx = sin(sx * 0.9f)
+                        val ty = sin(sy * 0.9f)
+                        val grid = tx * tx * 0.55f + ty * ty * 0.45f
+                        val cell = hashNoise((sx / 7f).toInt(), (sy / 7f).toInt(), 67)
+                        noise = grid * 0.72f + cell * 0.28f
+                        amp = 0.75f
                     }
-                    TexturePreset.NONE -> 0.5f
+                    TexturePreset.NONE -> {
+                        noise = 0.5f
+                        amp = 0f
+                    }
                 }
-                val delta = (noise - 0.5f) * 2f * s * 0.62f
+                val delta = (noise - 0.5f) * 2f * s * amp
                 val factor = (1f + delta).coerceIn(0.15f, 1.85f)
                 val nr = (((p shr 16) and 0xFF) * factor).toInt().coerceIn(0, 255)
                 val ng = (((p shr 8) and 0xFF) * factor).toInt().coerceIn(0, 255)
@@ -292,6 +316,26 @@ object ImageEffects {
         h = (h xor (h ushr 13)) * 1274126177
         h = h xor (h ushr 16)
         return (h and 0x7FFFFFFF) / Int.MAX_VALUE.toFloat()
+    }
+
+    /**
+     * Value noise: hash acak yang diinterpolasi halus (smoothstep), jadi
+     * hasilnya berumpul menggulung — bukan statik per piksel. Dipakai untuk
+     * struktur permukaan (kertas/kanvas) yang terlihat seperti tekstur
+     * nyata, bukan seperti gangguan sinyal.
+     */
+    private fun valueNoise(x: Float, y: Float, seed: Int): Float {
+        val x0 = floor(x).toInt()
+        val y0 = floor(y).toInt()
+        val fx = x - x0
+        val fy = y - y0
+        val u = fx * fx * (3f - 2f * fx)
+        val v = fy * fy * (3f - 2f * fy)
+        val a = hashNoise(x0, y0, seed)
+        val b = hashNoise(x0 + 1, y0, seed)
+        val c = hashNoise(x0, y0 + 1, seed)
+        val d = hashNoise(x0 + 1, y0 + 1, seed)
+        return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v
     }
 
     private fun sampleBilinear(
