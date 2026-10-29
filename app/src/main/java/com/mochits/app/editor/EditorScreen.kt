@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -5221,7 +5222,12 @@ fun EffectToolPanel(
                                                 onUpdateImageLayer(selectedLayer.copy(textureColor = it))
                                             },
                                             onPickStart = { onSliderDragStart() },
-                                            onPickEnd = { onSliderDragEnd() }
+                                            onPickEnd = { onSliderDragEnd() },
+                                            onEyedropperClick = {
+                                                onStartEyedropper { c ->
+                                                    onUpdateImageLayer(selectedLayer.copy(textureColor = c))
+                                                }
+                                            }
                                         )
 
                                         // Impor texture sendiri: tile gambar galeri.

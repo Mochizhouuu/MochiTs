@@ -392,6 +392,12 @@ object ImageEffects {
                         t = 0.5f
                         hardMask = false
                     }
+                    // CUSTOM digambar lewat applyCustomTexturePixels; branch
+                    // ini hanya untuk keeksahaan when.
+                    TexturePreset.CUSTOM -> {
+                        t = 0.5f
+                        hardMask = false
+                    }
                 }
 
                 val nr: Int
