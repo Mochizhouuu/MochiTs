@@ -152,6 +152,35 @@ class ImageEffectsTest {
     }
 
     @Test
+    fun texture_halftoneDeterministicAndTintable() {
+        val w = 16
+        val h = 16
+        val src = IntArray(w * h) { Color.argb(200, 230, 90, 60) }
+        val a = ImageEffects.applyTexturePixels(src, w, h, TexturePreset.HALFTONE, 0.8f, 1f)
+        val b = ImageEffects.applyTexturePixels(src, w, h, TexturePreset.HALFTONE, 0.8f, 1f)
+        assertArrayEquals(a, b)
+        for (p in a) assertEquals(200, Color.alpha(p))
+        assertTrue(a.any { it != src[0] })
+        // Tint biru mengubah warna piksel bertitik, alpha tetap.
+        val blue = Color.argb(255, 40, 90, 255)
+        val tinted = ImageEffects.applyTexturePixels(src, w, h, TexturePreset.HALFTONE, 0.8f, 1f, blue)
+        for (p in tinted) assertEquals(200, Color.alpha(p))
+        assertTrue(!tinted.contentEquals(a))
+    }
+
+    @Test
+    fun radialBlur_clampedEdgesKeepAlpha() {
+        val w = 16
+        val h = 16
+        val px = IntArray(w * h) { Color.argb(255, 200, 100, 50) }
+        val out = ImageEffects.radialBlurPixels(
+            px, w, h, 0.9f, RadialBlurMode.ZOOM, 0.5f, 0.5f, clampEdges = true
+        )
+        // Edge clamp: tidak ada piksel yang alphanya rontok di pinggiran.
+        for (p in out) assertEquals(255, Color.alpha(p))
+    }
+
+    @Test
     fun processedBitmap_neutralReturnsNull() = runBlocking {
         val src = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888)
         assertNull(

@@ -50,7 +50,11 @@ enum class TexturePreset(val label: String) {
     NONE("Nonaktif"),
     GRAIN("Grain"),
     PAPER("Kertas"),
-    CANVAS("Kanvas")
+    CANVAS("Kanvas"),
+    HALFTONE("Halftone"),
+    STRIPES("Garis"),
+    DOTS("Titik"),
+    CUSTOM("Imporan")
 }
 
 enum class EditorPanel {
@@ -160,7 +164,14 @@ data class TextStyleConfig(
     // Texture overlay deterministik (tanpa aset eksternal).
     val texturePreset: TexturePreset = TexturePreset.NONE,
     val textureStrength: Float = 0f, // 0..1
-    val textureScale: Float = 1f // 0.5..4
+    val textureScale: Float = 1f, // 0.5..4
+    // Warna texture: TRANSPARENT = shading netral (terang-gelap saja);
+    // berwarna = pattern (halftone/garis/titik) digambar memakai warna ini.
+    // Field lama tanpa key ini terbaca 0 (= TRANSPARENT) oleh Gson — aman.
+    val textureColor: Int = Color.TRANSPARENT,
+    // Texture impor: NAMA FILE di folder texture proyek (bukan path penuh).
+    // Dipakai saat texturePreset == CUSTOM.
+    val textureAsset: String? = null
 ) {
     fun calculateGradientPoints(x: Float, y: Float, width: Float, height: Float): FloatArray {
         val cx = x + width / 2f
@@ -237,7 +248,9 @@ sealed class Layer(
         val radialBlurCenterY: Float = 0.5f,
         val texturePreset: TexturePreset = TexturePreset.NONE,
         val textureStrength: Float = 0f,
-        val textureScale: Float = 1f
+        val textureScale: Float = 1f,
+        val textureColor: Int = Color.TRANSPARENT,
+        val textureAsset: String? = null
     ) : Layer(id, name, x, y, rotation, scaleX, scaleY, opacity, isVisible, isLocked, blendMode, clippingMask)
 
     data class TextLayer(

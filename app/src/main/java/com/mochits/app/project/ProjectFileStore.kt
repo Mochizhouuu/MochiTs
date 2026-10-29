@@ -27,6 +27,12 @@ class ProjectFileStore(private val context: Context) {
     fun layersDir(id: String): File =
         File(projectDir(id), "layers").apply { mkdirs() }
 
+    fun texturesDir(id: String): File =
+        File(projectDir(id), "textures").apply { mkdirs() }
+
+    fun textureFile(id: String, name: String): File =
+        File(texturesDir(id), name)
+
     fun layerFile(id: String, layerId: String): File =
         File(layersDir(id), "layer_$layerId.png")
 

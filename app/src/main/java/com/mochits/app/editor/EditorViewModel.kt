@@ -1952,11 +1952,97 @@ data class HistoryManifest(
         val texturePreset: TexturePreset,
         val textureStrength: Float,
         val textureScale: Float,
+        val textureColor: Int,
+        val textureAsset: String?,
         val result: Bitmap
     )
 
     private val imageFxCache = mutableMapOf<String, ImageFxEntry>()
     private val imageFxJobs = mutableMapOf<String, kotlinx.coroutines.Job>()
+
+    // ===== Texture impor (CUSTOM) =====
+    // Cache nama asset -> bitmap. Bitmap juga persist di folder texture
+    // proyek sehingga tetap ada setelah app ditutup.
+    private val textureAssetCache = HashMap<String, android.graphics.Bitmap?>()
+
+    init {
+        // Sediakan resolver texture impor untuk jalur render teks (utama +
+        // exporter memakai instance sama, jadi cukup satu).
+        textRenderer.customTextureResolver = { name -> resolveTextureAsset(name) }
+    }
+
+    /** Dekode texture impor dari Uri, simpan ke folder proyek, balas nama asset. */
+    fun importTextureAsset(uri: android.net.Uri, onDone: (String?) -> Unit) {
+        val projId = project.value?.id
+        if (projId == null) {
+            onDone(null)
+            return
+        }
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val name = try {
+                val src = decodeUriBitmapCapped(uri, 512)
+                    ?: run { onDone(null); return@launch }
+                val fileName = "tex_${java.lang.Long.toHexString(System.currentTimeMillis())}.png"
+                val target = fileStore.textureFile(projId, fileName)
+                if (!fileStore.writeBitmapAtomic(target, src)) {
+                    onDone(null)
+                    return@launch
+                }
+                synchronized(textureAssetCache) { textureAssetCache[fileName] = src }
+                fileName
+            } catch (t: Throwable) {
+                Logger.e("Impor texture gagal: ${t.message}", t)
+                onDone(null)
+                return@launch
+            }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onDone(name)
+            }
+        }
+    }
+
+    /** Bitmap texture impor: dari cache memori, fallback decode dari disk. */
+    fun resolveTextureAsset(name: String?): android.graphics.Bitmap? {
+        if (name.isNullOrBlank()) return null
+        synchronized(textureAssetCache) { textureAssetCache[name] }?.let { bmp ->
+            if (bmp != null && !bmp.isRecycled) return bmp
+        }
+        val projId = project.value?.id ?: return null
+        val file = fileStore.textureFile(projId, name)
+        if (!file.exists()) return null
+        val bmp = decodeFileBitmapCapped(file, 512) ?: return null
+        synchronized(textureAssetCache) { textureAssetCache[name] = bmp }
+        return bmp
+    }
+
+    private fun decodeUriBitmapCapped(uri: android.net.Uri, maxDim: Int): android.graphics.Bitmap? = try {
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use {
+            android.graphics.BitmapFactory.decodeStream(it, null, bounds)
+        }
+        var sample = 1
+        while (bounds.outWidth / sample > maxDim * 2 || bounds.outHeight / sample > maxDim * 2) sample *= 2
+        val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+        context.contentResolver.openInputStream(uri)?.use {
+            android.graphics.BitmapFactory.decodeStream(it, null, opts)
+        }
+    } catch (t: Throwable) {
+        Logger.e("Decode texture uri gagal: ${t.message}", t)
+        null
+    }
+
+    private fun decodeFileBitmapCapped(file: java.io.File, maxDim: Int): android.graphics.Bitmap? = try {
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeFile(file.absolutePath, bounds)
+        var sample = 1
+        while (bounds.outWidth / sample > maxDim * 2 || bounds.outHeight / sample > maxDim * 2) sample *= 2
+        val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+        android.graphics.BitmapFactory.decodeFile(file.absolutePath, opts)
+    } catch (t: Throwable) {
+        Logger.e("Decode texture file gagal: ${t.message}", t)
+        null
+    }
+
 
     /** Bertambah tiap hasil efek gambar siap; pemicu redraw kanvas. */
     val imageEffectRevision = MutableStateFlow(0)
@@ -1976,7 +2062,9 @@ data class HistoryManifest(
             entry.radialCenterY == layer.radialBlurCenterY &&
             entry.texturePreset == layer.texturePreset &&
             entry.textureStrength == layer.textureStrength &&
-            entry.textureScale == layer.textureScale
+            entry.textureScale == layer.textureScale &&
+            entry.textureColor == layer.textureColor &&
+            entry.textureAsset == layer.textureAsset
 
     private fun newFxEntry(layer: Layer.ImageLayer, src: Bitmap, result: Bitmap) = ImageFxEntry(
         srcBitmap = src,
@@ -1989,6 +2077,8 @@ data class HistoryManifest(
         texturePreset = layer.texturePreset,
         textureStrength = layer.textureStrength,
         textureScale = layer.textureScale,
+        textureColor = layer.textureColor,
+        textureAsset = layer.textureAsset,
         result = result
     )
 
@@ -2056,7 +2146,11 @@ data class HistoryManifest(
                 radialBlurCenterY = snapshot.radialBlurCenterY,
                 texturePreset = snapshot.texturePreset,
                 textureStrength = snapshot.textureStrength,
-                textureScale = snapshot.textureScale
+                textureScale = snapshot.textureScale,
+                textureColor = snapshot.textureColor,
+                customTexture = if (snapshot.texturePreset == TexturePreset.CUSTOM) {
+                    resolveTextureAsset(snapshot.textureAsset)
+                } else null
             ) ?: return@launch
 
             val current = layers.value.find { it.id == snapshot.id } as? Layer.ImageLayer
@@ -2088,7 +2182,11 @@ data class HistoryManifest(
                         radialBlurCenterY = layer.radialBlurCenterY,
                         texturePreset = layer.texturePreset,
                         textureStrength = layer.textureStrength,
-                        textureScale = layer.textureScale
+                        textureScale = layer.textureScale,
+                        textureColor = layer.textureColor,
+                        customTexture = if (layer.texturePreset == TexturePreset.CUSTOM) {
+                            resolveTextureAsset(layer.textureAsset)
+                        } else null
                     )
                     if (result != null) {
                         imageFxCache[layer.id]?.let { recycleFxEntry(it) }

@@ -9,6 +9,7 @@ import com.mochits.app.text.MotionBlur
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.sin
+import kotlin.math.sqrt
 import com.mochits.app.util.Logger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -82,7 +83,9 @@ object ImageEffects {
         radialBlurCenterY: Float = 0.5f,
         texturePreset: TexturePreset = TexturePreset.NONE,
         textureStrength: Float = 0f,
-        textureScale: Float = 1f
+        textureScale: Float = 1f,
+        textureColor: Int = android.graphics.Color.TRANSPARENT,
+        customTexture: Bitmap? = null
     ): Bitmap? = withContext(Dispatchers.Default) {
         if (src.isRecycled || src.width <= 0 || src.height <= 0) return@withContext null
         val hasMotion = motionBlurRadius > 0f
@@ -109,16 +112,31 @@ object ImageEffects {
                     strength = radialBlurStrength.coerceIn(0f, 1f),
                     mode = radialBlurMode,
                     centerX = radialBlurCenterX.coerceIn(0f, 1f),
-                    centerY = radialBlurCenterY.coerceIn(0f, 1f)
+                    centerY = radialBlurCenterY.coerceIn(0f, 1f),
+                    // Layer gambar memenuhi bitmap: sampel keluar batas harus
+                    // di-clamp (replikasi tepi), BUKAN dianggap transparan —
+                    // dulu pinggiran gambar rontok alphanya saat zoom/spin.
+                    clampEdges = true
                 )
             }
             if (hasTexture) {
-                out = applyTexturePixels(
-                    out, ww, hh,
-                    preset = texturePreset,
-                    strength = textureStrength.coerceIn(0f, 1f),
-                    scale = (textureScale.coerceIn(0.5f, 4f) * down).coerceAtLeast(0.2f)
-                )
+                out = if (texturePreset == TexturePreset.CUSTOM && customTexture != null &&
+                    !customTexture.isRecycled
+                ) {
+                    applyCustomTexturePixels(
+                        out, ww, hh, customTexture,
+                        strength = textureStrength.coerceIn(0f, 1f),
+                        scale = (textureScale.coerceIn(0.5f, 4f) * down).coerceAtLeast(0.2f)
+                    )
+                } else {
+                    applyTexturePixels(
+                        out, ww, hh,
+                        preset = texturePreset,
+                        strength = textureStrength.coerceIn(0f, 1f),
+                        scale = (textureScale.coerceIn(0.5f, 4f) * down).coerceAtLeast(0.2f),
+                        tint = textureColor
+                    )
+                }
             }
             if (out !== px) {
                 small.setPixels(out, 0, ww, 0, 0, ww, hh)
@@ -151,7 +169,8 @@ object ImageEffects {
         strength: Float,
         mode: RadialBlurMode,
         centerX: Float,
-        centerY: Float
+        centerY: Float,
+        clampEdges: Boolean = false
     ): IntArray {
         val s = strength.coerceIn(0f, 1f)
         if (s <= 0f || width <= 0 || height <= 0 || pixels.size < width * height) return pixels
@@ -210,7 +229,14 @@ object ImageEffects {
                         sx = cx + dx * ca - dy * sa
                         sy = cy + dx * sa + dy * ca
                     }
-                    val sampled = sampleBilinear(pixels, width, height, sx, sy)
+                    // Layer gambar (bitmap penuh): tepi direplikasi agar alpha
+                    // pinggir tidak rontok. Layer teks (bitmap transparan):
+                    // sampel kosong tetap di-skip.
+                    val sampled = if (clampEdges) {
+                        sampleBilinearClamped(pixels, width, height, sx, sy)
+                    } else {
+                        sampleBilinear(pixels, width, height, sx, sy)
+                    }
                     if (sampled != 0) {
                         val sa = (sampled ushr 24) and 0xFF
                         val wa = sa / 255f * weight
@@ -239,8 +265,47 @@ object ImageEffects {
     }
 
     /**
-     * Texture deterministik tanpa aset: grain, kertas, dan anyaman kanvas.
-     * Hanya mengubah RGB; alpha dipertahankan.
+     * Bilinear dengan tepi replikasi (clamp): koordinat di luar bitmap
+     * dicubit ke tepi terdekat. Dipakai radial blur untuk layer gambar
+     * yang memenuhi bitmap, agar tepi tidak memudar/transparan.
+     */
+    private fun sampleBilinearClamped(
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        x: Float,
+        y: Float
+    ): Int {
+        val xc = x.coerceIn(0f, width - 1f)
+        val yc = y.coerceIn(0f, height - 1f)
+        val x0 = xc.toInt()
+        val y0 = yc.toInt()
+        val x1 = (x0 + 1).coerceAtMost(width - 1)
+        val y1 = (y0 + 1).coerceAtMost(height - 1)
+        val fx = xc - x0
+        val fy = yc - y0
+        val p00 = pixels[y0 * width + x0]
+        val p10 = pixels[y0 * width + x1]
+        val p01 = pixels[y1 * width + x0]
+        val p11 = pixels[y1 * width + x1]
+        fun ch(shift: Int): Int {
+            val v = ((p00 ushr shift) and 0xFF) * (1f - fx) * (1f - fy) +
+                ((p10 ushr shift) and 0xFF) * fx * (1f - fy) +
+                ((p01 ushr shift) and 0xFF) * (1f - fx) * fy +
+                ((p11 ushr shift) and 0xFF) * fx * fy
+            return v.toInt().coerceIn(0, 255)
+        }
+        return (ch(24) shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
+    }
+
+    /**
+     * Texture deterministik tanpa aset: grain, kertas, kanvas, halftone
+     * (titik komik), garis, dan titik pola. Struktur di-blend gaya OVERLAY:
+     * menggelapkan area gelap & mencerahkan area terang sehingga tekstur
+     * terlihat di semua warna (multiply saja membuat tekstur tak terlihat
+     * di warna gelap). Bila [tint] diberi warna + alpha, pattern digambar
+     * memakai warna itu (untuk halftone/garis/titik: mask pattern; untuk
+     * grain/kertas/kanvas: puncak struktur). Alpha dipertahankan.
      */
     fun applyTexturePixels(
         pixels: IntArray,
@@ -248,12 +313,19 @@ object ImageEffects {
         height: Int,
         preset: TexturePreset,
         strength: Float,
-        scale: Float
+        scale: Float,
+        tint: Int = android.graphics.Color.TRANSPARENT
     ): IntArray {
         val s = strength.coerceIn(0f, 1f)
         if (preset == TexturePreset.NONE || s <= 0f) return pixels
         val out = IntArray(pixels.size)
         val sc = scale.coerceAtLeast(0.2f)
+        // Siapkan tint di luar loop (dipakai tiap piksel).
+        val tintAlpha = (tint ushr 24) and 0xFF
+        val hasTint = tintAlpha > 8
+        val tintR = (tint shr 16) and 0xFF
+        val tintG = (tint shr 8) and 0xFF
+        val tintB = tint and 0xFF
         for (y in 0 until height) {
             for (x in 0 until width) {
                 val p = pixels[y * width + x]
@@ -264,17 +336,15 @@ object ImageEffects {
                 }
                 val sx = x / sc
                 val sy = y / sc
-                // Setiap preset punya STRUKTUR berbeda (bukan sekadar noise):
-                // Grain = butiran film per piksel; Kertas = mottling lembut
-                // (value noise 2 oktaf) + serat diagonal; Kanvas = pola tenun
-                // benang (grid sin²) + variasi per benang. Amp mengatur
-                // seberapa keras struktur muncul pada strength penuh.
-                val noise: Float
-                val amp: Float
+                // Struktur t: 0.5 = netral; <0.5 menggelapkan, >0.5
+                // mencerahkan. Preset garis/titik/halftone memakai pola
+                // tegas (hard mask) agar cocok diwarnai.
+                val t: Float
+                val hardMask: Boolean
                 when (preset) {
                     TexturePreset.GRAIN -> {
-                        noise = 0.5f + (hashNoise(sx.toInt(), sy.toInt(), 11) - 0.5f) * 0.9f
-                        amp = 0.45f
+                        t = 0.5f + (hashNoise(sx.toInt(), sy.toInt(), 11) - 0.5f) * 0.85f
+                        hardMask = false
                     }
                     TexturePreset.PAPER -> {
                         val base = valueNoise(sx * 0.055f, sy * 0.055f, 23)
@@ -284,27 +354,132 @@ object ImageEffects {
                             (sy * 0.75f - sx * 0.31f).toInt(),
                             41
                         )
-                        noise = base * 0.45f + mid * 0.33f + fiber * 0.22f
-                        amp = 0.62f
+                        t = 0.5f + ((base * 0.5f + mid * 0.3f + fiber * 0.2f) - 0.5f) * 1.1f
+                        hardMask = false
                     }
                     TexturePreset.CANVAS -> {
                         val tx = sin(sx * 0.9f)
                         val ty = sin(sy * 0.9f)
                         val grid = tx * tx * 0.55f + ty * ty * 0.45f
                         val cell = hashNoise((sx / 7f).toInt(), (sy / 7f).toInt(), 67)
-                        noise = grid * 0.72f + cell * 0.28f
-                        amp = 0.75f
+                        t = 0.5f + ((grid * 0.72f + cell * 0.28f) - 0.5f) * 1.25f
+                        hardMask = false
+                    }
+                    TexturePreset.HALFTONE -> {
+                        // Titik komik (screen tone): radius titik mengikuti
+                        // kecerahan piksel — makin gelap makin besar.
+                        val lum = (0.299f * ((p shr 16) and 0xFF) +
+                            0.587f * ((p shr 8) and 0xFF) +
+                            0.114f * (p and 0xFF)) / 255f
+                        val gx = (sx % 6f) / 6f - 0.5f
+                        val gy = (sy % 6f) / 6f - 0.5f
+                        t = if (sqrt(gx * gx + gy * gy) <= (1f - lum) * 0.68f) 0.14f else 0.86f
+                        hardMask = true
+                    }
+                    TexturePreset.STRIPES -> {
+                        // Garis diagonal tegas.
+                        t = if (sin((sx + sy) * 0.85f) > 0f) 0.84f else 0.16f
+                        hardMask = true
+                    }
+                    TexturePreset.DOTS -> {
+                        // Titik pola radius tetap (polkadot).
+                        val gx = (sx % 7f) / 7f - 0.5f
+                        val gy = (sy % 7f) / 7f - 0.5f
+                        t = if (sqrt(gx * gx + gy * gy) <= 0.3f) 0.14f else 0.86f
+                        hardMask = true
                     }
                     TexturePreset.NONE -> {
-                        noise = 0.5f
-                        amp = 0f
+                        t = 0.5f
+                        hardMask = false
                     }
                 }
-                val delta = (noise - 0.5f) * 2f * s * amp
-                val factor = (1f + delta).coerceIn(0.15f, 1.85f)
-                val nr = (((p shr 16) and 0xFF) * factor).toInt().coerceIn(0, 255)
-                val ng = (((p shr 8) and 0xFF) * factor).toInt().coerceIn(0, 255)
-                val nb = ((p and 0xFF) * factor).toInt().coerceIn(0, 255)
+
+                val nr: Int
+                val ng: Int
+                val nb: Int
+                if (hasTint) {
+                    // Mode berwarna: pattern digambar memakai warna tint.
+                    // Hard mask = bagian gelap pattern; soft = puncak struktur.
+                    val mask = if (hardMask) {
+                        if (t < 0.5f) 1f else 0f
+                    } else {
+                        ((t - 0.5f) * 2f).coerceIn(0f, 1f)
+                    }
+                    val k = mask * s * (tintAlpha / 255f)
+                    val br = (p shr 16) and 0xFF
+                    val bg = (p shr 8) and 0xFF
+                    val bb = p and 0xFF
+                    nr = (br + (tintR - br) * k).toInt().coerceIn(0, 255)
+                    ng = (bg + (tintG - bg) * k).toInt().coerceIn(0, 255)
+                    nb = (bb + (tintB - bb) * k).toInt().coerceIn(0, 255)
+                } else {
+                    // Shading netral: overlay blend per kanal — tekstur
+                    // terlihat di warna gelap & terang, t=0.5 tak berubah.
+                    val baseR = ((p shr 16) and 0xFF) / 255f
+                    val baseG = ((p shr 8) and 0xFF) / 255f
+                    val baseB = (p and 0xFF) / 255f
+                    val oR = if (baseR < 0.5f) 2f * baseR * t else 1f - 2f * (1f - baseR) * (1f - t)
+                    val oG = if (baseG < 0.5f) 2f * baseG * t else 1f - 2f * (1f - baseG) * (1f - t)
+                    val oB = if (baseB < 0.5f) 2f * baseB * t else 1f - 2f * (1f - baseB) * (1f - t)
+                    nr = ((baseR + (oR - baseR) * s) * 255f).toInt().coerceIn(0, 255)
+                    ng = ((baseG + (oG - baseG) * s) * 255f).toInt().coerceIn(0, 255)
+                    nb = ((baseB + (oB - baseB) * s) * 255f).toInt().coerceIn(0, 255)
+                }
+                out[y * width + x] = (alpha shl 24) or (nr shl 16) or (ng shl 8) or nb
+            }
+        }
+        return out
+    }
+
+    /**
+     * Texture IMPORAN: bitmap pengguna digembokan (tile) di atas layer.
+     * Skala mengubah ukuran tile; strength mengatur opasitas pencampuran.
+     * Alpha layer asli dipertahankan (texture hanya mengisi bentuk).
+     */
+    fun applyCustomTexturePixels(
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        texture: Bitmap,
+        strength: Float,
+        scale: Float
+    ): IntArray {
+        val s = strength.coerceIn(0f, 1f)
+        if (s <= 0f || width <= 0 || height <= 0 || pixels.size < width * height) return pixels
+        if (texture.isRecycled || texture.width <= 0 || texture.height <= 0) return pixels
+        val out = IntArray(pixels.size)
+        val sc = scale.coerceAtLeast(0.2f)
+        val tw = texture.width
+        val th = texture.height
+        val tex = IntArray(tw * th)
+        texture.getPixels(tex, 0, tw, 0, 0, tw, th)
+        // Skala tile: sx/sy dalam ruang tile yang diperbesar sc kali.
+        val tileW = tw * sc
+        val tileH = th * sc
+        for (y in 0 until height) {
+            val ty = (y % tileH.toInt().coerceAtLeast(1)) / sc
+            val tyi = ty.toInt().coerceIn(0, th - 1)
+            val rowTile = tyi * tw
+            for (x in 0 until width) {
+                val p = pixels[y * width + x]
+                val alpha = (p ushr 24) and 0xFF
+                if (alpha == 0) {
+                    out[y * width + x] = 0
+                    continue
+                }
+                val tx = (x % tileW.toInt().coerceAtLeast(1)) / sc
+                val txi = tx.toInt().coerceIn(0, tw - 1)
+                val tp = tex[rowTile + txi]
+                val ta = ((tp ushr 24) and 0xFF) / 255f * s
+                val br = (p shr 16) and 0xFF
+                val bg = (p shr 8) and 0xFF
+                val bb = p and 0xFF
+                val tr = (tp shr 16) and 0xFF
+                val tg = (tp shr 8) and 0xFF
+                val tb = tp and 0xFF
+                val nr = (br + (tr - br) * ta).toInt().coerceIn(0, 255)
+                val ng = (bg + (tg - bg) * ta).toInt().coerceIn(0, 255)
+                val nb = (bb + (tb - bb) * ta).toInt().coerceIn(0, 255)
                 out[y * width + x] = (alpha shl 24) or (nr shl 16) or (ng shl 8) or nb
             }
         }

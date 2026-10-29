@@ -65,6 +65,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -845,6 +846,38 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onStartEyedropper = { onColorSelected -> viewModel.startEyedropper(onColorSelected) },
                         onUpdateImageLayer = { updated -> viewModel.updateImageLayer(updated, false) },
                         onUpdateBlendMode = { viewModel.updateSelectedLayerBlendMode(it) },
+                        onImportTexture = { uri ->
+                            viewModel.importTextureAsset(uri) { name ->
+                                if (name != null) {
+                                    val sel = viewModel.layers.value
+                                        .firstOrNull { it.id == viewModel.selectedLayerId.value }
+                                    when (sel) {
+                                        is Layer.TextLayer -> {
+                                            val st = sel.style
+                                            viewModel.updateSelectedTextLayerStyle(
+                                                st.copy(
+                                                    texturePreset = com.mochits.app.model.TexturePreset.CUSTOM,
+                                                    textureAsset = name,
+                                                    textureStrength = if (st.textureStrength > 0f) st.textureStrength else 0.6f
+                                                ),
+                                                true
+                                            )
+                                        }
+                                        is Layer.ImageLayer -> {
+                                            viewModel.updateImageLayer(
+                                                sel.copy(
+                                                    texturePreset = com.mochits.app.model.TexturePreset.CUSTOM,
+                                                    textureAsset = name,
+                                                    textureStrength = if (sel.textureStrength > 0f) sel.textureStrength else 0.6f
+                                                ),
+                                                true
+                                            )
+                                        }
+                                        else -> {}
+                                    }
+                                }
+                            }
+                        },
                         perspEditId = perspEditId,
                         onTogglePerspEdit = { id ->
                             viewModel.setPerspEdit(if (viewModel.perspEditId.value == id) null else id)
@@ -3979,9 +4012,17 @@ fun EffectToolPanel(
     onResetMesh: ((String) -> Unit)? = null,
     onClearMeshEdit: (() -> Unit)? = null,
     isCollapsed: Boolean = false,
-    onToggleCollapse: () -> Unit = {}
+    onToggleCollapse: () -> Unit = {},
+    onImportTexture: (android.net.Uri) -> Unit = {}
 ) {
     var expandedEffect by remember(selectedLayer?.id) { mutableStateOf<EffectType?>(null) }
+
+    // Launcher impor texture (photo picker) — dipakai blok TEXTURE teks/gambar.
+    val textureImportLauncher = rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) onImportTexture(uri)
+    }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -5023,12 +5064,19 @@ fun EffectToolPanel(
                                         )
 
                                         if (textureActive) {
-                                        OptionCycler(
-                                            label = "Jenis",
-                                            options = com.mochits.app.model.TexturePreset.values().toList(),
+                                        Text("Template", style = MaterialTheme.typography.labelLarge)
+                                        TexturePresetGrid(
                                             selected = st.texturePreset,
-                                            onSelect = { onUpdateStyle(st.copy(texturePreset = it), true) },
-                                            labelOf = { it.label }
+                                            tint = st.textureColor,
+                                            onSelect = { preset ->
+                                                onUpdateStyle(
+                                                    st.copy(
+                                                        texturePreset = preset,
+                                                        textureStrength = if (st.textureStrength > 0f) st.textureStrength else 0.6f
+                                                    ),
+                                                    true
+                                                )
+                                            }
                                         )
                                         Text("Kekuatan: ${(st.textureStrength * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
                                         Slider(
@@ -5050,6 +5098,58 @@ fun EffectToolPanel(
                                             onValueChangeFinished = { onSliderDragEnd() },
                                             valueRange = 0.5f..4f
                                         )
+
+                                        // Warna pattern: transparan = shading netral;
+                                        // berwarna = halftone/garis/titik memakai warna ini.
+                                        Text(
+                                            "Warna (transparan = netral)",
+                                            style = MaterialTheme.typography.labelMedium
+                                        )
+                                        ColorPickerRow(
+                                            selectedColor = st.textureColor,
+                                            onColorSelected = { onUpdateStyle(st.copy(textureColor = it), true) },
+                                            onCustomColorChange = { onUpdateStyle(st.copy(textureColor = it), false) },
+                                            onPickStart = { onSliderDragStart() },
+                                            onPickEnd = { onSliderDragEnd() },
+                                            onEyedropperClick = {
+                                                onStartEyedropper { c ->
+                                                    onUpdateStyle(st.copy(textureColor = c), true)
+                                                }
+                                            }
+                                        )
+
+                                        // Impor texture sendiri (gambar dari galeri):
+                                        // disimpan ke folder proyek & dipakai sebagai tile.
+                                        OutlinedButton(
+                                            onClick = {
+                                                textureImportLauncher.launch(
+                                                    androidx.activity.result.PickVisualMediaRequest(
+                                                        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                                                    )
+                                                )
+                                            },
+                                            modifier = Modifier.fillMaxWidth().heightIn(min = 36.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Add,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                if (st.texturePreset == com.mochits.app.model.TexturePreset.CUSTOM)
+                                                    "Ganti Texture Imporan"
+                                                else "Impor Texture dari Galeri",
+                                                style = MaterialTheme.typography.labelLarge
+                                            )
+                                        }
+                                        if (st.texturePreset == com.mochits.app.model.TexturePreset.CUSTOM && st.textureAsset == null) {
+                                            Text(
+                                                "Pilih gambar dulu lewat tombol impor.",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                         }
                                     }
                                     is Layer.ImageLayer -> if (onUpdateImageLayer != null) {
@@ -5071,16 +5171,20 @@ fun EffectToolPanel(
                                         )
 
                                         if (textureActive) {
-                                        OptionCycler(
-                                            label = "Jenis",
-                                            options = com.mochits.app.model.TexturePreset.values().toList(),
+                                        Text("Template", style = MaterialTheme.typography.labelLarge)
+                                        TexturePresetGrid(
                                             selected = selectedLayer.texturePreset,
-                                            onSelect = {
+                                            tint = selectedLayer.textureColor,
+                                            onSelect = { preset ->
                                                 onSliderDragStart()
-                                                onUpdateImageLayer(selectedLayer.copy(texturePreset = it))
+                                                onUpdateImageLayer(
+                                                    selectedLayer.copy(
+                                                        texturePreset = preset,
+                                                        textureStrength = if (selectedLayer.textureStrength > 0f) selectedLayer.textureStrength else 0.6f
+                                                    )
+                                                )
                                                 onSliderDragEnd()
-                                            },
-                                            labelOf = { it.label }
+                                            }
                                         )
                                         Text("Kekuatan: ${(selectedLayer.textureStrength * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
                                         Slider(
@@ -5102,6 +5206,48 @@ fun EffectToolPanel(
                                             onValueChangeFinished = { onSliderDragEnd() },
                                             valueRange = 0.5f..4f
                                         )
+
+                                        // Warna pattern (grain/kertas/kanvas/halftone/garis/titik).
+                                        Text(
+                                            "Warna (transparan = netral)",
+                                            style = MaterialTheme.typography.labelMedium
+                                        )
+                                        ColorPickerRow(
+                                            selectedColor = selectedLayer.textureColor,
+                                            onColorSelected = {
+                                                onUpdateImageLayer(selectedLayer.copy(textureColor = it))
+                                            },
+                                            onCustomColorChange = {
+                                                onUpdateImageLayer(selectedLayer.copy(textureColor = it))
+                                            },
+                                            onPickStart = { onSliderDragStart() },
+                                            onPickEnd = { onSliderDragEnd() }
+                                        )
+
+                                        // Impor texture sendiri: tile gambar galeri.
+                                        OutlinedButton(
+                                            onClick = {
+                                                textureImportLauncher.launch(
+                                                    androidx.activity.result.PickVisualMediaRequest(
+                                                        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                                                    )
+                                                )
+                                            },
+                                            modifier = Modifier.fillMaxWidth().heightIn(min = 36.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Add,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                if (selectedLayer.texturePreset == com.mochits.app.model.TexturePreset.CUSTOM)
+                                                    "Ganti Texture Imporan"
+                                                else "Impor Texture dari Galeri",
+                                                style = MaterialTheme.typography.labelLarge
+                                            )
+                                        }
                                         Text(
                                             "Hasil muncul setelah slider dilepas.",
                                             style = MaterialTheme.typography.labelSmall,
@@ -6151,5 +6297,133 @@ fun StylePresetPanel(
             }
             }
         }
+    }
+}
+
+/** Grid template texture: swatch pratinjau gambar per preset (gaya aplikasi
+ * editor populer), 4 per baris. Klik = pilih preset. */
+@Composable
+private fun TexturePresetGrid(
+    selected: com.mochits.app.model.TexturePreset,
+    tint: Int,
+    onSelect: (com.mochits.app.model.TexturePreset) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        com.mochits.app.model.TexturePreset.values().toList().chunked(4).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                row.forEach { preset ->
+                    TexturePresetThumb(
+                        preset = preset,
+                        tint = tint,
+                        selected = preset == selected,
+                        onClick = { onSelect(preset) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TexturePresetThumb(
+    preset: com.mochits.app.model.TexturePreset,
+    tint: Int,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val ink = if ((tint ushr 24) and 0xFF > 8) Color(tint) else Color(0xFF23272E)
+    Box(
+        modifier = Modifier
+            .size(46.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFFAEB4BD))
+            .border(
+                width = if (selected) 2.dp else 1.dp,
+                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                shape = RoundedCornerShape(10.dp)
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        if (preset == com.mochits.app.model.TexturePreset.NONE) {
+            Text("Off", style = MaterialTheme.typography.labelSmall)
+        } else if (preset == com.mochits.app.model.TexturePreset.CUSTOM) {
+            Icon(
+                Icons.Default.Add,
+                contentDescription = "Impor texture",
+                modifier = Modifier.size(20.dp)
+            )
+        } else {
+            Canvas(modifier = Modifier.fillMaxSize().padding(5.dp)) {
+                drawTextureThumb(preset, ink)
+            }
+        }
+    }
+}
+
+/** Pratinjau pola mini untuk swatch template (menggambar langsung, murah). */
+private fun DrawScope.drawTextureThumb(
+    preset: com.mochits.app.model.TexturePreset,
+    ink: Color
+) {
+    val w = size.width
+    val h = size.height
+    when (preset) {
+        com.mochits.app.model.TexturePreset.GRAIN -> {
+            var seed = 7
+            for (i in 0 until 55) {
+                seed = seed * 1103515245 + 12345
+                val fx = ((seed shr 16) and 0x7FFF) / 32768f
+                seed = seed * 1103515245 + 12345
+                val fy = ((seed shr 16) and 0x7FFF) / 32768f
+                drawCircle(ink, radius = 0.9f, center = Offset(fx * w, fy * h))
+            }
+        }
+        com.mochits.app.model.TexturePreset.PAPER -> {
+            for (i in 0..4) {
+                val yy = h * i / 4f
+                drawLine(ink.copy(alpha = 0.55f), Offset(0f, yy), Offset(w, yy + w * 0.12f), 1f)
+            }
+        }
+        com.mochits.app.model.TexturePreset.CANVAS -> {
+            val step = w / 5f
+            var p = step / 2f
+            while (p < w) {
+                drawLine(ink, Offset(p, 0f), Offset(p, h), 1.1f)
+                drawLine(ink, Offset(0f, p), Offset(w, p), 1.1f)
+                p += step
+            }
+        }
+        com.mochits.app.model.TexturePreset.HALFTONE -> {
+            val rows = 3
+            val cols = 3
+            for (r in 0 until rows) {
+                for (c in 0 until cols) {
+                    val rad = (r + 1) / (rows + 1f) * w / (cols * 2.6f)
+                    drawCircle(
+                        ink, rad,
+                        Offset((c + 0.5f) * w / cols, (r + 0.5f) * h / rows)
+                    )
+                }
+            }
+        }
+        com.mochits.app.model.TexturePreset.STRIPES -> {
+            val step = w / 4f
+            for (i in -2..4) {
+                val x = i * step
+                drawLine(ink, Offset(x, h), Offset(x + h, 0f), 2.2f)
+            }
+        }
+        com.mochits.app.model.TexturePreset.DOTS -> {
+            for (r in 0..1) {
+                for (c in 0..1) {
+                    drawCircle(
+                        ink, w * 0.13f,
+                        Offset((c + 0.5f) * w / 2f, (r + 0.5f) * h / 2f)
+                    )
+                }
+            }
+        }
+        else -> {}
     }
 }

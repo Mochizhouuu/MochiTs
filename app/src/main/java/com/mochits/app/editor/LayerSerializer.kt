@@ -59,7 +59,9 @@ data class LayerJsonDto(
     val radialBlurCenterY: Float? = null,
     val texturePreset: TexturePreset? = null,
     val textureStrength: Float? = null,
-    val textureScale: Float? = null
+    val textureScale: Float? = null,
+    val textureColor: Int? = null,
+    val textureAsset: String? = null
 )
 
 class LayerSerializer {
@@ -121,7 +123,9 @@ class LayerSerializer {
                     radialBlurCenterY = layer.radialBlurCenterY,
                     texturePreset = layer.texturePreset,
                     textureStrength = layer.textureStrength,
-                    textureScale = layer.textureScale
+                    textureScale = layer.textureScale,
+                    textureColor = layer.textureColor,
+                    textureAsset = layer.textureAsset
                 )
             }
         }
@@ -254,7 +258,9 @@ class LayerSerializer {
             radialBlurCenterY = (dto.radialBlurCenterY ?: 0.5f).takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0.5f,
             texturePreset = dto.texturePreset ?: TexturePreset.NONE,
             textureStrength = (dto.textureStrength ?: 0f).takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f,
-            textureScale = (dto.textureScale ?: 1f).takeIf { it.isFinite() }?.coerceIn(0.5f, 4f) ?: 1f
+            textureScale = (dto.textureScale ?: 1f).takeIf { it.isFinite() }?.coerceIn(0.5f, 4f) ?: 1f,
+            textureColor = dto.textureColor ?: android.graphics.Color.TRANSPARENT,
+            textureAsset = dto.textureAsset
         )
     }
 }
