@@ -253,11 +253,13 @@ object ImageEffects {
                 if (wsum <= 0f || weightSum <= 0f) {
                     out[idx] = pixels[idx]
                 } else {
-                    val aa = (alphaSum / weightSum).toInt().coerceIn(0, 255)
+                    // Round (bukan trunc) agar 255.0f tak jatuh ke 254
+                    // akibat akumulasi float — penyebab pinggiran gelap tipis.
+                    val aa = (alphaSum / weightSum + 0.5f).toInt().coerceIn(0, 255)
                     out[idx] = (aa shl 24) or
-                        ((r / wsum).toInt().coerceIn(0, 255) shl 16) or
-                        ((g / wsum).toInt().coerceIn(0, 255) shl 8) or
-                        (b / wsum).toInt().coerceIn(0, 255)
+                        ((r / wsum + 0.5f).toInt().coerceIn(0, 255) shl 16) or
+                        ((g / wsum + 0.5f).toInt().coerceIn(0, 255) shl 8) or
+                        (b / wsum + 0.5f).toInt().coerceIn(0, 255)
                 }
             }
         }
@@ -293,7 +295,7 @@ object ImageEffects {
                 ((p10 ushr shift) and 0xFF) * fx * (1f - fy) +
                 ((p01 ushr shift) and 0xFF) * (1f - fx) * fy +
                 ((p11 ushr shift) and 0xFF) * fx * fy
-            return v.toInt().coerceIn(0, 255)
+            return (v + 0.5f).toInt().coerceIn(0, 255)
         }
         return (ch(24) shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
     }
@@ -546,7 +548,7 @@ object ImageEffects {
                 ((p10 ushr shift) and 0xFF) * w10 +
                 ((p01 ushr shift) and 0xFF) * w01 +
                 ((p11 ushr shift) and 0xFF) * w11
-            return v.toInt().coerceIn(0, 255)
+            return (v + 0.5f).toInt().coerceIn(0, 255)
         }
         return (ch(24) shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
     }
