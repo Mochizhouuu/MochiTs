@@ -1421,6 +1421,43 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                             }
                                         }
                                         if (!hitHandle) {
+                                            // Layer yang sedang dipilih di panel
+                                            // diutamakan: bila titik sentuh ada di
+                                            // dalam bounds-nya, langsung pegang layer
+                                            // itu. Ini memungkinkan clipping-mask layer
+                                            // yang tertutup layer lain tetap bisa
+                                            // digeser (pilih dulu di panel, lalu geser).
+                                            val selIdNow = viewModel.selectedLayerId.value
+                                            val selectedNow = selIdNow?.let { id ->
+                                                viewModel.layers.value.firstOrNull { it.id == id }
+                                            }
+                                            val selHit = when (selectedNow) {
+                                                is Layer.TextLayer ->
+                                                    selectedNow.isVisible &&
+                                                        isPointInsideTextLayer(selectedNow, touchCanvasPt, textRenderer)
+                                                is Layer.ImageLayer -> {
+                                                    val bmp = viewModel.resolveImageBitmap(selectedNow) ?: selectedNow.bitmap
+                                                    selectedNow.isVisible && bmp != null && !bmp.isRecycled &&
+                                                        isPointInsideImageLayer(
+                                                            selectedNow,
+                                                            touchCanvasPt,
+                                                            bmp.width.toFloat(),
+                                                            bmp.height.toFloat()
+                                                        )
+                                                }
+                                                else -> false
+                                            }
+                                            if (selectedNow != null && selHit) {
+                                                pendingBodyMoveLayer = selectedNow
+                                                initialTouchScreenPt = firstChange.position
+                                                initialTouchCanvasPt = touchCanvasPt
+                                                initialTextX = selectedNow.x
+                                                initialTextY = selectedNow.y
+                                                isBodyMoveDragging = false
+                                                hitHandle = true
+                                                firstChange.consume()
+                                                Logger.d("Touch intercepted by selected layer: ${selectedNow.id}")
+                                            } else {
                                             val hitTextLayer = viewModel.layers.value.reversed().filterIsInstance<Layer.TextLayer>().firstOrNull { layer ->
                                                 layer.isVisible && isPointInsideTextLayer(layer, touchCanvasPt, textRenderer)
                                             }
@@ -1463,6 +1500,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                 } else {
                                                     activeHandleType = null
                                                 }
+                                            }
                                             }
                                         }
                                     }
@@ -1891,7 +1929,11 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                     layers.forEach layerLoop@ { layer ->
                         if (!layer.clippingMask) clipBase = layer
                         val maskBase = if (layer.clippingMask) clipBase else null
-                        if (layer.clippingMask && (maskBase == null || !maskBase.isVisible)) {
+                        // Base ada tapi tersembunyi -> ikut tersembunyi (seperti
+                        // Photoshop). Tidak ada base sama sekali (posisi paling
+                        // belakang) -> dirender normal tanpa clipping, BUKAN
+                        // dihilangkan (dulu menghilang + tak bisa digerakkan).
+                        if (layer.clippingMask && maskBase != null && !maskBase.isVisible) {
                             return@layerLoop
                         }
                         val clipW = baseBitmap?.width ?: (project?.width ?: 1080)

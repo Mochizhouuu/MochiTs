@@ -1080,10 +1080,13 @@ class TextRenderer(private val context: Context) {
         val bh = (textH + 2 * pad).toInt().coerceAtLeast(1)
         // Kerja di bitmap kecil agar slider tetap mulus, upscale saat ditempel.
         // Radius kerja dibatasi ~48px (downscale ekstra saat radius besar)
-        // agar jumlah taps tidak meledak saat streak panjang.
+        // agar jumlah taps tidak meledak saat streak panjang. Radial blur
+        // lebih berat per piksel (banyak taps bilinear) -> bitmap kerja
+        // lebih kecil lagi supaya slider tidak ngelag.
+        val workMaxDim = if (radialStrength > 0f) 384f else 512f
         val down = minOf(
             1f,
-            512f / maxOf(bw, bh).toFloat(),
+            workMaxDim / maxOf(bw, bh).toFloat(),
             if (radius > 0f) 48f / radius else 1f
         )
         val ww = maxOf(1, (bw * down).toInt())

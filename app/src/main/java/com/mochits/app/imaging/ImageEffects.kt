@@ -157,9 +157,11 @@ object ImageEffects {
         val cx = centerX.coerceIn(0f, 1f) * (width - 1)
         val cy = centerY.coerceIn(0f, 1f) * (height - 1)
         val out = IntArray(width * height)
-        val taps = 25
-        val maxAngle = 2.6f * s
-        val maxZoom = 0.85f * s
+        // Sapu moderat: cukup terlihat jelas pada strength penuh tanpa
+        // menghancurkan bentuk (pernah 2.6/0.85/gauss6 -> smear ekstrem).
+        val taps = 21
+        val maxAngle = 2.0f * s
+        val maxZoom = 0.6f * s
         val centerRadius2 = 1.4f * 1.4f
         // Konstanta per-tap: bobot Gaussian + sampel geometri (rotasi/zoom).
         val tapWeight = FloatArray(taps)
@@ -168,7 +170,7 @@ object ImageEffects {
         val tapM = FloatArray(taps)
         for (t in 0 until taps) {
             val f = t / (taps - 1f) - 0.5f
-            tapWeight[t] = kotlin.math.exp(-(f * f) * 6f)
+            tapWeight[t] = kotlin.math.exp(-(f * f) * 8f)
             if (mode == RadialBlurMode.ZOOM) {
                 tapM[t] = 1f + f * maxZoom
             } else {

@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -781,61 +780,62 @@ fun RecentProjectCard(
 }
 
 /**
- * Baris slider satu kanal warna (R/G/B) untuk color picker New Project.
- * Baris gradien dari 0 -> nilai kanal penuh memberi konteks; nilai
- * ditulis 3 digit sehingga tetap sejajar.
+ * Slider satu kanal HSV untuk picker New Project: track diganti gradien
+ * penuh (mis. pelangi untuk Hue) sehingga hasil geseran terbaca langsung,
+ * dengan label + nilai di atasnya.
  */
 @Composable
-private fun ChannelSliderRow(
+private fun HsvSliderRow(
     label: String,
-    value: Int,
-    onValueChange: (Int) -> Unit
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    displayValue: String,
+    gradient: Brush,
+    onValueChange: (Float) -> Unit
 ) {
-    val (r, g, b) = when (label) {
-        "R" -> Triple(255, 0, 0)
-        "G" -> Triple(0, 255, 0)
-        else -> Triple(0, 0, 255)
-    }
-    val brush = Brush.linearGradient(
-        listOf(
-            Color(0.0f, 0.0f, 0.0f),
-            Color(r / 255f, g / 255f, b / 255f)
-        )
-    )
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(14.dp)
-        )
-        Slider(
-            value = value.toFloat(),
-            onValueChange = { onValueChange(it.toInt()) },
-            valueRange = 0f..255f,
-            colors = SliderDefaults.colors(
-                thumbColor = Color(r / 255f, g / 255f, b / 255f),
-                activeTrackColor = Color(r / 255f, g / 255f, b / 255f)
-            ),
-            modifier = Modifier.weight(1f)
-        )
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = displayValue,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         Box(
             modifier = Modifier
-                .size(14.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(brush)
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
-        )
-        Text(
-            text = "%03d".format(value),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(28.dp)
-        )
+                .fillMaxWidth()
+                .height(26.dp)
+                .clip(RoundedCornerShape(13.dp))
+                .background(gradient)
+                .border(
+                    1.dp,
+                    MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                    RoundedCornerShape(13.dp)
+                )
+        ) {
+            Slider(
+                value = value,
+                onValueChange = onValueChange,
+                valueRange = valueRange,
+                colors = SliderDefaults.colors(
+                    thumbColor = Color.White,
+                    activeTrackColor = Color.Transparent,
+                    inactiveTrackColor = Color.Transparent,
+                    disabledActiveTrackColor = Color.Transparent,
+                    disabledInactiveTrackColor = Color.Transparent
+                ),
+                modifier = Modifier.fillMaxSize()
+            )
+        }
     }
 }
 
@@ -849,25 +849,27 @@ fun CreateProjectDialog(
     var heightText by remember { mutableStateOf("1920") }
     var isTransparent by remember { mutableStateOf(false) }
 
-    // Palet latar: netral untuk konten + warna lembut untuk latangan
-    // komik berwarna. Enam warna per baris agar tetap muat di dialog.
-    val presetColors = listOf(
-        Color.White,
-        Color(0xFFE0E0E0), // abu muda
-        Color(0xFF9E9E9E), // abu
-        Color.Black,
-        Color(0xFFFFFDD0), // cream
-        Color(0xFFF5E3C3), // beige kertas
-        Color(0xFFFFF3B1), // kuning muda
-        Color(0xFFFFD9C7), // peach
-        Color(0xFFFBD5E0), // pink pastel
-        Color(0xFFE6E6FA), // lavender
-        Color(0xFFE3F2FD), // biru muda
-        Color(0xFFDFF3E4)  // mint
-    )
-
-    var selectedColor by remember { mutableStateOf(Color.White) }
+    // Picker HSV: Hue/Saturasi/Terang dengan slider bergradien. Warna
+    // turunan dari tiga state ini, jadi slider, hex, dan palet cepat
+    // selalu sinkron dua arah tanpa rumus ARGB manual.
+    var hsvH by remember { mutableFloatStateOf(0f) } // 0..360
+    var hsvS by remember { mutableFloatStateOf(0f) } // 0..1
+    var hsvV by remember { mutableFloatStateOf(1f) } // 0..1
     var hexColorInput by remember { mutableStateOf("FFFFFF") }
+
+    val hsvBuffer = floatArrayOf(hsvH, hsvS, hsvV)
+    val selectedColor = Color(android.graphics.Color.HSVToColor(hsvBuffer))
+
+    fun syncHexFromHsv() {
+        val argb = android.graphics.Color.HSVToColor(floatArrayOf(hsvH, hsvS, hsvV))
+        hexColorInput = String.format("%06X", argb and 0xFFFFFF)
+    }
+
+    fun applyColorToHsv(color: Color) {
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(color.toArgb(), hsv)
+        hsvH = hsv[0]; hsvS = hsv[1]; hsvV = hsv[2]
+    }
 
     fun parseHexColor(input: String): Color? {
         val clean = input.removePrefix("#").trim().uppercase()
@@ -984,60 +986,6 @@ fun CreateProjectDialog(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = alphaContent)
                     )
 
-                    // Palet: baris potongan (chunk) 6 warna; tanda centang
-                    // otomatis gelap di warna terang, terang di warna gelap
-                    // (berdasar luminance, bukan daftar warna manual).
-                    presetColors.chunked(6).forEach { paletteRow ->
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            paletteRow.forEach { color ->
-                                val isSelected = !isTransparent && selectedColor == color
-                                val swatchArgb = color.toArgb()
-                                val swatchLum = (
-                                    0.299f * ((swatchArgb shr 16) and 0xFF) +
-                                        0.587f * ((swatchArgb shr 8) and 0xFF) +
-                                        0.114f * (swatchArgb and 0xFF)
-                                    ) / 255f
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(color.copy(alpha = alphaContent))
-                                        .border(
-                                            width = if (isSelected) 3.dp else 1.dp,
-                                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = alphaContent),
-                                            shape = CircleShape
-                                        )
-                                        .clickable(enabled = !isTransparent) {
-                                            selectedColor = color
-                                            val argb = color.toArgb()
-                                            hexColorInput = String.format("%06X", (argb and 0xFFFFFF))
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (isSelected) {
-                                        Icon(
-                                            imageVector = Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint = if (swatchLum > 0.55f) Color.Black else Color.White,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                    // Pengisi transparan: kotak grid abu tipis
-                                    // supaya swatchnya tetap terlihat jelas.
-                                    if (color == Color.Transparent) {
-                                        Box(
-                                            modifier = Modifier
-                                                .matchParentSize()
-                                                .background(Color(0x33000000))
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
 
                     // Custom Hex Color Input with live preview
                     Row(
@@ -1060,46 +1008,111 @@ fun CreateProjectDialog(
                             onValueChange = { newHex ->
                                 hexColorInput = newHex
                                 parseHexColor(newHex)?.let { color ->
-                                    selectedColor = color
+                                    applyColorToHsv(color)
                                 }
                             },
                             enabled = !isTransparent,
-                            label = { Text("Kode Warna Hex (mis. FFFFFF)") },
+                            label = { Text("Kode Hex (mis. 3D8BFF)") },
                             singleLine = true,
                             isError = !isTransparent && parseHexColor(hexColorInput) == null,
-                            supportingText = {
-                                if (!isTransparent && parseHexColor(hexColorInput) == null) {
-                                    Text("Hex harus 6 digit (mis. 3A7BD9)", style = MaterialTheme.typography.labelSmall)
-                                }
-                            },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp)
                         )
                     }
 
-                    // Color Picker manual: slider R/G/B menyusun warna apa
-                    // pun tanpa mengetik kode hex; kotak hex tetap ikut
-                    // (dua arah: hex -> swatch -> slider).
+                    // Picker HSV: tiga slider bergradien (Hue/Saturasi/
+                    // Terang). Pratinjau gradien di sekeliling track membuat
+                    // hasil geseran terbaca sebelum jempol lepas.
                     if (!isTransparent) {
-                        val curArgb = selectedColor.toArgb()
-                        val curR = (curArgb shr 16) and 0xFF
-                        val curG = (curArgb shr 8) and 0xFF
-                        val curB = curArgb and 0xFF
-                        val makeArgb = { r: Int, g: Int, b: Int ->
-                            0xFF000000L or (r.toLong() shl 8) or (g.toLong() shl 16) or b.toLong()
+                        HsvSliderRow(
+                            label = "Hue (Rona)",
+                            value = hsvH,
+                            valueRange = 0f..360f,
+                            displayValue = "${hsvH.toInt()}°",
+                            gradient = Brush.horizontalGradient(
+                                listOf(0f, 0.1667f, 0.3333f, 0.5f, 0.6667f, 0.8333f, 1f).map { t ->
+                                    Color(android.graphics.Color.HSVToColor(floatArrayOf(t * 360f, 1f, 1f)))
+                                }
+                            ),
+                            onValueChange = { hsvH = it; syncHexFromHsv() }
+                        )
+                        HsvSliderRow(
+                            label = "Saturasi",
+                            value = hsvS,
+                            valueRange = 0f..1f,
+                            displayValue = "${(hsvS * 100).toInt()}%",
+                            gradient = Brush.horizontalGradient(
+                                listOf(
+                                    Color(android.graphics.Color.HSVToColor(floatArrayOf(hsvH, 0f, hsvV))),
+                                    Color(android.graphics.Color.HSVToColor(floatArrayOf(hsvH, 1f, hsvV)))
+                                )
+                            ),
+                            onValueChange = { hsvS = it; syncHexFromHsv() }
+                        )
+                        HsvSliderRow(
+                            label = "Terang",
+                            value = hsvV,
+                            valueRange = 0f..1f,
+                            displayValue = "${(hsvV * 100).toInt()}%",
+                            gradient = Brush.horizontalGradient(
+                                listOf(
+                                    Color.Black,
+                                    Color(android.graphics.Color.HSVToColor(floatArrayOf(hsvH, hsvS, 1f)))
+                                )
+                            ),
+                            onValueChange = { hsvV = it; syncHexFromHsv() }
+                        )
+
+                    // Palet cepat: 16 warna terkurasi (netral + vivid),
+                    // 8 per baris. Klik mengeset HSV sehingga slider dan
+                    // hex selalu ikut sinkron.
+                    val quickPalette = listOf(
+                        Color.White, Color(0xFFC8CDD4), Color(0xFF8A919C), Color(0xFF3A3F46),
+                        Color(0xFF1B1E22), Color.Black, Color(0xFFF5E3C3), Color(0xFFFFF3B1),
+                        Color(0xFFFF5A5F), Color(0xFFFF8A3D), Color(0xFFFFC93D), Color(0xFF5AD46F),
+                        Color(0xFF2FBFA7), Color(0xFF3D8BFF), Color(0xFF7A5AF8), Color(0xFFF96BC5)
+                    )
+                    quickPalette.chunked(8).forEach { paletteRow ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            paletteRow.forEach { color ->
+                                val isSelected = !isTransparent && selectedColor == color
+                                val swatchArgb = color.toArgb()
+                                val swatchLum = (
+                                    0.299f * ((swatchArgb shr 16) and 0xFF) +
+                                        0.587f * ((swatchArgb shr 8) and 0xFF) +
+                                        0.114f * (swatchArgb and 0xFF)
+                                    ) / 255f
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(color.copy(alpha = alphaContent))
+                                        .border(
+                                            width = if (isSelected) 2.dp else 1.dp,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = alphaContent),
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable(enabled = !isTransparent) {
+                                            applyColorToHsv(color)
+                                            syncHexFromHsv()
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = if (swatchLum > 0.55f) Color.Black else Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
-                        ChannelSliderRow(label = "R", value = curR, onValueChange = { r ->
-                            selectedColor = Color(r / 255f, curG / 255f, curB / 255f)
-                            hexColorInput = String.format("%06X", (makeArgb(r, curG, curB) and 0xFFFFFF))
-                        })
-                        ChannelSliderRow(label = "G", value = curG, onValueChange = { g ->
-                            selectedColor = Color(curR / 255f, g / 255f, curB / 255f)
-                            hexColorInput = String.format("%06X", (makeArgb(curR, g, curB) and 0xFFFFFF))
-                        })
-                        ChannelSliderRow(label = "B", value = curB, onValueChange = { b ->
-                            selectedColor = Color(curR / 255f, curG / 255f, b / 255f)
-                            hexColorInput = String.format("%06X", (makeArgb(curR, curG, b) and 0xFFFFFF))
-                        })
+                    }
                     }
                 }
             }
