@@ -1223,7 +1223,11 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
 
 
                                 // 1. MASK TOOL ACTIVE: Handle mask drawing strokes (1 finger) vs Pan/Zoom (2+ fingers)
-                                if (activePanel == EditorPanel.ERASE || activePanel == EditorPanel.MASK) {
+                                // INPAINT ikut: panel EraseToolPanel yang sama menampilkan
+                                // alat seleksi (brush/eraser/lasso/wand) — dulu panel ini
+                                // tidak pernah ditangani sehingga 1 jari MENGGESER kanvas,
+                                // bukan menggambar seleksi.
+                                if (activePanel == EditorPanel.ERASE || activePanel == EditorPanel.MASK || activePanel == EditorPanel.INPAINT) {
                                     val pressedList = changes.filter { it.pressed }
                                     val totalPointerCount = event.changes.size
 

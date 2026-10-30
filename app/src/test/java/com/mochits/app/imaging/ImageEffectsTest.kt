@@ -181,6 +181,35 @@ class ImageEffectsTest {
     }
 
     @Test
+    fun radialBlur_warnaTepiTetapOrangeMurniPadaSemuaAlpha() {
+        val w = 48
+        val h = 48
+        val px = IntArray(w * h)
+        // Batang orange dengan tepi antialias (ramp alpha) — meniru glyph
+        // hasil render teks. Laporan pengguna: blur ZOOM memunculkan warna
+        // kehijauan (olive) pada font orange.
+        for (y in 20 until 28) for (x in 8 until 40) px[y * w + x] = Color.argb(255, 255, 140, 0)
+        for (x in 8 until 40) {
+            px[19 * w + x] = Color.argb(170, 255, 140, 0)
+            px[18 * w + x] = Color.argb(85, 255, 140, 0)
+            px[28 * w + x] = Color.argb(170, 255, 140, 0)
+            px[29 * w + x] = Color.argb(85, 255, 140, 0)
+        }
+        val out = ImageEffects.radialBlurPixels(
+            px, w, h, 0.8f, RadialBlurMode.ZOOM, 0.5f, 0.5f
+        )
+        for (p in out) {
+            if (Color.alpha(p) > 24) {
+                // Warna wajib tetap ORANGE MURNI pada semua tingkat alpha:
+                // bila kanal ikut menggelap saat alpha turun (artefak
+                // interpolasi straight-alpha), kompositnya jadi olive.
+                assertEquals(255, Color.red(p))
+                assertTrue(Color.green(p) < Color.red(p))
+            }
+        }
+    }
+
+    @Test
     fun processedBitmap_neutralReturnsNull() = runBlocking {
         val src = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888)
         assertNull(

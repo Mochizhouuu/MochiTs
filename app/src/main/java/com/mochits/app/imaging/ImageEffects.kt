@@ -209,12 +209,18 @@ object ImageEffects {
                     out[idx] = pixels[idx]
                     continue
                 }
-                var alphaSum = 0f
-                var weightSum = 0f
-                var r = 0f
-                var g = 0f
-                var b = 0f
-                var wsum = 0f
+                // Akumulasi PREMULTIPLIED di atas SEMUA tap (sampel
+                // transparan menyumbang nol, tetapi bobotnya tetap masuk
+                // pembagi). Dulu sampel kosong di-skip: satu sampel kena
+                // glyph langsung membuat alpha=255 -> smear keras solid,
+                // dan interpolasi straight-alpha menggelapkan warna tepi
+                // antialias (alpha 50% = warna setengah) sehingga smear
+                // ZOOM di font orange tampak kotor kehijauan (olive).
+                var sumA = 0f
+                var sumR = 0f
+                var sumG = 0f
+                var sumB = 0f
+                var sumW = 0f
                 for (t in 0 until taps) {
                     val weight = tapWeight[t]
                     val sx: Float
@@ -231,35 +237,34 @@ object ImageEffects {
                     }
                     // Layer gambar (bitmap penuh): tepi direplikasi agar alpha
                     // pinggir tidak rontok. Layer teks (bitmap transparan):
-                    // sampel kosong tetap di-skip.
+                    // sampel keluar bitmap = transparan (kontribusi nol).
                     val sampled = if (clampEdges) {
                         sampleBilinearClamped(pixels, width, height, sx, sy)
                     } else {
                         sampleBilinear(pixels, width, height, sx, sy)
                     }
-                    if (sampled != 0) {
-                        val sa = (sampled ushr 24) and 0xFF
-                        val wa = sa / 255f * weight
-                        weightSum += weight
-                        alphaSum += sa * weight
-                        if (wa > 0f) {
-                            r += ((sampled shr 16) and 0xFF) * wa
-                            g += ((sampled shr 8) and 0xFF) * wa
-                            b += (sampled and 0xFF) * wa
-                            wsum += wa
-                        }
+                    sumW += weight
+                    val sampA = (sampled ushr 24) and 0xFF
+                    if (sampA != 0) {
+                        // sampled PREMULTIPLIED: kanal sudah dikali alpha.
+                        sumA += weight * sampA
+                        sumR += weight * ((sampled shr 16) and 0xFF)
+                        sumG += weight * ((sampled shr 8) and 0xFF)
+                        sumB += weight * (sampled and 0xFF)
                     }
                 }
-                if (wsum <= 0f || weightSum <= 0f) {
-                    out[idx] = pixels[idx]
+                if (sumW <= 0f || sumA < 0.5f) {
+                    out[idx] = if (sumW <= 0f) pixels[idx] else 0
                 } else {
-                    // Round (bukan trunc) agar 255.0f tak jatuh ke 254
-                    // akibat akumulasi float — penyebab pinggiran gelap tipis.
-                    val aa = (alphaSum / weightSum + 0.5f).toInt().coerceIn(0, 255)
+                    // Alpha = coverage blur sejati (memudar mulus ke tepi),
+                    // warna = un-premultiply (premult/alpha). Round, bukan
+                    // trunc, agar 255.0f tak jatuh ke 254.
+                    val aa = (sumA / sumW + 0.5f).toInt().coerceIn(0, 255)
+                    val inv = 255f / sumA
                     out[idx] = (aa shl 24) or
-                        ((r / wsum + 0.5f).toInt().coerceIn(0, 255) shl 16) or
-                        ((g / wsum + 0.5f).toInt().coerceIn(0, 255) shl 8) or
-                        (b / wsum + 0.5f).toInt().coerceIn(0, 255)
+                        ((sumR * inv + 0.5f).toInt().coerceIn(0, 255) shl 16) or
+                        ((sumG * inv + 0.5f).toInt().coerceIn(0, 255) shl 8) or
+                        (sumB * inv + 0.5f).toInt().coerceIn(0, 255)
                 }
             }
         }
@@ -270,6 +275,11 @@ object ImageEffects {
      * Bilinear dengan tepi replikasi (clamp): koordinat di luar bitmap
      * dicubit ke tepi terdekat. Dipakai radial blur untuk layer gambar
      * yang memenuhi bitmap, agar tepi tidak memudar/transparan.
+     *
+     * HASIL PREMULTIPLIED: kanal warna sudah dikali alpha (c·a/255).
+     * Menginterpolasi warna straight-alpha membuat tepi antialias
+     * menggelap (alpha 50% = warna setengah) — sumber smear kotor
+     * kehijauan pada radial blur ZOOM.
      */
     private fun sampleBilinearClamped(
         pixels: IntArray,
@@ -290,14 +300,23 @@ object ImageEffects {
         val p10 = pixels[y0 * width + x1]
         val p01 = pixels[y1 * width + x0]
         val p11 = pixels[y1 * width + x1]
-        fun ch(shift: Int): Int {
-            val v = ((p00 ushr shift) and 0xFF) * (1f - fx) * (1f - fy) +
-                ((p10 ushr shift) and 0xFF) * fx * (1f - fy) +
-                ((p01 ushr shift) and 0xFF) * (1f - fx) * fy +
-                ((p11 ushr shift) and 0xFF) * fx * fy
-            return (v + 0.5f).toInt().coerceIn(0, 255)
-        }
-        return (ch(24) shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
+        // Interpolasi kanal PREMULTIPLIED dari sumber (c*a/255), BUKAN
+        // interpolasi straight lalu dikali alpha (dobat-kuantisasi; tepi
+        // tetap menggelap -> smear kehijauan). Alpha diinterpolasi terpisah.
+        fun prem(shift: Int): Float = (
+            ((p00 ushr shift) and 0xFF) * ((p00 ushr 24) and 0xFF) * (1f - fx) * (1f - fy) +
+                ((p10 ushr shift) and 0xFF) * ((p10 ushr 24) and 0xFF) * fx * (1f - fy) +
+                ((p01 ushr shift) and 0xFF) * ((p01 ushr 24) and 0xFF) * (1f - fx) * fy +
+                ((p11 ushr shift) and 0xFF) * ((p11 ushr 24) and 0xFF) * fx * fy
+            ) / 255f
+        fun rawA(): Float =
+            ((p00 ushr 24) and 0xFF) * (1f - fx) * (1f - fy) +
+                ((p10 ushr 24) and 0xFF) * fx * (1f - fy) +
+                ((p01 ushr 24) and 0xFF) * (1f - fx) * fy +
+                ((p11 ushr 24) and 0xFF) * fx * fy
+        val aF = rawA()
+        fun ch(shift: Int): Int = (prem(shift) + 0.5f).toInt().coerceIn(0, 255)
+        return ((aF + 0.5f).toInt().coerceIn(0, 255) shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
     }
 
     /**
@@ -521,6 +540,11 @@ object ImageEffects {
         return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v
     }
 
+    /**
+     * Bilinear dengan sampel keluar bitmap = transparan (jalur teks).
+     * HASIL PREMULTIPLIED: kanal warna dikali alpha (c·a/255) — lihat
+     * catatan di [sampleBilinearClamped].
+     */
     private fun sampleBilinear(
         pixels: IntArray,
         width: Int,
@@ -543,14 +567,21 @@ object ImageEffects {
         val w10 = fx * (1f - fy)
         val w01 = (1f - fx) * fy
         val w11 = fx * fy
-        fun ch(shift: Int): Int {
-            val v = ((p00 ushr shift) and 0xFF) * w00 +
-                ((p10 ushr shift) and 0xFF) * w10 +
-                ((p01 ushr shift) and 0xFF) * w01 +
-                ((p11 ushr shift) and 0xFF) * w11
-            return (v + 0.5f).toInt().coerceIn(0, 255)
-        }
-        return (ch(24) shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
+        // Premultiplied dari sumber (lihat catatan di sampleBilinearClamped).
+        fun prem(shift: Int): Float = (
+            ((p00 ushr shift) and 0xFF) * ((p00 ushr 24) and 0xFF) * w00 +
+                ((p10 ushr shift) and 0xFF) * ((p10 ushr 24) and 0xFF) * w10 +
+                ((p01 ushr shift) and 0xFF) * ((p01 ushr 24) and 0xFF) * w01 +
+                ((p11 ushr shift) and 0xFF) * ((p11 ushr 24) and 0xFF) * w11
+            ) / 255f
+        fun rawA(): Float =
+            ((p00 ushr 24) and 0xFF) * w00 +
+                ((p10 ushr 24) and 0xFF) * w10 +
+                ((p01 ushr 24) and 0xFF) * w01 +
+                ((p11 ushr 24) and 0xFF) * w11
+        val aF = rawA()
+        fun ch(shift: Int): Int = (prem(shift) + 0.5f).toInt().coerceIn(0, 255)
+        return ((aF + 0.5f).toInt().coerceIn(0, 255) shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
     }
 
     /**

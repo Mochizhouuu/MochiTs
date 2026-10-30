@@ -23,9 +23,13 @@ class PrecisionCoordinateMapper(
 
     fun updateTransform(scale: Float, translationX: Float, translationY: Float) {
         this.scale = scale.coerceIn(minScale, maxScale)
-        val maxOffset = maxOf(canvasWidth, canvasHeight) * 2f
-        this.translationX = translationX.coerceIn(-maxOffset, maxOffset)
-        this.translationY = translationY.coerceIn(-maxOffset, maxOffset)
+        // JANGAN clamp offset di sini: transform render (CanvasEditorState)
+        // memakai offset mentah. Clamp yang berbeda membuat mapper MELERCET
+        // dari transform saat zoom dalam + pan jauh (offset bisa belasan ribu
+        // px), sehingga lasso/brush/wand menulis mask di koordinat salah —
+        // seleksi "tidak bisa" padahal semuanya sudah digambar.
+        this.translationX = translationX
+        this.translationY = translationY
     }
 
     /**

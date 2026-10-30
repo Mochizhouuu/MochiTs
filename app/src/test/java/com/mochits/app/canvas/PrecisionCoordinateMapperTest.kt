@@ -67,4 +67,25 @@ class PrecisionCoordinateMapperTest {
         assertEquals(-50f, state.offsetX, 0.001f)
         assertEquals(0f, state.offsetY, 0.001f)
     }
+
+    @Test
+    fun `mapper harus cermin transform render - lasso tak melercet saat zoom dalam`() {
+        val mapper = PrecisionCoordinateMapper(1080, 1920)
+        // Transform render: zoom dalam + pan jauh. Offset seperti ini melebihi
+        // batas clamp lama (±2×max dimensi = 3840) yang membuat mapper
+        // berbeda dari transform render, sehingga sentuhan -> koordinat
+        // kanvas meleset dan lasso/brush/wand menulis mask di tempat salah.
+        val scale = 6f
+        val renderOffsetX = -52000f
+        val renderOffsetY = -94000f
+        mapper.updateTransform(scale, renderOffsetX, renderOffsetY)
+        // Titik kanvas yang menurut TRANSFORM RENDER tampil di layar:
+        val canvasPt = androidx.compose.ui.geometry.Offset(540f, 1700f)
+        val screenX = canvasPt.x * scale + renderOffsetX
+        val screenY = canvasPt.y * scale + renderOffsetY
+        // Sentuhan pada titik layar itu wajib kembali ke titik kanvas yang sama.
+        val touched = mapper.screenToCanvas(screenX, screenY)
+        assertEquals(canvasPt.x, touched.x, 0.01f)
+        assertEquals(canvasPt.y, touched.y, 0.01f)
+    }
 }
