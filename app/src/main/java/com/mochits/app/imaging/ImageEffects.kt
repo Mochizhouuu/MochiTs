@@ -676,7 +676,7 @@ object ImageEffects {
         return t * t * (3f - 2f * t)
     }
 
-    /** Cakupan band [a..b] dengan tepi anti-alias selebar aa (0..1). */
+    /** Cakupan band a..b dengan tepi anti-alias selebar aa (0..1). */
     private fun bandCoverage(v: Float, a: Float, b: Float, aa: Float): Float {
         return smoothstep(a - aa, a + aa, v) * (1f - smoothstep(b - aa, b + aa, v))
     }
