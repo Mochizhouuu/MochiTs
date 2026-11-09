@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import com.mochits.app.model.RadialBlurMode
+import com.mochits.app.model.TextureBlend
 import com.mochits.app.model.TexturePreset
 import com.mochits.app.text.MotionBlur
 import kotlin.math.abs
