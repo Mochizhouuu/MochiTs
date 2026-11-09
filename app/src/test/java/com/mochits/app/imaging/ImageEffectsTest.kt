@@ -152,6 +152,52 @@ class ImageEffectsTest {
     }
 
     @Test
+    fun texture_multiplyHanyaMenurunkanKecerahanDanDeterministik() {
+        val w = 16
+        val h = 16
+        val src = IntArray(w * h) { Color.argb(255, 200, 100, 50) }
+        val a = ImageEffects.applyTexturePixels(
+            src, w, h, TexturePreset.PAPER, 0.8f, 1.5f,
+            blend = com.mochits.app.model.TextureBlend.MULTIPLY
+        )
+        val b = ImageEffects.applyTexturePixels(
+            src, w, h, TexturePreset.PAPER, 0.8f, 1.5f,
+            blend = com.mochits.app.model.TextureBlend.MULTIPLY
+        )
+        assertArrayEquals(a, b)
+        for (p in a) {
+            assertEquals(255, Color.alpha(p))
+            // Multiply tidak pernah mencerahkan dan tidak pernah menambah hue baru:
+            // tiap kanal hasil tidak lebih tinggi dari warna dasar.
+            assertTrue((p shr 16) and 0xFF <= 200)
+            assertTrue((p shr 8) and 0xFF <= 100)
+            assertTrue(p and 0xFF <= 50)
+        }
+    }
+
+    @Test
+    fun texture_angleMemutarPolaDanDeterministik() {
+        val w = 24
+        val h = 24
+        val src = IntArray(w * h) { Color.argb(255, 210, 210, 210) }
+        val flat = ImageEffects.applyTexturePixels(
+            src, w, h, TexturePreset.STRIPES, 0.9f, 1f
+        )
+        val tilted = ImageEffects.applyTexturePixels(
+            src, w, h, TexturePreset.STRIPES, 0.9f, 1f,
+            angleDeg = 35f
+        )
+        val tilted2 = ImageEffects.applyTexturePixels(
+            src, w, h, TexturePreset.STRIPES, 0.9f, 1f,
+            angleDeg = 35f
+        )
+        assertArrayEquals(tilted, tilted2)
+        // Rotasi nyata mengubah susunan piksel pola.
+        assertTrue(!flat.contentEquals(tilted))
+        for (p in tilted) assertEquals(255, Color.alpha(p))
+    }
+
+    @Test
     fun texture_halftoneDeterministicAndTintable() {
         val w = 16
         val h = 16

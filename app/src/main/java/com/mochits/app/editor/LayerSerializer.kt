@@ -7,6 +7,7 @@ import com.google.gson.reflect.TypeToken
 import com.mochits.app.model.Layer
 import com.mochits.app.model.LayerBlendMode
 import com.mochits.app.model.RadialBlurMode
+import com.mochits.app.model.TextureBlend
 import com.mochits.app.model.TexturePreset
 import com.mochits.app.model.TextAlignment
 import com.mochits.app.model.TextContainerShape
@@ -61,6 +62,8 @@ data class LayerJsonDto(
     val textureStrength: Float? = null,
     val textureScale: Float? = null,
     val textureColor: Int? = null,
+    val textureBlend: TextureBlend? = null,
+    val textureAngle: Float? = null,
     val textureAsset: String? = null
 )
 
@@ -125,6 +128,8 @@ class LayerSerializer {
                     textureStrength = layer.textureStrength,
                     textureScale = layer.textureScale,
                     textureColor = layer.textureColor,
+                    textureBlend = layer.textureBlend,
+                    textureAngle = layer.textureAngle,
                     textureAsset = layer.textureAsset
                 )
             }
@@ -260,6 +265,8 @@ class LayerSerializer {
             textureStrength = (dto.textureStrength ?: 0f).takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f,
             textureScale = (dto.textureScale ?: 1f).takeIf { it.isFinite() }?.coerceIn(0.5f, 4f) ?: 1f,
             textureColor = dto.textureColor ?: android.graphics.Color.TRANSPARENT,
+            textureBlend = dto.textureBlend ?: TextureBlend.OVERLAY,
+            textureAngle = (dto.textureAngle ?: 0f).takeIf { it.isFinite() }?.coerceIn(-180f, 180f) ?: 0f,
             textureAsset = dto.textureAsset
         )
     }

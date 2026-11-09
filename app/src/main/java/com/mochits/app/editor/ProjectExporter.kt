@@ -158,6 +158,25 @@ class ProjectExporter(private val context: Context) {
                             val contentAlpha = 255
                             val glowWarped = imageGlowWarpFor?.invoke(layer)
                                 ?.takeIf { !it.bitmap.isRecycled && it.scale > 1e-6f }
+                            // Transform (scaleX/scaleY + rotasi) sama seperti render layar —
+                            // berlaku pada glow dan isi gambar, tapi Diskip bila warp
+                            // (perspektif/mesh) aktif karena punya ruang sendiri.
+                            val hasImgTransform = glowWarped == null &&
+                                !(layer.meshGrid != null && Perspective.isMeshActive(layer.meshGrid)) &&
+                                (layer.scaleX != 1f || layer.scaleY != 1f || layer.rotation != 0f)
+                            var transformCount = -1
+                            if (hasImgTransform) {
+                                transformCount = canvas.saveCount
+                                canvas.save()
+                                if (layer.scaleX != 1f || layer.scaleY != 1f) {
+                                    canvas.scale(layer.scaleX, layer.scaleY, layer.x, layer.y)
+                                }
+                                if (layer.rotation != 0f) {
+                                    val rotCx = layer.x + imgBmp.width * layer.scaleX / 2f
+                                    val rotCy = layer.y + imgBmp.height * layer.scaleY / 2f
+                                    canvas.rotate(layer.rotation, rotCx, rotCy)
+                                }
+                            }
                             if (glowWarped != null) {
                                 val glowPaint = android.graphics.Paint().apply {
                                     alpha = contentAlpha
@@ -246,7 +265,14 @@ class ProjectExporter(private val context: Context) {
                                 }
                             }
                             if (clipMask != null) {
+                                // Mask ukuran kanvas: kembalikan transform dulu
+                                // agar mask tidak ikut ter-scaling/miring.
+                                if (hasImgTransform) {
+                                    canvas.restoreToCount(transformCount)
+                                }
                                 LayerCompositing.applyClipMask(canvas, clipMask, width, height)
+                            } else if (hasImgTransform) {
+                                canvas.restoreToCount(transformCount)
                             }
                             canvas.restoreToCount(count)
                         }

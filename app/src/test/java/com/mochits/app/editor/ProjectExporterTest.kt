@@ -52,6 +52,50 @@ class ProjectExporterTest {
     }
 
     @Test
+    fun testExportToBitmap_imageLayerMeluberTerpotongPadaBatasKanvas() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val exporter = ProjectExporter(context)
+
+        // Kanvas 100x100 putih; layer gambar 80x80 merah digeser hingga
+        // 70% keluar dari kanvas (x=60 → hanya strip 40px yang terlihat,
+        // sisanya MELUBER). Output harus TETAP 100x100 dan warna biru
+        // yang digeser keluar tidak bocor jadi ukuran canvas membesar.
+        val width = 100
+        val height = 100
+        val baseBmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        baseBmp.eraseColor(Color.WHITE)
+
+        val img = Bitmap.createBitmap(80, 80, Bitmap.Config.ARGB_8888)
+        img.eraseColor(Color.RED)
+
+        val layer = Layer.ImageLayer(
+            id = "stealer",
+            name = "stiker",
+            x = 60f,
+            y = 60f,
+            rotation = 0f,
+            scaleX = 1f,
+            scaleY = 1f,
+            opacity = 1f,
+            bitmap = img
+        )
+
+        val exported = exporter.exportToBitmap(
+            baseBmp = baseBmp,
+            layers = listOf(layer),
+            imageBitmapFor = { img }
+        )
+        assertNotNull(exported)
+        assertEquals(width, exported.width)
+        assertEquals(height, exported.height)
+
+        // Area yang tertutup gambar harus merah (nampak)
+        assertEquals(Color.RED, exported.getPixel(80, 80))
+        // Area di luar kanvas tidak ada → kanvas di 0,0 tetap putih.
+        assertEquals(Color.WHITE, exported.getPixel(0, 0))
+    }
+
+    @Test
     fun testExportToBitmap_withGradientTextLayer() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val exporter = ProjectExporter(context)

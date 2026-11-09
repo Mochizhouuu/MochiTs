@@ -54,7 +54,25 @@ enum class TexturePreset(val label: String) {
     HALFTONE("Halftone"),
     STRIPES("Garis"),
     DOTS("Titik"),
+    CHEVRON("Zigzag"),
+    BRICKS("Bata"),
     CUSTOM("Imporan")
+}
+
+/**
+ * Jalinan (blend) texture ke piksel layer, gaya aplikasi editor:
+ * - OVERLAY: kontras dua arah (struktur terlihat di warna gelap & terang).
+ * - SOFT_LIGHT: sama tapi lembut — kertas/kanvas halus.
+ * - MULTIPLY: hanya tanda GELAP yang tampak (tinta, kotoran bahan).
+ * - SCREEN: hanya tanda TERANG yang tampak (debu, serat, cahaya).
+ * - NORMAL: texture menimpa warna asli (fill pola solid).
+ */
+enum class TextureBlend(val label: String) {
+    OVERLAY("Overlay"),
+    SOFT_LIGHT("Lembut"),
+    MULTIPLY("Kalikan"),
+    SCREEN("Layar"),
+    NORMAL("Timpa")
 }
 
 enum class EditorPanel {
@@ -169,6 +187,13 @@ data class TextStyleConfig(
     // berwarna = pattern (halftone/garis/titik) digambar memakai warna ini.
     // Field lama tanpa key ini terbaca 0 (= TRANSPARENT) oleh Gson — aman.
     val textureColor: Int = Color.TRANSPARENT,
+    // Jalinan (blend) texture: OVERLAY/SOFT_LIGHT/MULTIPLY/SCREEN/NORMAL.
+    // Merekat warna asli layer — texture memberi struktur, bukan menimpa.
+    // Field lama terbaca null oleh Gson → juga aman (koma-terakhir).
+    val textureBlend: TextureBlend = TextureBlend.OVERLAY,
+    // Rotasi pola texture (derajat, -180..180): garis/halftone/kanvas dan
+    // tile texture impor tidak lagi selamanya datar-horizontal.
+    val textureAngle: Float = 0f,
     // Texture impor: NAMA FILE di folder texture proyek (bukan path penuh).
     // Dipakai saat texturePreset == CUSTOM.
     val textureAsset: String? = null
@@ -250,6 +275,8 @@ sealed class Layer(
         val textureStrength: Float = 0f,
         val textureScale: Float = 1f,
         val textureColor: Int = Color.TRANSPARENT,
+        val textureBlend: TextureBlend = TextureBlend.OVERLAY,
+        val textureAngle: Float = 0f,
         val textureAsset: String? = null
     ) : Layer(id, name, x, y, rotation, scaleX, scaleY, opacity, isVisible, isLocked, blendMode, clippingMask)
 

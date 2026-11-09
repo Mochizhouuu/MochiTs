@@ -191,10 +191,19 @@ private fun hitTestTextHandles(
     layer: Layer.TextLayer,
     bounds: RectF,
     scale: Float
+): TextHandleType? = hitTestRotatedHandles(touchCanvas, layer.rotation, bounds, scale)
+
+/** Hit-test handle serupa [hitTestTextHandles], generik rotasi derajat —
+ * dipakai kotak teks dan layer gambar. */
+private fun hitTestRotatedHandles(
+    touchCanvas: Offset,
+    rotationDeg: Float,
+    bounds: RectF,
+    scale: Float
 ): TextHandleType? {
     val cx = bounds.centerX()
     val cy = bounds.centerY()
-    val rad = Math.toRadians(-layer.rotation.toDouble())
+    val rad = Math.toRadians(-rotationDeg.toDouble())
     val cosA = kotlin.math.cos(rad)
     val sinA = kotlin.math.sin(rad)
     val dx = (touchCanvas.x - cx).toDouble()
@@ -226,7 +235,6 @@ private fun hitTestTextHandles(
         .minByOrNull { it.third }
         ?.first
 }
-
 private fun isPointInsideTextLayer(
     layer: Layer.TextLayer,
     touchCanvasPt: Offset,
@@ -251,8 +259,9 @@ private fun isPointInsideTextLayer(
 }
 
 /**
- * Hit-test layer gambar: titik di dalam kotak konten + toleransi jari 16px.
- * Box warp/perspektif diabaikan (v1): yang dites kotak aslinya.
+ * Hit-test layer gambar: titik di dalam kotak konten TERSKALA (scaleX/scaleY)
+ * dengan pivot kiri-atas x/y, sadar ROTASI di sekitar pusat kotak, plus
+ * toleransi jari 16px. Box warp/perspektif diabaikan (v1).
  */
 private fun isPointInsideImageLayer(
     layer: Layer.ImageLayer,
@@ -260,10 +269,26 @@ private fun isPointInsideImageLayer(
     bitmapW: Float,
     bitmapH: Float
 ): Boolean {
-    return touchCanvasPt.x >= layer.x - 16f &&
-        touchCanvasPt.x <= layer.x + bitmapW + 16f &&
-        touchCanvasPt.y >= layer.y - 16f &&
-        touchCanvasPt.y <= layer.y + bitmapH + 16f
+    val w = bitmapW * layer.scaleX
+    val h = bitmapH * layer.scaleY
+    val padded = RectF(
+        layer.x - 16f, layer.y - 16f,
+        layer.x + w + 16f, layer.y + h + 16f
+    )
+    if (layer.rotation == 0f) {
+        return padded.contains(touchCanvasPt.x, touchCanvasPt.y)
+    }
+    val cx = layer.x + w / 2f
+    val cy = layer.y + h / 2f
+    val rad = Math.toRadians(-layer.rotation.toDouble())
+    val cosA = kotlin.math.cos(rad)
+    val sinA = kotlin.math.sin(rad)
+    val dx = (touchCanvasPt.x - cx).toDouble()
+    val dy = (touchCanvasPt.y - cy).toDouble()
+    val unrotatedX = (cx + dx * cosA - dy * sinA).toFloat()
+    val unrotatedY = (cy + dx * sinA + dy * cosA).toFloat()
+    return unrotatedX >= padded.left && unrotatedX <= padded.right &&
+        unrotatedY >= padded.top && unrotatedY <= padded.bottom
 }
 
 
@@ -977,6 +1002,11 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
             var initialMinH by remember { mutableFloatStateOf(20f) }
             var initialBoundsLeft by remember { mutableFloatStateOf(0f) }
             var initialBoundsTop by remember { mutableFloatStateOf(0f) }
+            // Initial layer gambar: skala & ukuran asli bitmap (handle box).
+            var initialImageScaleX by remember { mutableFloatStateOf(1f) }
+            var initialImageScaleY by remember { mutableFloatStateOf(1f) }
+            var initialImageBmpW by remember { mutableFloatStateOf(1f) }
+            var initialImageBmpH by remember { mutableFloatStateOf(1f) }
             var deleteHandlePressTime by remember { mutableLongStateOf(0L) }
             var pendingDeleteLayerId by remember { mutableStateOf<String?>(null) }
 
@@ -1346,7 +1376,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                 // double-tap-to-edit, which use pendingBodyMoveLayer, would still work).
                                 // Always read fresh state from the ViewModel inside the gesture loop.
                                 val freshSelectedLayer = viewModel.selectedLayerId.value?.let { sid ->
-                                    viewModel.layers.value.find { it.id == sid } as? Layer.TextLayer
+                                    viewModel.layers.value.find { it.id == sid }
                                 }
 
                                 if (activeHandleType == null && pendingBodyMoveLayer == null) {
@@ -1358,7 +1388,110 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                         gestureMultiTouch = false
                                         var hitHandle = false
                                         val handleLayer = freshSelectedLayer
-                                        if (handleLayer != null) {
+                                        if (handleLayer is Layer.ImageLayer) {
+                                            // ---- Kotak handle layer gambar (scale/rotate/stretch) ----
+                                            val imgB = viewModel.resolveImageBitmap(handleLayer) ?: handleLayer.bitmap
+                                            if (imgB != null && !imgB.isRecycled) {
+                                                val bw = imgB.width * handleLayer.scaleX
+                                                val bh = imgB.height * handleLayer.scaleY
+                                                val bounds = RectF(
+                                                    handleLayer.x, handleLayer.y,
+                                                    handleLayer.x + bw, handleLayer.y + bh
+                                                )
+                                                val chosenHandle = hitTestRotatedHandles(
+                                                    touchCanvasPt,
+                                                    handleLayer.rotation,
+                                                    bounds,
+                                                    viewModel.canvasState.scale
+                                                )
+                                                val imgCenterX = bounds.centerX()
+                                                val imgCenterY = bounds.centerY()
+                                                val unrotatedPt = if (handleLayer.rotation != 0f) {
+                                                    val rad = Math.toRadians(-handleLayer.rotation.toDouble())
+                                                    val cosA = kotlin.math.cos(rad)
+                                                    val sinA = kotlin.math.sin(rad)
+                                                    val dx = (touchCanvasPt.x - imgCenterX).toDouble()
+                                                    val dy = (touchCanvasPt.y - imgCenterY).toDouble()
+                                                    Offset(
+                                                        (imgCenterX + dx * cosA - dy * sinA).toFloat(),
+                                                        (imgCenterY + dx * sinA + dy * cosA).toFloat()
+                                                    )
+                                                } else {
+                                                    touchCanvasPt
+                                                }
+                                                when (chosenHandle) {
+                                                    TextHandleType.DELETE -> {
+                                                        viewModel.saveUndoSnapshot()
+                                                        viewModel.deleteLayer(handleLayer.id)
+                                                        viewModel.selectLayer(null)
+                                                        hitHandle = true
+                                                        firstChange.consume()
+                                                        triggerRedraw++
+                                                        continue
+                                                    }
+                                                    TextHandleType.ROTATE -> {
+                                                        activeHandleType = TextHandleType.ROTATE
+                                                        viewModel.saveUndoSnapshot()
+                                                        initialTextCenterX = imgCenterX
+                                                        initialTextCenterY = imgCenterY
+                                                        initialTouchAngle = Math.toDegrees(
+                                                            kotlin.math.atan2(
+                                                                (touchCanvasPt.y - imgCenterY).toDouble(),
+                                                                (touchCanvasPt.x - imgCenterX).toDouble()
+                                                            )
+                                                        ).toFloat()
+                                                        initialTextRotation = handleLayer.rotation
+                                                        hitHandle = true
+                                                        firstChange.consume()
+                                                        continue
+                                                    }
+                                                    TextHandleType.RESIZE -> {
+                                                        activeHandleType = TextHandleType.RESIZE
+                                                        viewModel.saveUndoSnapshot()
+                                                        initialTextCenterX = imgCenterX
+                                                        initialTextCenterY = imgCenterY
+                                                        initialDragDist = kotlin.math.hypot(
+                                                            unrotatedPt.x - imgCenterX,
+                                                            unrotatedPt.y - imgCenterY
+                                                        ).coerceAtLeast(40f)
+                                                        initialImageScaleX = handleLayer.scaleX
+                                                        initialImageScaleY = handleLayer.scaleY
+                                                        initialImageBmpW = imgB.width.toFloat()
+                                                        initialImageBmpH = imgB.height.toFloat()
+                                                        hitHandle = true
+                                                        firstChange.consume()
+                                                        continue
+                                                    }
+                                                    TextHandleType.STRETCH_V -> {
+                                                        activeHandleType = TextHandleType.STRETCH_V
+                                                        viewModel.saveUndoSnapshot()
+                                                        initialTextX = handleLayer.x
+                                                        initialTextY = handleLayer.y
+                                                        initialImageScaleX = handleLayer.scaleX
+                                                        initialImageScaleY = handleLayer.scaleY
+                                                        initialImageBmpW = imgB.width.toFloat()
+                                                        initialImageBmpH = imgB.height.toFloat()
+                                                        hitHandle = true
+                                                        firstChange.consume()
+                                                        continue
+                                                    }
+                                                    TextHandleType.STRETCH_H -> {
+                                                        activeHandleType = TextHandleType.STRETCH_H
+                                                        viewModel.saveUndoSnapshot()
+                                                        initialTextX = handleLayer.x
+                                                        initialTextY = handleLayer.y
+                                                        initialImageScaleX = handleLayer.scaleX
+                                                        initialImageScaleY = handleLayer.scaleY
+                                                        initialImageBmpW = imgB.width.toFloat()
+                                                        initialImageBmpH = imgB.height.toFloat()
+                                                        hitHandle = true
+                                                        firstChange.consume()
+                                                        continue
+                                                    }
+                                                    else -> {}
+                                                }
+                                            }
+                                        } else if (handleLayer is Layer.TextLayer) {
                                             val bounds = textRenderer.getTextBounds(handleLayer)
                                             val textCenterX = bounds.centerX()
                                             val textCenterY = bounds.centerY()
@@ -1578,6 +1711,30 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                     } else {
                                         touchCanvasPt
                                     }
+                                    // Untuk layer gambar: titik yang sudah di-unrotate
+                                    // terhadap rotasi layer itu sendiri (dragLayer null).
+                                    val freshImageLayer = viewModel.selectedLayerId.value?.let { sid ->
+                                        viewModel.layers.value.find { it.id == sid } as? Layer.ImageLayer
+                                    }
+                                    val unrotatedImagePt = if (freshImageLayer != null && freshImageLayer.rotation != 0f) {
+                                        val bw = (viewModel.resolveImageBitmap(freshImageLayer)?.width?.toFloat() ?: 1f) *
+                                            freshImageLayer.scaleX
+                                        val bh = (viewModel.resolveImageBitmap(freshImageLayer)?.height?.toFloat() ?: 1f) *
+                                            freshImageLayer.scaleY
+                                        val centerCX = freshImageLayer.x + bw / 2f
+                                        val centerCY = freshImageLayer.y + bh / 2f
+                                        val rad = Math.toRadians(-freshImageLayer.rotation.toDouble())
+                                        val cosA = kotlin.math.cos(rad)
+                                        val sinA = kotlin.math.sin(rad)
+                                        val dx = (touchCanvasPt.x - centerCX).toDouble()
+                                        val dy = (touchCanvasPt.y - centerCY).toDouble()
+                                        Offset(
+                                            (centerCX + dx * cosA - dy * sinA).toFloat(),
+                                            (centerCY + dx * sinA + dy * cosA).toFloat()
+                                        )
+                                    } else {
+                                        touchCanvasPt
+                                    }
                                     when (activeHandleType) {
                                         TextHandleType.RESIZE -> {
                                             if (dragLayer != null) {
@@ -1613,6 +1770,27 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                     )
                                                     triggerRedraw++
                                                 }
+                                            } else if (freshImageLayer != null && initialDragDist > 0f) {
+                                                // Layer gambar: skala proporsional dgn jangkar PUSAT
+                                                // (serupa kotak teks) — x/y digeser agar pusat tetap.
+                                                val currentDist = kotlin.math.hypot(
+                                                    unrotatedImagePt.x - initialTextCenterX,
+                                                    unrotatedImagePt.y - initialTextCenterY
+                                                )
+                                                val scaleFactor = currentDist / initialDragDist
+                                                val newSx = (initialImageScaleX * scaleFactor).coerceIn(0.02f, 12f)
+                                                val newSy = (initialImageScaleY * scaleFactor).coerceIn(0.02f, 12f)
+                                                val newX = initialTextCenterX - initialImageBmpW * newSx / 2f
+                                                val newY = initialTextCenterY -
+                                                    initialImageBmpH * newSy / 2f
+                                                viewModel.updateImageLayer(
+                                                    freshImageLayer.copy(
+                                                        x = newX, y = newY,
+                                                        scaleX = newSx, scaleY = newSy
+                                                    ),
+                                                    false
+                                                )
+                                                triggerRedraw++
                                             }
                                         }
                                         TextHandleType.ROTATE -> {
@@ -1622,6 +1800,21 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                 var newRotation = (initialTextRotation + deltaAngle) % 360f
                                                 if (newRotation < 0f) newRotation += 360f
                                                 viewModel.updateSelectedTextLayerRotation(newRotation, saveUndo = false)
+                                                triggerRedraw++
+                                            } else if (freshImageLayer != null) {
+                                                val currentAngle = Math.toDegrees(
+                                                    kotlin.math.atan2(
+                                                        (touchCanvasPt.y - initialTextCenterY).toDouble(),
+                                                        (touchCanvasPt.x - initialTextCenterX).toDouble()
+                                                    )
+                                                ).toFloat()
+                                                val deltaAngle = currentAngle - initialTouchAngle
+                                                var newRotation = (initialTextRotation + deltaAngle) % 360f
+                                                if (newRotation < 0f) newRotation += 360f
+                                                viewModel.updateImageLayer(
+                                                    freshImageLayer.copy(rotation = newRotation),
+                                                    false
+                                                )
                                                 triggerRedraw++
                                             }
                                         }
@@ -1638,6 +1831,16 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                     newX = initialTextX,
                                                     newY = initialTextY,
                                                     saveUndo = false
+                                                )
+                                                triggerRedraw++
+                                            } else if (freshImageLayer != null) {
+                                                // Gambar: bilah bawah mengikuti jari, atas tetap.
+                                                val rawSy = (unrotatedImagePt.y - initialTextY) /
+                                                    (initialImageBmpH.coerceAtLeast(1f))
+                                                val newSy = rawSy.coerceIn(0.02f, 12f)
+                                                viewModel.updateImageLayer(
+                                                    freshImageLayer.copy(scaleY = newSy),
+                                                    false
                                                 )
                                                 triggerRedraw++
                                             }
@@ -1657,6 +1860,16 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                     newX = newX,
                                                     newY = initialTextY,
                                                     saveUndo = false
+                                                )
+                                                triggerRedraw++
+                                            } else if (freshImageLayer != null) {
+                                                // Gambar: bilah kanan mengikuti jari, kiri tetap.
+                                                val rawSx = (unrotatedImagePt.x - initialTextX) /
+                                                    (initialImageBmpW.coerceAtLeast(1f))
+                                                val newSx = rawSx.coerceIn(0.02f, 12f)
+                                                viewModel.updateImageLayer(
+                                                    freshImageLayer.copy(scaleX = newSx),
+                                                    false
                                                 )
                                                 triggerRedraw++
                                             }
@@ -2272,6 +2485,27 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                         val imgMesh = layer.meshGrid
                                         val imgMeshActive = imgMesh != null &&
                                             com.mochits.app.imaging.Perspective.isMeshActive(imgMesh)
+                                        // Transform layer gambar (scaleX/scaleY + rotasi).
+                                        // Diskip saat persp/mesh aktif (dua mode warp punya
+                                        // ruangnya sendiri). Pivot: scale kiri-atas (x,y),
+                                        // rotasi pusat kotak terskala — sama dengan hit-test
+                                        // & handle box.
+                                        val hasImgTransform = !imgQuadActive && !imgMeshActive &&
+                                            (layer.scaleX != 1f || layer.scaleY != 1f || layer.rotation != 0f)
+                                        var transformCount = -1
+                                        if (hasImgTransform) {
+                                            val nc = drawContext.canvas.nativeCanvas
+                                            transformCount = nc.saveCount
+                                            nc.save()
+                                            if (layer.scaleX != 1f || layer.scaleY != 1f) {
+                                                nc.scale(layer.scaleX, layer.scaleY, layer.x, layer.y)
+                                            }
+                                            if (layer.rotation != 0f) {
+                                                val rotCx = layer.x + imgBmp.width * layer.scaleX / 2f
+                                                val rotCy = layer.y + imgBmp.height * layer.scaleY / 2f
+                                                nc.rotate(layer.rotation, rotCx, rotCy)
+                                            }
+                                        }
                                         if (imgQuadActive) {
                                             // Glow ikut di-warp selaras dengan isi.
                                             viewModel.resolveImageGlow(layer)?.let { (glowBmp, pad) ->
@@ -2377,13 +2611,98 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                 drawContext.canvas.nativeCanvas.drawBitmap(imgBmp, layer.x, layer.y, imgPaint)
                                             }
                                         }
+                                        // Handle box layer gambar (sama fungsinya dengan kotak
+                                        // teks): resize/rotate/stretch/delete. Diskip saat warp
+                                        // aktif (persp/mesh punya kotaknya sendiri).
+                                        if (layer.id == selectedLayerId && !imgQuadActive && !imgMeshActive) {
+                                            val currentScale = viewModel.canvasState.scale.coerceAtLeast(0.1f)
+                                            val strokeW = 3f / currentScale
+                                            val handleRadius = 24f / currentScale
+                                            val bw = imgBmp.width * layer.scaleX
+                                            val bh = imgBmp.height * layer.scaleY
+                                            val bounds = android.graphics.RectF(
+                                                layer.x, layer.y,
+                                                layer.x + bw, layer.y + bh
+                                            )
+                                            val boxPaint = boxPaintCache.apply {
+                                                strokeWidth = strokeW
+                                                pathEffect = DashPathEffect(floatArrayOf(10f / currentScale, 10f / currentScale), 0f)
+                                            }
+                                            val nc = drawContext.canvas.nativeCanvas
+                                            nc.save()
+                                            if (layer.rotation != 0f) {
+                                                nc.rotate(layer.rotation, bounds.centerX(), bounds.centerY())
+                                            }
+                                            nc.drawRect(bounds, boxPaint)
+                                            val anchorsMap = handleAnchors(bounds, currentScale).toMap()
+                                            val handleFillPaint = handleFillPaintCache
+                                            val handleStrokePaint = handleStrokePaintCache.apply { strokeWidth = strokeW }
+
+                                            val resizePos = anchorsMap[TextHandleType.RESIZE] ?: Offset(bounds.right, bounds.bottom)
+                                            nc.drawCircle(resizePos.x, resizePos.y, handleRadius, resizeFillPaintCache)
+                                            nc.drawCircle(resizePos.x, resizePos.y, handleRadius, handleStrokePaint)
+
+                                            val deletePos = anchorsMap[TextHandleType.DELETE] ?: Offset(bounds.left, bounds.top)
+                                            val xPaint = xPaintCache.apply { strokeWidth = 3f / currentScale }
+                                            nc.drawCircle(deletePos.x, deletePos.y, handleRadius, deleteFillPaintCache)
+                                            val crossOffset = handleRadius * 0.45f
+                                            nc.drawLine(
+                                                deletePos.x - crossOffset, deletePos.y - crossOffset,
+                                                deletePos.x + crossOffset, deletePos.y + crossOffset, xPaint
+                                            )
+                                            nc.drawLine(
+                                                deletePos.x + crossOffset, deletePos.y - crossOffset,
+                                                deletePos.x - crossOffset, deletePos.y + crossOffset, xPaint
+                                            )
+
+                                            val rotatePos = anchorsMap[TextHandleType.ROTATE] ?: Offset(bounds.right, bounds.top)
+                                            nc.drawCircle(rotatePos.x, rotatePos.y, handleRadius, rotateFillPaintCache)
+                                            nc.drawCircle(rotatePos.x, rotatePos.y, handleRadius, handleStrokePaint)
+                                            val rotateArcPaint = rotateArcPaintCache.apply { strokeWidth = 2.5f / currentScale }
+                                            val arcRr = handleRadius * 0.5f
+                                            arcRectCache.set(
+                                                rotatePos.x - arcRr, rotatePos.y - arcRr,
+                                                rotatePos.x + arcRr, rotatePos.y + arcRr
+                                            )
+                                            nc.drawArc(arcRectCache, 45f, 270f, false, rotateArcPaint)
+
+                                            val stretchVPos = anchorsMap[TextHandleType.STRETCH_V]
+                                                ?: Offset(bounds.centerX(), bounds.bottom + 40f / currentScale)
+                                            val pillW = handleRadius * 1.6f
+                                            val pillH = handleRadius * 0.9f
+                                            pillRectCache.set(
+                                                stretchVPos.x - pillW / 2f, stretchVPos.y - pillH / 2f,
+                                                stretchVPos.x + pillW / 2f, stretchVPos.y + pillH / 2f
+                                            )
+                                            nc.drawRoundRect(pillRectCache, 6f, 6f, handleFillPaint)
+                                            nc.drawRoundRect(pillRectCache, 6f, 6f, handleStrokePaint)
+
+                                            val stretchHPos = anchorsMap[TextHandleType.STRETCH_H]
+                                                ?: Offset(bounds.right + 40f / currentScale, bounds.centerY())
+                                            val pillHW = handleRadius * 0.9f
+                                            val pillHH = handleRadius * 1.6f
+                                            pillRectCache.set(
+                                                stretchHPos.x - pillHW / 2f, stretchHPos.y - pillHH / 2f,
+                                                stretchHPos.x + pillHW / 2f, stretchHPos.y + pillHH / 2f
+                                            )
+                                            nc.drawRoundRect(pillRectCache, 6f, 6f, handleFillPaint)
+                                            nc.drawRoundRect(pillRectCache, 6f, 6f, handleStrokePaint)
+                                            nc.restore()
+                                        }
                                         if (clipMask != null) {
+                                            // Mask ukuran kanvas: kembalikan transform dulu
+                                            // agar mask tidak ikut ter-scaling/miring.
+                                            if (hasImgTransform) {
+                                                drawContext.canvas.nativeCanvas.restoreToCount(transformCount)
+                                            }
                                             LayerCompositing.applyClipMask(
                                                 drawContext.canvas.nativeCanvas,
                                                 clipMask,
                                                 clipW,
                                                 clipH
                                             )
+                                        } else if (hasImgTransform) {
+                                            drawContext.canvas.nativeCanvas.restoreToCount(transformCount)
                                         }
                                         drawContext.canvas.nativeCanvas.restoreToCount(count)
                                     }
@@ -5103,6 +5422,20 @@ fun EffectToolPanel(
                                             onValueChangeFinished = { onSliderDragEnd() },
                                             valueRange = 0.5f..4f
                                         )
+                                        TextureBlendRow(
+                                            blend = st.textureBlend,
+                                            angleDeg = st.textureAngle,
+                                            onBlendChange = {
+                                                onSliderDragStart()
+                                                onUpdateStyle(st.copy(textureBlend = it), true)
+                                            },
+                                            onAngleChange = {
+                                                onSliderDragStart()
+                                                onUpdateStyle(st.copy(textureAngle = it), false)
+                                            },
+                                            onSliderStart = { onSliderDragStart() },
+                                            onSliderEnd = { onSliderDragEnd() }
+                                        )
 
                                         // Warna pattern: transparan = shading netral;
                                         // berwarna = halftone/garis/titik memakai warna ini.
@@ -5210,6 +5543,21 @@ fun EffectToolPanel(
                                             },
                                             onValueChangeFinished = { onSliderDragEnd() },
                                             valueRange = 0.5f..4f
+                                        )
+                                        TextureBlendRow(
+                                            blend = selectedLayer.textureBlend,
+                                            angleDeg = selectedLayer.textureAngle,
+                                            onBlendChange = {
+                                                onSliderDragStart()
+                                                onUpdateImageLayer(selectedLayer.copy(textureBlend = it))
+                                                onSliderDragEnd()
+                                            },
+                                            onAngleChange = {
+                                                onSliderDragStart()
+                                                onUpdateImageLayer(selectedLayer.copy(textureAngle = it))
+                                            },
+                                            onSliderStart = { onSliderDragStart() },
+                                            onSliderEnd = { onSliderDragEnd() }
                                         )
 
                                         // Warna pattern (grain/kertas/kanvas/halftone/garis/titik).
@@ -6334,6 +6682,53 @@ private fun TexturePresetGrid(
     }
 }
 
+/** Jalinan (blend mode) + rotasi pola texture — dipakai panel texture
+ * teks maupun gambar. Cycler blend ala editor populer (< Overlay >). */
+@Composable
+private fun TextureBlendRow(
+    blend: com.mochits.app.model.TextureBlend,
+    angleDeg: Float,
+    onBlendChange: (com.mochits.app.model.TextureBlend) -> Unit,
+    onAngleChange: (Float) -> Unit,
+    onSliderStart: () -> Unit,
+    onSliderEnd: () -> Unit
+) {
+    Text("Jalinan", style = MaterialTheme.typography.labelLarge)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(onClick = {
+            val vals = com.mochits.app.model.TextureBlend.values()
+            onBlendChange(vals[(vals.indexOf(blend) - 1 + vals.size) % vals.size])
+        }) {
+            Icon(Icons.Default.KeyboardArrowLeft, contentDescription = "Jalinan sebelumnya")
+        }
+        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            Text(blend.label, style = MaterialTheme.typography.labelLarge)
+        }
+        IconButton(onClick = {
+            val vals = com.mochits.app.model.TextureBlend.values()
+            onBlendChange(vals[(vals.indexOf(blend) + 1) % vals.size])
+        }) {
+            Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Jalinan berikutnya")
+        }
+    }
+    Text(
+        "Rotasi pola: ${angleDeg.toInt()}°",
+        style = MaterialTheme.typography.bodySmall
+    )
+    Slider(
+        value = angleDeg.coerceIn(-180f, 180f),
+        onValueChange = {
+            onSliderStart()
+            onAngleChange(it)
+        },
+        onValueChangeFinished = { onSliderEnd() },
+        valueRange = -180f..180f
+    )
+}
+
 @Composable
 private fun TexturePresetThumb(
     preset: com.mochits.app.model.TexturePreset,
@@ -6431,6 +6826,35 @@ private fun DrawScope.drawTextureThumb(
                         ink, w * 0.13f,
                         Offset((c + 0.5f) * w / 2f, (r + 0.5f) * h / 2f)
                     )
+                }
+            }
+        }
+        com.mochits.app.model.TexturePreset.CHEVRON -> {
+            // Zigzag: pola strip miring mengikuti segitiga berulang.
+            val rows = 2
+            val rowH = h / rows
+            for (r in 0 until rows + 1) {
+                val top = r * rowH - rowH * 0.0f
+                val mid = top + rowH * 0.5f
+                val bottom = top + rowH
+                drawLine(ink, Offset(0f, mid), Offset(w * 0.5f, top.coerceAtLeast(0f)), 2.0f)
+                drawLine(ink, Offset(w * 0.5f, top.coerceAtLeast(0f)), Offset(w, mid), 2.0f)
+                drawLine(ink, Offset(0f, mid), Offset(w * 0.5f, bottom), 2.0f)
+                drawLine(ink, Offset(w * 0.5f, bottom), Offset(w, mid), 2.0f)
+            }
+        }
+        com.mochits.app.model.TexturePreset.BRICKS -> {
+            // Bata offset: garis nat horizontal + vertikal berseling.
+            val rows = 3
+            val rowH = h / rows
+            for (r in 0 until rows) {
+                val y = r * rowH
+                drawLine(ink, Offset(0f, y), Offset(w, y), 1.6f)
+                if (r % 2 == 0) {
+                    drawLine(ink, Offset(w * 0.5f, y), Offset(w * 0.5f, y + rowH), 1.6f)
+                } else {
+                    drawLine(ink, Offset(0f, y), Offset(0f, y + rowH), 1.6f)
+                    drawLine(ink, Offset(w, y), Offset(w, y + rowH), 1.6f)
                 }
             }
         }
