@@ -81,7 +81,7 @@ class ProjectExporterTest {
         )
 
         val exported = exporter.exportToBitmap(
-            baseBmp = baseBmp,
+            baseBitmap = baseBmp,
             layers = listOf(layer),
             imageBitmapFor = { img }
         )
