@@ -403,8 +403,8 @@ object ImageEffects {
                         val n2 = valueNoise(sx * 0.5f, sy * 0.5f, 17)
                         val n3 = hashNoise(sx.toInt(), sy.toInt(), 23)
                         val d = (n1 - 0.5f) * 0.5f + (n2 - 0.5f) * 0.3f + (n3 - 0.5f) * 0.2f
-                        val shaped = sign(d) * sqrt(abs(d)) * 0.9f
-                        t = (0.5f + shaped).coerceIn(0.02f, 0.98f)
+                        val shaped = sign(d) * sqrt(abs(d)) * 1.15f
+                        t = (0.5f + shaped).coerceIn(0.03f, 0.97f)
                     }
                     TexturePreset.PAPER -> {
                         val base = valueNoise(sx * 0.055f, sy * 0.055f, 23)
@@ -416,8 +416,8 @@ object ImageEffects {
                         )
                         val micro = hashNoise(sx.toInt(), sy.toInt(), 43) - 0.5f
                         t = 0.5f +
-                            ((base * 0.5f + mid * 0.3f + fiber * 0.2f) - 0.5f) * 1.15f +
-                            micro * 0.1f
+                            ((base * 0.5f + mid * 0.3f + fiber * 0.2f) - 0.5f) * 1.95f +
+                            micro * 0.05f
                     }
                     TexturePreset.CANVAS -> {
                         // Anyaman kain = GRID KOTAK (bukan sin² yang jadi
@@ -449,7 +449,11 @@ object ImageEffects {
                         val gx = fmod(sx, 6f) / 6f - 0.5f
                         val gy = fmod(sy, 6f) / 6f - 0.5f
                         val dist = sqrt(gx * gx + gy * gy)
-                        val r = (1f - lum) * 0.68f
+                        // Diameter titik = kecerahan * ukuran pola (sc).
+                        // Skala texture sekarang memengaruhi ukuran titik
+                        // → pola bulat bisa diperbesar/kecil dengan slider
+                        // Skala, bukan cuma lewat kecerahan piksel.
+                        val r = (1f - lum) * (0.68f * sc).coerceIn(0.05f, 2.5f)
                         val aa = edgeAA(sc, (r * 2f).coerceAtLeast(0.2f))
                         darkCov = 1f - smoothstep(r - aa, r + aa, dist)
                         t = 0.86f - darkCov * 0.72f
@@ -465,8 +469,9 @@ object ImageEffects {
                         val gx = fmod(sx, per) / per - 0.5f
                         val gy = fmod(sy, per) / per - 0.5f
                         val dist = sqrt(gx * gx + gy * gy)
-                        val aa = edgeAA(sc, 0.68f)
-                        darkCov = 1f - smoothstep(0.34f - aa, 0.34f + aa, dist)
+                        val r = 0.34f * sc
+                        val aa = edgeAA(sc, (r * 2f).coerceAtLeast(0.2f))
+                        darkCov = 1f - smoothstep(r - aa, r + aa, dist)
                         t = 0.86f - darkCov * 0.72f
                     }
                     TexturePreset.CHEVRON -> {
