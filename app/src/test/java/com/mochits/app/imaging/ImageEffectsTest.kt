@@ -152,6 +152,71 @@ class ImageEffectsTest {
     }
 
     @Test
+    fun texture_canvasDanBrickMenghasilkanGarisKotakBukanBercakBulat() {
+        val w = 32
+        val h = 32
+        // Abu-abu 128 + OVERLAY strength 1 → kanal hasil ≈ nilai struktur t*255,
+        // jadi garis nat bisa diuji langsung sebagai piksel lebih gelap.
+        val src = IntArray(w * h) { Color.argb(255, 128, 128, 128) }
+
+        val canvas = ImageEffects.applyTexturePixels(
+            src, w, h, TexturePreset.CANVAS, 1f, 1f
+        )
+        fun lum(p: Int) = (p shr 16) and 0xFF
+        // Kanvas: garis vertikal di x≈1 berlanjut di semua y kotak; tengah kotak terang.
+        for (y in listOf(4, 8)) {
+            assertTrue(
+                "Kanvas garis vertikal x=1 harus gelap (y=$y)",
+                lum(canvas[y * w + 1]) < lum(canvas[y * w + 6]) - 40
+            )
+        }
+        // Kanvas: garis horizontal di y≈1 berlanjut di semua x kotak.
+        for (x in listOf(4, 8)) {
+            assertTrue(
+                "Kanvas garis horizontal y=1 harus gelap (x=$x)",
+                lum(canvas[1 * w + x]) < lum(canvas[6 * w + x]) - 40
+            )
+        }
+
+        val bricks = ImageEffects.applyTexturePixels(
+            src, w, h, TexturePreset.BRICKS, 1f, 1f
+        )
+        // Bata: nat vertikal menyambung sepanjang baris genap, badan bata terang.
+        for (y in listOf(3, 5, 8)) {
+            assertTrue(
+                "Bata nat vertikal x=1 harus gelap (y=$y)",
+                lum(bricks[y * w + 1]) < lum(bricks[y * w + 6]) - 35
+            )
+        }
+        // Baris ganjil di-offset setengah bata → nat berpindah ke x≈11.
+        assertTrue(
+            "Bata baris ganjil nat berpindah ke x=11",
+            lum(bricks[14 * w + 11]) < lum(bricks[14 * w + 6]) - 35
+        )
+    }
+
+    @Test
+    fun texture_aaTidakMeleburkanGarisSaatSkalaKecil() {
+        val w = 32
+        val h = 32
+        val src = IntArray(w * h) { Color.argb(255, 128, 128, 128) }
+        // Skala 0.5 dulu bikin AA lebih lebar dari nat → hasil jadi bercak.
+        val small = ImageEffects.applyTexturePixels(
+            src, w, h, TexturePreset.BRICKS, 1f, 0.5f
+        )
+        // Meski periode bata cuma 10px, masih ada kontras antara nat & badan
+        // (dulu AA melebar → semua piksel jadi abu seragam "bulet").
+        var minL = 255
+        var maxL = 0
+        for (p in small) {
+            val l = (p shr 16) and 0xFF
+            minL = minOf(minL, l)
+            maxL = maxOf(maxL, l)
+        }
+        assertTrue("Kontras nat/bata harus tetap tajam, dapat $minL..$maxL", maxL - minL > 40)
+    }
+
+    @Test
     fun texture_multiplyHanyaMenurunkanKecerahanDanDeterministik() {
         val w = 16
         val h = 16

@@ -358,8 +358,9 @@ object ImageEffects {
         val sinA = (if (rotated) sin(rad) else 0.0).toFloat()
         val cx = width / 2f
         val cy = height / 2f
-        val aa = 1.0f / sc // lebar tepi anti-alias dalam ruang sampel
-        // Siapkan tint di luar loop (dipakai tiap piksel).
+        // AA dihitung per pola lewat edgeAA(): lebar tepi TIDAK boleh
+        // melebihi ~30% tebal fitur (garis nat/titik), kalau tidak garis
+        // kotak mencair jadi bercak bulat saat skala kecil.
         val tintAlpha = (tint ushr 24) and 0xFF
         val hasTint = tintAlpha > 8
         val tintR = (tint shr 16) and 0xFF
@@ -419,14 +420,24 @@ object ImageEffects {
                             micro * 0.1f
                     }
                     TexturePreset.CANVAS -> {
-                        val tx = sin(sx * 0.9f)
-                        val ty = sin(sy * 0.9f)
-                        val grid = tx * tx * 0.55f + ty * ty * 0.45f
-                        val cell = hashNoise((sx / 7f).toInt(), (sy / 7f).toInt(), 67)
-                        val micro = hashNoise(sx.toInt(), sy.toInt(), 71) - 0.5f
-                        t = 0.5f +
-                            ((grid * 0.72f + cell * 0.28f) - 0.5f) * 1.25f +
-                            micro * 0.12f
+                        // Anyaman kain = GRID KOTAK (bukan sin² yang jadi
+                        // gelombang/bulet). Garis lurus horizontal+vertikal
+                        // dengan lebar nat terjaga, tiap kotak diberi variasi
+                        // kecerahan halus supaya terlihat seperti kain, bukan
+                        // kertas grafik flat.
+                        val cell = 12f
+                        val line = 2.2f
+                        val aa = edgeAA(sc, line)
+                        val gx = fmod(sx, cell)
+                        val gy = fmod(sy, cell)
+                        val covH = bandCoverage(gy, 0f, line, aa)
+                        val covV = bandCoverage(gx, 0f, line, aa)
+                        darkCov = maxOf(covH, covV)
+                        val cellSeed = hashNoise(
+                            floor(sx / cell).toInt(), floor(sy / cell).toInt(), 67
+                        )
+                        val threadT = 0.63f + (cellSeed - 0.5f) * 0.14f
+                        t = threadT - darkCov * (threadT - 0.32f)
                     }
                     TexturePreset.HALFTONE -> {
                         // Titik komik (screen tone): radius titik mengikuti
@@ -439,13 +450,14 @@ object ImageEffects {
                         val gy = fmod(sy, 6f) / 6f - 0.5f
                         val dist = sqrt(gx * gx + gy * gy)
                         val r = (1f - lum) * 0.68f
+                        val aa = edgeAA(sc, (r * 2f).coerceAtLeast(0.2f))
                         darkCov = 1f - smoothstep(r - aa, r + aa, dist)
                         t = 0.86f - darkCov * 0.72f
                     }
                     TexturePreset.STRIPES -> {
                         val per = 8f
                         val d = fmod(sx + sy, per)
-                        darkCov = bandCoverage(d, 0f, per * 0.45f, aa)
+                        darkCov = bandCoverage(d, 0f, per * 0.45f, edgeAA(sc, per * 0.45f))
                         t = 0.86f - darkCov * 0.72f
                     }
                     TexturePreset.DOTS -> {
@@ -453,6 +465,7 @@ object ImageEffects {
                         val gx = fmod(sx, per) / per - 0.5f
                         val gy = fmod(sy, per) / per - 0.5f
                         val dist = sqrt(gx * gx + gy * gy)
+                        val aa = edgeAA(sc, 0.68f)
                         darkCov = 1f - smoothstep(0.34f - aa, 0.34f + aa, dist)
                         t = 0.86f - darkCov * 0.72f
                     }
@@ -464,15 +477,19 @@ object ImageEffects {
                         val xm = fmod(sx, zigPer)
                         val tri = if (xm < zigPer * 0.5f) xm else zigPer - xm
                         val yy = fmod(sy + tri / (zigPer * 0.5f) * zigAmp, stripePer)
-                        darkCov = bandCoverage(yy, 0f, stripePer * 0.5f, aa)
+                        darkCov = bandCoverage(
+                            yy, 0f, stripePer * 0.5f, edgeAA(sc, stripePer * 0.5f)
+                        )
                         t = 0.86f - darkCov * 0.72f
                     }
                     TexturePreset.BRICKS -> {
-                        // Susunan bata offset per baris + garis nat; badan
-                        // tiap bata diberi variasi kecerahan bata ke bata.
-                        val bw = 16f
-                        val bh = 8f
-                        val mortar = 1.2f
+                        // Susunan bata offset per baris + garis nat TEBAL.
+                        // Nat dulu lebih tipis dari AA → garis kotak melebur
+                        // jadi bercak bulat; sekarang nat 2.6 unit, AA dibatasi.
+                        val bw = 20f
+                        val bh = 10f
+                        val mortar = 2.6f
+                        val aa = edgeAA(sc, mortar)
                         val row = floor(sy / bh)
                         val colShift = fmod(row, 2f) * (bw * 0.5f)
                         val xx = fmod(sx + colShift, bw)
@@ -680,6 +697,19 @@ object ImageEffects {
     /** Cakupan band a..b dengan tepi anti-alias selebar aa (0..1). */
     private fun bandCoverage(v: Float, a: Float, b: Float, aa: Float): Float {
         return smoothstep(a - aa, a + aa, v) * (1f - smoothstep(b - aa, b + aa, v))
+    }
+
+    /**
+     * Lebar tepi anti-alias (setengah lebar transisi, dalam ruang sampel).
+     * Dua batasan penting:
+     * - ~0.5 px layar: transisi total ~1 px (tidak jaggy).
+     * - maksimal 30% tebal fitur: kalau AA lebih lebar dari garis nat /
+     *   diameter titik, garis kotak melebur jadi bercak bulat (bug lama).
+     */
+    private fun edgeAA(scale: Float, featureWidth: Float): Float {
+        val pixel = 0.5f / scale.coerceAtLeast(0.2f)
+        val fraction = (featureWidth.coerceAtLeast(0.05f) * 0.3f).coerceAtMost(0.6f)
+        return pixel.coerceAtMost(fraction).coerceIn(0.02f, 0.6f)
     }
 
     /**

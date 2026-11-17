@@ -50,7 +50,7 @@ enum class TexturePreset(val label: String) {
     NONE("Nonaktif"),
     GRAIN("Grain"),
     PAPER("Kertas"),
-    CANVAS("Kanvas"),
+    CANVAS("Kotak"),
     HALFTONE("Halftone"),
     STRIPES("Garis"),
     DOTS("Titik"),

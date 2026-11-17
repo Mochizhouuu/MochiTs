@@ -6737,6 +6737,12 @@ private fun TexturePresetThumb(
     onClick: () -> Unit
 ) {
     val ink = if ((tint ushr 24) and 0xFF > 8) Color(tint) else Color(0xFF23272E)
+    // Nama preset ikut ditampilkan: thumbnail pola kecil bisa menyesatkan
+    // (mis. Kanvas dulu terlihat kotak tapi hasilnya gelombang bulat).
+    Column(
+        modifier = Modifier.width(62.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
     Box(
         modifier = Modifier
             .size(46.dp)
@@ -6763,6 +6769,13 @@ private fun TexturePresetThumb(
                 drawTextureThumb(preset, ink)
             }
         }
+    }
+    Text(
+        preset.label,
+        style = MaterialTheme.typography.labelSmall,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
     }
 }
 
