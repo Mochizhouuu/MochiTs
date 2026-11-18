@@ -5422,13 +5422,8 @@ fun EffectToolPanel(
                                             onValueChangeFinished = { onSliderDragEnd() },
                                             valueRange = 0.5f..4f
                                         )
-                                        TextureBlendRow(
-                                            blend = st.textureBlend,
+                                        TextureAngleRow(
                                             angleDeg = st.textureAngle,
-                                            onBlendChange = {
-                                                onSliderDragStart()
-                                                onUpdateStyle(st.copy(textureBlend = it), true)
-                                            },
                                             onAngleChange = {
                                                 onSliderDragStart()
                                                 onUpdateStyle(st.copy(textureAngle = it), false)
@@ -5544,14 +5539,8 @@ fun EffectToolPanel(
                                             onValueChangeFinished = { onSliderDragEnd() },
                                             valueRange = 0.5f..4f
                                         )
-                                        TextureBlendRow(
-                                            blend = selectedLayer.textureBlend,
+                                        TextureAngleRow(
                                             angleDeg = selectedLayer.textureAngle,
-                                            onBlendChange = {
-                                                onSliderDragStart()
-                                                onUpdateImageLayer(selectedLayer.copy(textureBlend = it))
-                                                onSliderDragEnd()
-                                            },
                                             onAngleChange = {
                                                 onSliderDragStart()
                                                 onUpdateImageLayer(selectedLayer.copy(textureAngle = it))
@@ -6682,42 +6671,16 @@ private fun TexturePresetGrid(
     }
 }
 
-/** Jalinan (blend mode) + rotasi pola texture — dipakai panel texture
- * teks maupun gambar. Cycler blend ala editor populer (< Overlay >). */
+/** Rotasi pola texture — panel texture teks maupun gambar.
+ *  Blend mode sudah dihapus: tidak berpengaruh pada jalur berwarna. */
 @Composable
-private fun TextureBlendRow(
-    blend: com.mochits.app.model.TextureBlend,
+private fun TextureAngleRow(
     angleDeg: Float,
-    onBlendChange: (com.mochits.app.model.TextureBlend) -> Unit,
     onAngleChange: (Float) -> Unit,
     onSliderStart: () -> Unit,
     onSliderEnd: () -> Unit
 ) {
-    Text("Jalinan", style = MaterialTheme.typography.labelLarge)
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        IconButton(onClick = {
-            val vals = com.mochits.app.model.TextureBlend.values()
-            onBlendChange(vals[(vals.indexOf(blend) - 1 + vals.size) % vals.size])
-        }) {
-            Icon(Icons.Default.KeyboardArrowLeft, contentDescription = "Jalinan sebelumnya")
-        }
-        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-            Text(blend.label, style = MaterialTheme.typography.labelLarge)
-        }
-        IconButton(onClick = {
-            val vals = com.mochits.app.model.TextureBlend.values()
-            onBlendChange(vals[(vals.indexOf(blend) + 1) % vals.size])
-        }) {
-            Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Jalinan berikutnya")
-        }
-    }
-    Text(
-        "Rotasi pola: ${angleDeg.toInt()}°",
-        style = MaterialTheme.typography.bodySmall
-    )
+    Text("Rotasi pola: ${angleDeg.toInt()}°", style = MaterialTheme.typography.bodySmall)
     Slider(
         value = angleDeg.coerceIn(-180f, 180f),
         onValueChange = {
@@ -6736,9 +6699,12 @@ private fun TexturePresetThumb(
     selected: Boolean,
     onClick: () -> Unit
 ) {
-    val ink = if ((tint ushr 24) and 0xFF > 8) Color(tint) else Color(0xFF23272E)
-    // Nama preset ikut ditampilkan: thumbnail pola kecil bisa menyesatkan
-    // (mis. Kanvas dulu terlihat kotak tapi hasilnya gelombang bulat).
+    // Thumbnail DI-RENDER oleh engine yang sama dengan hasil akhir
+    // (ImageEffects.texturePreviewBitmap) — tidak digambar manual lagi.
+    val preview = remember(preset, tint) {
+        com.mochits.app.imaging.ImageEffects.texturePreviewBitmap(preset, tint)
+    }
+    // Nama preset ikut ditampilkan supaya mudah membedakan pola.
     Column(
         modifier = Modifier.width(62.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -6766,7 +6732,12 @@ private fun TexturePresetThumb(
             )
         } else {
             Canvas(modifier = Modifier.fillMaxSize().padding(5.dp)) {
-                drawTextureThumb(preset, ink)
+                drawContext.canvas.nativeCanvas.drawBitmap(
+                    preview,
+                    null,
+                    android.graphics.RectF(0f, 0f, size.width, size.height),
+                    null
+                )
             }
         }
     }

@@ -27,7 +27,6 @@ import com.mochits.app.model.MaskToolMode
 import com.mochits.app.ui.color.ColorUtils
 import androidx.compose.ui.geometry.Offset
 import com.mochits.app.model.TextStyleConfig
-import com.mochits.app.model.TextureBlend
 import com.mochits.app.model.TexturePreset
 import com.mochits.app.model.RadialBlurMode
 import com.mochits.app.model.TextStylePreset
@@ -1954,7 +1953,6 @@ data class HistoryManifest(
         val textureStrength: Float,
         val textureScale: Float,
         val textureColor: Int,
-        val textureBlend: TextureBlend,
         val textureAngle: Float,
         val textureAsset: String?,
         val result: Bitmap
@@ -2067,7 +2065,6 @@ data class HistoryManifest(
             entry.textureStrength == layer.textureStrength &&
             entry.textureScale == layer.textureScale &&
             entry.textureColor == layer.textureColor &&
-            entry.textureBlend == layer.textureBlend &&
             entry.textureAngle == layer.textureAngle &&
             entry.textureAsset == layer.textureAsset
 
@@ -2083,7 +2080,6 @@ data class HistoryManifest(
         textureStrength = layer.textureStrength,
         textureScale = layer.textureScale,
         textureColor = layer.textureColor,
-        textureBlend = layer.textureBlend,
         textureAngle = layer.textureAngle,
         textureAsset = layer.textureAsset,
         result = result
@@ -2155,7 +2151,6 @@ data class HistoryManifest(
                 textureStrength = snapshot.textureStrength,
                 textureScale = snapshot.textureScale,
                 textureColor = snapshot.textureColor,
-                textureBlend = snapshot.textureBlend,
                 textureAngle = snapshot.textureAngle,
                 customTexture = if (snapshot.texturePreset == TexturePreset.CUSTOM) {
                     resolveTextureAsset(snapshot.textureAsset)
@@ -2193,7 +2188,6 @@ data class HistoryManifest(
                         textureStrength = layer.textureStrength,
                         textureScale = layer.textureScale,
                         textureColor = layer.textureColor,
-                        textureBlend = layer.textureBlend,
                         textureAngle = layer.textureAngle,
                         customTexture = if (layer.texturePreset == TexturePreset.CUSTOM) {
                             resolveTextureAsset(layer.textureAsset)

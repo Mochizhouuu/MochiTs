@@ -217,27 +217,27 @@ class ImageEffectsTest {
     }
 
     @Test
-    fun texture_multiplyHanyaMenurunkanKecerahanDanDeterministik() {
+    fun texture_paperDeterministikDanAlfaTerjaga() {
         val w = 16
         val h = 16
-        val src = IntArray(w * h) { Color.argb(255, 200, 100, 50) }
-        val a = ImageEffects.applyTexturePixels(
-            src, w, h, TexturePreset.PAPER, 0.8f, 1.5f,
-            blend = com.mochits.app.model.TextureBlend.MULTIPLY
-        )
-        val b = ImageEffects.applyTexturePixels(
-            src, w, h, TexturePreset.PAPER, 0.8f, 1.5f,
-            blend = com.mochits.app.model.TextureBlend.MULTIPLY
-        )
+        val src = IntArray(w * h) { Color.argb(160, 200, 100, 50) }
+        val a = ImageEffects.applyTexturePixels(src, w, h, TexturePreset.PAPER, 0.8f, 1.5f)
+        val b = ImageEffects.applyTexturePixels(src, w, h, TexturePreset.PAPER, 0.8f, 1.5f)
         assertArrayEquals(a, b)
         for (p in a) {
-            assertEquals(255, Color.alpha(p))
-            // Multiply tidak pernah mencerahkan dan tidak pernah menambah hue baru:
-            // tiap kanal hasil tidak lebih tinggi dari warna dasar.
-            assertTrue((p shr 16) and 0xFF <= 200)
-            assertTrue((p shr 8) and 0xFF <= 100)
-            assertTrue(p and 0xFF <= 50)
+            assertEquals(160, Color.alpha(p))
         }
+        assertTrue(a.any { it != src[0] })
+    }
+
+    @Test
+    fun texture_previewMemakaiEngineYangSamaDenganRender() {
+        val bmp = ImageEffects.texturePreviewBitmap(TexturePreset.HALFTONE, Color.TRANSPARENT, 24)
+        val px = IntArray(24 * 24)
+        bmp.getPixels(px, 0, 24, 0, 0, 24, 24)
+        val base = IntArray(24 * 24) { Color.argb(255, 148, 148, 148) }
+        val rendered = ImageEffects.applyTexturePixels(base, 24, 24, TexturePreset.HALFTONE, 1f, 1f)
+        assertArrayEquals(rendered, px)
     }
 
     @Test

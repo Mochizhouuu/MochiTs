@@ -1151,7 +1151,6 @@ class TextRenderer(private val context: Context) {
                         processed, ww, hh, tex,
                         strength = style.textureStrength.coerceIn(0f, 1f),
                         scale = (style.textureScale.coerceIn(0.5f, 4f) * down).coerceAtLeast(0.2f),
-                        blend = style.textureBlend,
                         angleDeg = style.textureAngle
                     )
                 } else processed
@@ -1162,7 +1161,6 @@ class TextRenderer(private val context: Context) {
                     strength = style.textureStrength.coerceIn(0f, 1f),
                     scale = (style.textureScale.coerceIn(0.5f, 4f) * down).coerceAtLeast(0.2f),
                     tint = style.textureColor,
-                    blend = style.textureBlend,
                     angleDeg = style.textureAngle
                 )
             }
