@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn deterministik_dan_alpha_terjaga() {
-        let src = vec![0x80_96_8C_A0i32; 64];
+        let src = vec![0x80_96_8C_A0u32 as i32; 64];
         let a = apply_texture_pixels(&src, 8, 8, 1, 0.75, 1.5, 0, 0.0);
         let b = apply_texture_pixels(&src, 8, 8, 1, 0.75, 1.5, 0, 0.0);
         assert_eq!(a, b);
@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn kotak_canvas_tetap_kotak() {
-        let src = vec![0xFF_80_80_80i32; 32 * 32];
+        let src = vec![0xFF_80_80_80u32 as i32; 32 * 32];
         let out = apply_texture_pixels(&src, 32, 32, 3, 1.0, 1.0, 0, 0.0);
         let lum = |p: i32| (p >> 16) & 0xFF;
         for y in [4usize, 8] {
@@ -322,7 +322,7 @@ mod tests {
 
     #[test]
     fn rotasi_pola_mengubah_hasil() {
-        let src = vec![0xFF_D2_D2_D2i32; 24 * 24];
+        let src = vec![0xFF_D2_D2_D2u32 as i32; 24 * 24];
         let flat = apply_texture_pixels(&src, 24, 24, 5, 0.9, 1.0, 0, 0.0);
         let tilt = apply_texture_pixels(&src, 24, 24, 5, 0.9, 1.0, 0, 35.0);
         assert_ne!(flat, tilt);

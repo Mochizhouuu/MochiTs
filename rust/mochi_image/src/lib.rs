@@ -14,7 +14,7 @@ use jni::JNIEnv;
 /// Karena tidak memakai `jni` crate gen macros, signature JNI ditulis eksplisit.
 #[no_mangle]
 pub extern "C" fn Java_com_mochits_app_imaging_RustNative_applyTexture<'local>(
-    mut env: JNIEnv<'local>,
+    env: JNIEnv<'local>,
     _class: jni::objects::JClass<'local>,
     src: jintArray,
     width: jint,
