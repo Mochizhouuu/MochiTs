@@ -125,7 +125,7 @@ mod tests {
         for i in 0..(w * h / 2) {
             assert_eq!((a[i] as u32 >> 24) & 0xFF, 0);
         }
-        assert!(a.iter().any(|p| (p as u32 >> 24) & 0xFF > 0));
+        assert!(a.iter().any(|p| (*p as u32 >> 24) & 0xFF > 0));
     }
 
     #[test]
