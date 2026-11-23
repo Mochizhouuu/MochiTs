@@ -1,0 +1,18 @@
+[package]
+name = "mochi_image"
+version = "0.1.0"
+edition = "2021"
+description = "Core pemroses piksel MochiTs (Rust, JNI bastion di lib.rs)"
+
+[lib]
+name = "mochi_image"
+# cdylib = .so untuk Android, rlib = dipakai cargo test (tanpa Android SDK)
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+jni = "0.21.1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true

@@ -52,6 +52,37 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v5 # v5 - Node 24, hindari v6 kalau tidak mau license caching baru
 
+      # ---- Rust core (spike: texture engine) ----
+      - name: Setup Rust toolchain + target Android
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Pasang Android NDK
+        run: |
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"
+          SDKMGR="$SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKMGR" ] || SDKMGR="$SDK_DIR/tools/bin/sdkmanager"
+          yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+          "$SDKMGR" "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$SDK_DIR/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Unit test core Rust (tanpa emulator/SDK)
+        working-directory: rust/mochi_image
+        run: cargo test --release
+
+      - name: Build libmochi_image.so untuk 4 ABI
+        working-directory: rust/mochi_image
+        run: |
+          cargo ndk --platform 29 \
+            -t armeabi-v7a -t arm64-v8a -t x86 -t x86_64 \
+            -o ../../app/src/main/jniLibs \
+            build --release
+          find ../../app/src/main/jniLibs -name '*.so' -printf '%p %k KB\n'
+
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 

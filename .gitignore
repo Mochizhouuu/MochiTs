@@ -79,6 +79,10 @@ coverage/
 htmlcov/
 .coverage
 
+# Rust core (native library hasil CI, jangan masuk git)
+rust/**/target/
+app/src/main/jniLibs/
+
 # Archives
 *.zip
 *.gz

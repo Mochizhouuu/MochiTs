@@ -341,7 +341,36 @@ object ImageEffects {
      *   menghilangkan warna asli. Pilihan blend mode DIHAPUS karena jalur
      *   tint tidak menggunakannya dan user tidak melihat bedanya.
      */
+    /**
+     * facade texture: pakai core Rust bila .so tersedia, kalau tidak (JVM/test
+     * atau library gagal load) jatuh ke [applyTexturePixelsKotlin].
+     */
     fun applyTexturePixels(
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        preset: TexturePreset,
+        strength: Float,
+        scale: Float,
+        tint: Int = android.graphics.Color.TRANSPARENT,
+        angleDeg: Float = 0f
+    ): IntArray {
+        val s = strength.coerceIn(0f, 1f)
+        if (preset == TexturePreset.NONE || preset == TexturePreset.CUSTOM || s <= 0f) return pixels
+        if (RustBridge.available) {
+            try {
+                return applyTexture(
+                    pixels, width, height,
+                    presetCode(preset), s, scale, tint, angleDeg
+                )
+            } catch (t: Throwable) {
+                Logger.w("Rust texture gagal, fallback Kotlin: ${t.message}")
+            }
+        }
+        return applyTexturePixelsKotlin(pixels, width, height, preset, s, scale, tint, angleDeg)
+    }
+
+    private fun applyTexturePixelsKotlin(
         pixels: IntArray,
         width: Int,
         height: Int,
