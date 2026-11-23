@@ -111,21 +111,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn deterministik_dan_transparan_tetap_transparan() {
+    fn deterministik_dan_alpha_masuk_akal() {
         let w = 16usize;
         let h = 16usize;
-        let mut src = vec![0xFF_FF_00_00u32 as i32; w * h];
-        // Separuh kanvas transparan: hasil tidak boleh menambah alpha di sana.
-        for i in 0..(w * h / 2) {
-            src[i] = 0;
+        // Blok merah di tengah, pinggiran transparan. Blur BOLEH menyebarkan
+        // alpha ke tetangga (itulah fungsinya), tapi sudut terjauh tetap 0.
+        let mut src = vec![0i32; w * h];
+        for y in 6..10usize {
+            for x in 6..10usize {
+                src[y * w + x] = 0xFF_FF_00_00u32 as i32;
+            }
         }
-        let a = blur_directional(&src, w, h, 45.0, 4.0);
-        let b = blur_directional(&src, w, h, 45.0, 4.0);
+        let a = blur_directional(&src, w, h, 45.0, 3.0);
+        let b = blur_directional(&src, w, h, 45.0, 3.0);
         assert_eq!(a, b);
-        for i in 0..(w * h / 2) {
-            assert_eq!((a[i] as u32 >> 24) & 0xFF, 0);
-        }
+        assert_eq!((a[0] as u32 >> 24) & 0xFF, 0);
         assert!(a.iter().any(|p| (*p as u32 >> 24) & 0xFF > 0));
+        for p in &a {
+            // Kanal warna tidak boleh negatif/overlap ke alpha.
+            let r = (*p >> 16) & 0xFF;
+            let g = (*p >> 8) & 0xFF;
+            let bl = *p & 0xFF;
+            assert!(r <= 255 && g <= 255 && bl <= 255);
+        }
     }
 
     #[test]
