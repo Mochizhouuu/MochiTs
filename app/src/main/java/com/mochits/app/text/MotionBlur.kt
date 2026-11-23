@@ -30,7 +30,32 @@ object MotionBlur {
      * @param radius jangkauan blur ke tiap sisi dalam px (0 = tanpa efek).
      * @return array piksel baru hasil blur; array asal tidak diubah.
      */
+    /**
+     * facade: core Rust bila .so tersedia, kalau tidak fallback ke Kotlin.
+     * JVM/Robolectric tidak bisa memuat .so → jalur Kotlin yang dipakai test.
+     */
     fun blurDirectional(
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        angleDegrees: Float,
+        radius: Float
+    ): IntArray {
+        if (com.mochits.app.imaging.available && radius > 0f &&
+            pixels.size == width * height && width > 0 && height > 0
+        ) {
+            try {
+                return com.mochits.app.imaging.blurDirectional(
+                    pixels, width, height, angleDegrees, radius
+                )
+            } catch (t: Throwable) {
+                com.mochits.app.util.Logger.w("Rust motion blur gagal, fallback Kotlin: ${t.message}")
+            }
+        }
+        return blurDirectionalKotlin(pixels, width, height, angleDegrees, radius)
+    }
+
+    private fun blurDirectionalKotlin(
         pixels: IntArray,
         width: Int,
         height: Int,

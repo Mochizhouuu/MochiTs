@@ -46,6 +46,14 @@ external fun applyTexture(
     angleDeg: Float
 ): IntArray
 
+external fun blurDirectional(
+    src: IntArray,
+    width: Int,
+    height: Int,
+    angleDegrees: Float,
+    radius: Float
+): IntArray
+
 /** Penanda ketersediaan core Rust (dipakai facade di ImageEffects). */
 object RustBridge {
     val available: Boolean get() = com.mochits.app.imaging.available
