@@ -614,7 +614,37 @@ object ImageEffects {
      * Sampling BILINEAR premultiplied dengan wrap, rotasi [angleDeg] derajat
      * di sekitar pusat bitmap. Alpha layer asli dipertahankan.
      */
+    /** facade: core Rust bila tersedia, fallback Kotlin di JVM/test. */
     fun applyCustomTexturePixels(
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        texture: Bitmap,
+        strength: Float,
+        scale: Float,
+        angleDeg: Float = 0f
+    ): IntArray {
+        if (RustBridge.available && strength > 0f && width > 0 && height > 0 &&
+            pixels.size >= width * height && !texture.isRecycled &&
+            texture.width > 0 && texture.height > 0
+        ) {
+            try {
+                val tex = IntArray(texture.width * texture.height)
+                texture.getPixels(tex, 0, texture.width, 0, 0, texture.width, texture.height)
+                return applyCustomTexture(
+                    pixels, width, height, tex,
+                    texture.width, texture.height, strength, scale, angleDeg
+                )
+            } catch (t: Throwable) {
+                Logger.w("Rust custom texture gagal, fallback Kotlin: ${t.message}")
+            }
+        }
+        return applyCustomTexturePixelsKotlin(
+            pixels, width, height, texture, strength, scale, angleDeg
+        )
+    }
+
+    private fun applyCustomTexturePixelsKotlin(
         pixels: IntArray,
         width: Int,
         height: Int,

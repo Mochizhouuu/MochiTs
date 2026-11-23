@@ -1,6 +1,7 @@
 //! JNI bastion — SATU-SATUNYA tempat yang tahu Android/JVM.
 //! Core piksel ada di `texture.rs` (murni Rust, di-test tanpa SDK).
 
+mod custom_texture;
 mod motion_blur;
 mod radial_blur;
 mod texture;
@@ -125,6 +126,51 @@ pub extern "C" fn Java_com_mochits_app_imaging_RustNative_radialBlurPixelsNative
         center_x,
         center_y,
         clamp_edges != 0,
+    );
+    match env.new_int_array(len as jni::sys::jsize) {
+        Ok(arr) => {
+            if env.set_int_array_region(&arr, 0, &out).is_err() {
+                return src;
+            }
+            arr.into_raw()
+        }
+        Err(_) => src,
+    }
+}
+
+/// JNI untuk `RustNative.applyCustomTexture`.
+#[no_mangle]
+pub extern "C" fn Java_com_mochits_app_imaging_RustNative_applyCustomTexture<'local>(
+    env: JNIEnv<'local>,
+    _class: jni::objects::JClass<'local>,
+    src: jintArray,
+    width: jint,
+    height: jint,
+    texture: jintArray,
+    tex_width: jint,
+    tex_height: jint,
+    strength: jfloat,
+    scale: jfloat,
+    angle_deg: jfloat,
+) -> jintArray {
+    if width <= 0 || height <= 0 || tex_width <= 0 || tex_height <= 0 {
+        return src;
+    }
+    let len = (width as usize).saturating_mul(height as usize);
+    let tex_len = (tex_width as usize).saturating_mul(tex_height as usize);
+    let src_arr = unsafe { JIntArray::from_raw(src) };
+    let tex_arr = unsafe { JIntArray::from_raw(texture) };
+    let mut input = vec![0i32; len];
+    let mut tex = vec![0i32; tex_len];
+    if env.get_int_array_region(&src_arr, 0, &mut input).is_err()
+        || env.get_int_array_region(&tex_arr, 0, &mut tex).is_err()
+    {
+        return src;
+    }
+    let out = custom_texture::apply_custom_texture_pixels(
+        &input, width as usize, height as usize,
+        &tex, tex_width as usize, tex_height as usize,
+        strength, scale, angle_deg,
     );
     match env.new_int_array(len as jni::sys::jsize) {
         Ok(arr) => {

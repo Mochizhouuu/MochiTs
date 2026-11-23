@@ -70,3 +70,15 @@ external fun radialBlurPixelsNative(
     centerY: Float,
     clampEdges: Boolean
 ): IntArray
+
+external fun applyCustomTexture(
+    src: IntArray,
+    width: Int,
+    height: Int,
+    texture: IntArray,
+    texWidth: Int,
+    texHeight: Int,
+    strength: Float,
+    scale: Float,
+    angleDeg: Float
+): IntArray
