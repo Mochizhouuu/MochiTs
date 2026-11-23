@@ -167,7 +167,34 @@ object ImageEffects {
      * ulang untuk tiap piksel × tiap tap — ribuan kali lebih berat; inilah
      * penyebab slider Radial Blur terasa ngelag).
      */
+    /** facade: core Rust bila tersedia, fallback Kotlin di JVM/test. */
     fun radialBlurPixels(
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        strength: Float,
+        mode: RadialBlurMode,
+        centerX: Float,
+        centerY: Float,
+        clampEdges: Boolean = false
+    ): IntArray {
+        if (RustBridge.available && strength > 0f && width > 0 && height > 0 &&
+            pixels.size >= width * height
+        ) {
+            try {
+                return radialBlurPixelsNative(
+                    pixels, width, height, strength,
+                    if (mode == RadialBlurMode.ZOOM) 1 else 0,
+                    centerX, centerY, clampEdges
+                )
+            } catch (t: Throwable) {
+                Logger.w("Rust radial blur gagal, fallback Kotlin: ${t.message}")
+            }
+        }
+        return radialBlurPixelsKotlin(pixels, width, height, strength, mode, centerX, centerY, clampEdges)
+    }
+
+    private fun radialBlurPixelsKotlin(
         pixels: IntArray,
         width: Int,
         height: Int,

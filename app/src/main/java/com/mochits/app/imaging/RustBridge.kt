@@ -59,3 +59,14 @@ object RustBridge {
     val available: Boolean get() = com.mochits.app.imaging.available
     fun presetCode(preset: TexturePreset): Int = com.mochits.app.imaging.presetCode(preset)
 }
+
+external fun radialBlurPixelsNative(
+    src: IntArray,
+    width: Int,
+    height: Int,
+    strength: Float,
+    mode: Int,
+    centerX: Float,
+    centerY: Float,
+    clampEdges: Boolean
+): IntArray
