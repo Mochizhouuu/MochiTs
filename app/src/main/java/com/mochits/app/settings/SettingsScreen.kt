@@ -60,15 +60,20 @@ fun SettingsScreen(
     val formattedDetail by remember { mutableStateOf<String?>(null) }
     val currentTheme by viewModel.themeMode.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Tema", "Model", "Style", "Font", "Output", "Script")
+    val tabs = listOf("Tema", "Model", "Style", "Font", "Output", "Script", "Editor")
     val tabIcons = listOf(
         Icons.Default.Palette,
         Icons.Default.CleaningServices,
         Icons.Default.Style,
         Icons.Default.TextFields,
         Icons.Default.Folder,
-        Icons.Default.Description
+        Icons.Default.Description,
+        Icons.Default.OpenWith
     )
+    val editorSettingsRepo = remember {
+        com.mochits.app.settings.EditorSettingsRepository(context)
+    }
+    val snapToCenter by editorSettingsRepo.snapToCenter.collectAsState()
     val settingsScope = rememberCoroutineScope()
     var scriptTestSummary by remember { mutableStateOf<com.mochits.app.script.ScriptTestSummary?>(null) }
     var showScriptTest by remember { mutableStateOf(false) }
@@ -1004,6 +1009,43 @@ fun SettingsScreen(
                                 )
                             }) {
                                 Text("Kembalikan default")
+                            }
+                        }
+                    }
+                    6 -> {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            SettingsPageHeader(
+                                icon = Icons.Default.OpenWith,
+                                title = "Editor",
+                                subtitle = "Bantuan saat menggeser lapisan."
+                            )
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Jepit ke tengah kanvas",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "Lapisan berhenti tepat di tengah saat digeser.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Switch(
+                                        checked = snapToCenter,
+                                        onCheckedChange = { editorSettingsRepo.setSnapToCenter(it) }
+                                    )
+                                }
                             }
                         }
                     }

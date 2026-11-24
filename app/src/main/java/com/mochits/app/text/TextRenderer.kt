@@ -1075,26 +1075,24 @@ class TextRenderer(private val context: Context) {
         if (radius <= 0f && radialStrength <= 0f && !hasTexture) return
         val textW = (layoutResult.maxX - layoutResult.minX).coerceAtLeast(1f)
         val textH = blockHeight(layoutResult.lines, layoutResult.lineHeight).coerceAtLeast(1f)
-        val radialPad = if (radialStrength > 0f) {
-            maxOf(textW, textH) * 0.55f * radialStrength
-        } else 0f
         // Bantalan ekstra untuk stroke (utama + tambahan) agar tepinya tidak terpotong.
         val maxStroke = style.strokeWidth.coerceAtLeast(0f) +
             (style.extraStrokes.orEmpty().maxOfOrNull { it.width }?.coerceAtLeast(0f) ?: 0f)
         val strokePad = (maxStroke * 0.5f).coerceAtLeast(0f)
-        val pad = ceil(maxOf(radius, radialPad, strokePad).toDouble()).toInt() + 4
+        val pad = stablePad
         val bw = (textW + 2 * pad).toInt().coerceAtLeast(1)
         val bh = (textH + 2 * pad).toInt().coerceAtLeast(1)
-        // Kerja di bitmap kecil agar slider tetap mulus, upscale saat ditempel.
-        // Radius kerja dibatasi ~48px (downscale ekstra saat radius besar)
-        // agar jumlah taps tidak meledak saat streak panjang.
-        val down = minOf(
-            1f,
-            512f / maxOf(bw, bh).toFloat(),
-            if (radius > 0f) 48f / radius else 1f
-        )
+        // Kerja di bitmap kecil agar slider tetap mulus. Ukuran & bantalan
+        // DIKUNCI memakai nilai maksimum slider, bukan nilai saat ini — kalau
+        // mengikuti radius/strength, tiap langkah slider mengubah ww/hh & pad
+        // sehingga bitmap dibuat ulang dan teks meloncat (patah-patah).
+        val down = minOf(1f, 512f / maxOf(bw, bh).toFloat())
         val ww = maxOf(1, (bw * down).toInt())
         val hh = maxOf(1, (bh * down).toInt())
+        // Bantalan maksimum: motion 100 px, radial strength 1 → 55% sisi teks.
+        val stablePad = ceil(
+            maxOf(100f, maxOf(textW, textH) * 0.55f, strokePad).toDouble()
+        ).toInt() + 4
 
         // Cache-hit: langsung tempel, lewati render + blur yang mahal.
         smearCache[cacheKey]?.let { cached ->

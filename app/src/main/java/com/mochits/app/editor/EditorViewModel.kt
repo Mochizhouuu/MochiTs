@@ -72,8 +72,13 @@ class EditorViewModel @Inject constructor(
     val stylePresetRepository: com.mochits.app.style.StylePresetRepository =
         com.mochits.app.style.StylePresetRepository(context),
     val scriptSettingsRepository: com.mochits.app.script.ScriptSettingsRepository =
-        com.mochits.app.script.ScriptSettingsRepository(context)
+        com.mochits.app.script.ScriptSettingsRepository(context),
+    val editorSettingsRepository: EditorSettingsRepository = EditorSettingsRepository(context)
 ) : ViewModel() {
+
+    val snapToCenter: StateFlow<Boolean> = editorSettingsRepository.snapToCenter
+
+    fun setSnapToCenter(enabled: Boolean) = editorSettingsRepository.setSnapToCenter(enabled)
 
     /** fontNameKey yang difavoritkan pengguna. */
     val favoriteFontKeys: StateFlow<Set<String>> = fontRepository.favoriteFontKeys
@@ -2108,7 +2113,10 @@ data class HistoryManifest(
         invalidateFlattenedCache()
         // Selama drag slider: tunda job efek/glow (pratinjau FX memang
         // muncul setelah slider dilepas); hemat N-1 job terbuang per drag.
-        if (!isSliderDragging) {
+        if (isSliderDragging) {
+            // Pratinjau ringan saat menggeser slider efek.
+            refreshImageEffects(updated)
+        } else {
             refreshImageEffects(updated)
             refreshImageGlow(updated)
         }
@@ -2127,7 +2135,8 @@ data class HistoryManifest(
 
     /** Pastikan cache efek gambar sesuai parameter; dipanggil tiap update + sebelum ekspor. */
     fun refreshImageEffects(layer: Layer.ImageLayer) {
-        imageFxJobs.remove(layer.id)?.cancel()
+        val preview = isSliderDragging
+        imageFxJobs[layer.id]?.cancel()
         val src = layer.bitmap
         if (src == null || src.isRecycled || !hasImageEffects(layer)) {
             if (!hasImageEffects(layer)) {
@@ -2152,6 +2161,10 @@ data class HistoryManifest(
                 textureScale = snapshot.textureScale,
                 textureColor = snapshot.textureColor,
                 textureAngle = snapshot.textureAngle,
+                // Saat slider digeser pakai resolusi lebih kecil: hasil muncul
+                // cepat sehingga blur terasa mengalir, lalu di-refresh penuh
+                // saat slider dilepas (lihat onSliderDragEnd).
+                maxDim = if (preview) 260f else 0f,
                 customTexture = if (snapshot.texturePreset == TexturePreset.CUSTOM) {
                     resolveTextureAsset(snapshot.textureAsset)
                 } else null

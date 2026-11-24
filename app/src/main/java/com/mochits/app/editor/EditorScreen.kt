@@ -89,6 +89,10 @@ private enum class TextHandleType {
     RESIZE, ROTATE, DELETE, STRETCH_V, STRETCH_H, BODY_MOVE
 }
 
+/** Batas ukuran huruf, dipakai slider dan handle resize agar konsisten. */
+private const val MIN_FONT_SIZE = 8f
+private const val MAX_FONT_SIZE = 600f
+
 /**
  * Empat sudut quad perspektif dalam koordinat kanvas. [quad] null =
  * persegi penuh; rotasi teks ikut diputar (seperti frame seleksi).
@@ -402,6 +406,7 @@ val pinnedPresetIds by viewModel.pinnedPresetIds.collectAsState()
 val allFonts by viewModel.allFonts.collectAsState()
 val favoriteFontKeys by viewModel.favoriteFontKeys.collectAsState()
 val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
+    val snapToCenter by viewModel.snapToCenter.collectAsState()
     val canUndo by viewModel.canUndo.collectAsState()
     val canRedo by viewModel.canRedo.collectAsState()
     val scriptQueue by viewModel.scriptQueue.collectAsState()
@@ -1007,6 +1012,9 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
             var initialImageScaleY by remember { mutableFloatStateOf(1f) }
             var initialImageBmpW by remember { mutableFloatStateOf(1f) }
             var initialImageBmpH by remember { mutableFloatStateOf(1f) }
+            // Garis panduan saat layer dijepit ke tengah kanvas.
+            var snapGuideX by remember { mutableFloatStateOf(Float.NaN) }
+            var snapGuideY by remember { mutableFloatStateOf(Float.NaN) }
             var deleteHandlePressTime by remember { mutableLongStateOf(0L) }
             var pendingDeleteLayerId by remember { mutableStateOf<String?>(null) }
 
@@ -1746,9 +1754,14 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                     // mendadak = posisi kalimat meloncat/glitch (paling
                                                     // kelihatan di kotak OVAL).
                                                     val baseFs = initialFontSize.coerceAtLeast(0.1f)
-                                                    val scaleFactor = (currentDist / initialDragDist)
-                                                        .coerceIn(10f / baseFs, 300f / baseFs)
-                                                    val newSize = (initialFontSize * scaleFactor).coerceIn(10f, 300f)
+                                                    // Pangkat 0.85 memberi kontrol lebih halus di ukuran
+                                                    // kecil (di mana jari menutupi handle) tanpa
+                                                    // mengorbankan kecepatan di ukuran besar.
+                                                    val raw = (currentDist / initialDragDist).coerceIn(0.02f, 50f)
+                                                    val scaleFactor = Math.pow(raw.toDouble(), 0.85).toFloat()
+                                                        .coerceIn(MIN_FONT_SIZE / baseFs, MAX_FONT_SIZE / baseFs)
+                                                    val newSize = (initialFontSize * scaleFactor)
+                                                        .coerceIn(MIN_FONT_SIZE, MAX_FONT_SIZE)
                                                     val isOval = dragLayer.textContainerShape == com.mochits.app.model.TextContainerShape.OVAL
                                                     val newBoxW = if (dragLayer.boxWidth != null || isOval) {
                                                         (initialBoxW * scaleFactor).coerceAtLeast(30f)
@@ -1880,11 +1893,29 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                             if (dragLayer != null) {
                                                 val deltaX = touchCanvasPt.x - initialTouchCanvasPt.x
                                                 val deltaY = touchCanvasPt.y - initialTouchCanvasPt.y
-                                                viewModel.updateSelectedTextLayerPosition(
-                                                    initialTextX + deltaX,
-                                                    initialTextY + deltaY,
-                                                    saveUndo = false
-                                                )
+                                                var nx = initialTextX + deltaX
+                                                var ny = initialTextY + deltaY
+                                                val b = textRenderer.getTextBounds(dragLayer)
+                                                val cw = viewModel.baseBitmap.value?.width?.toFloat()
+                                                    ?: viewModel.project.value?.width?.toFloat() ?: 1080f
+                                                val chh = viewModel.baseBitmap.value?.height?.toFloat()
+                                                    ?: viewModel.project.value?.height?.toFloat() ?: 1920f
+                                                val threshold = 10f / viewModel.canvasState.scale.coerceAtLeast(0.1f)
+                                                snapGuideX = Float.NaN
+                                                snapGuideY = Float.NaN
+                                                if (snapToCenter) {
+                                                    val centerX = nx + b.width() / 2f
+                                                    if (kotlin.math.abs(centerX - cw / 2f) <= threshold) {
+                                                        nx += cw / 2f - centerX
+                                                        snapGuideX = cw / 2f
+                                                    }
+                                                    val centerY = ny + b.height() / 2f
+                                                    if (kotlin.math.abs(centerY - chh / 2f) <= threshold) {
+                                                        ny += chh / 2f - centerY
+                                                        snapGuideY = chh / 2f
+                                                    }
+                                                }
+                                                viewModel.updateSelectedTextLayerPosition(nx, ny, saveUndo = false)
                                                 triggerRedraw++
                                             } else {
                                                 // Layer gambar yang dipegang: geser x/y (tanpa jepit).
@@ -1902,8 +1933,25 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                                         ?: viewModel.project.value?.width?.toFloat() ?: 1080f
                                                     val canvasH = viewModel.baseBitmap.value?.height?.toFloat()
                                                         ?: viewModel.project.value?.height?.toFloat() ?: 1920f
-                                                    val newX = (initialTextX + deltaX).coerceIn(-bw + 20f, canvasW - 20f)
-                                                    val newY = (initialTextY + deltaY).coerceIn(-bh + 20f, canvasH - 20f)
+                                                    var newX = (initialTextX + deltaX).coerceIn(-bw + 20f, canvasW - 20f)
+                                                    var newY = (initialTextY + deltaY).coerceIn(-bh + 20f, canvasH - 20f)
+                                                    val threshold = 10f / viewModel.canvasState.scale.coerceAtLeast(0.1f)
+                                                    val imgW = bw * dragImageLayer.scaleX
+                                                    val imgH = bh * dragImageLayer.scaleY
+                                                    snapGuideX = Float.NaN
+                                                    snapGuideY = Float.NaN
+                                                    if (snapToCenter) {
+                                                        val centerX = newX + imgW / 2f
+                                                        if (kotlin.math.abs(centerX - canvasW / 2f) <= threshold) {
+                                                            newX += canvasW / 2f - centerX
+                                                            snapGuideX = canvasW / 2f
+                                                        }
+                                                        val centerY = newY + imgH / 2f
+                                                        if (kotlin.math.abs(centerY - canvasH / 2f) <= threshold) {
+                                                            newY += canvasH / 2f - centerY
+                                                            snapGuideY = canvasH / 2f
+                                                        }
+                                                    }
                                                     viewModel.updateImageLayer(
                                                         dragImageLayer.copy(x = newX, y = newY),
                                                         false
@@ -1934,6 +1982,8 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                         activeHandleType = null
                                         isBodyMoveDragging = false
                                         pendingBodyMoveLayer = null
+                                        snapGuideX = Float.NaN
+                                        snapGuideY = Float.NaN
                                         continue
                                     } else if (pendingBodyMoveLayer != null) {
                                         val targetLayer = pendingBodyMoveLayer!!
@@ -2707,6 +2757,24 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                                         drawContext.canvas.nativeCanvas.restoreToCount(count)
                                     }
                                 }
+                            }
+                        }
+                        // Garis panduan snap ke tengah kanvas.
+                        if (!snapGuideX.isNaN() || !snapGuideY.isNaN()) {
+                            val guidePaint = android.graphics.Paint().apply {
+                                color = android.graphics.Color.parseColor("#4CAF50")
+                                style = android.graphics.Paint.Style.STROKE
+                                strokeWidth = 1.5f / viewModel.canvasState.scale.coerceAtLeast(0.1f)
+                            }
+                            if (!snapGuideX.isNaN()) {
+                                drawContext.canvas.nativeCanvas.drawLine(
+                                    snapGuideX, 0f, snapGuideX, baseBitmap?.height?.toFloat() ?: 1920f, guidePaint
+                                )
+                            }
+                            if (!snapGuideY.isNaN()) {
+                                drawContext.canvas.nativeCanvas.drawLine(
+                                    0f, snapGuideY, baseBitmap?.width?.toFloat() ?: 1080f, snapGuideY, guidePaint
+                                )
                             }
                         }
 
@@ -6421,7 +6489,7 @@ fun FontToolPanel(
             Slider(
                 // Range must cover the canvas resize-handle clamp (10..300); a
                 // narrower range crashes (M3 Slider requires value in range).
-                value = currentStyle.fontSize.coerceIn(10f, 300f),
+                value = currentStyle.fontSize.coerceIn(MIN_FONT_SIZE, MAX_FONT_SIZE),
                 onValueChange = {
                     onSliderDragStart()
                     onUpdateStyle(currentStyle.copy(fontSize = it), false)
@@ -6429,7 +6497,7 @@ fun FontToolPanel(
                 onValueChangeFinished = {
                     onSliderDragEnd()
                 },
-                valueRange = 10f..300f,
+                valueRange = MIN_FONT_SIZE..MAX_FONT_SIZE,
                 modifier = Modifier.fillMaxWidth()
             )
 

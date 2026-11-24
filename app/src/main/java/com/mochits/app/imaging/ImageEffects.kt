@@ -88,6 +88,8 @@ object ImageEffects {
         textureScale: Float = 1f,
         textureColor: Int = android.graphics.Color.TRANSPARENT,
         textureAngle: Float = 0f,
+        /** 0 = kualitas penuh; > 0 = batas sisi bitmap saat pratinjau slider. */
+        maxDim: Float = 0f,
         customTexture: Bitmap? = null
     ): Bitmap? = withContext(Dispatchers.Default) {
         if (src.isRecycled || src.width <= 0 || src.height <= 0) return@withContext null
@@ -96,8 +98,8 @@ object ImageEffects {
         val hasTexture = texturePreset != TexturePreset.NONE && textureStrength > 0f
         if (!hasMotion && !hasRadial && !hasTexture) return@withContext null
         try {
-            val maxDim = if (hasRadial) 640f else 768f
-            val down = minOf(1f, maxDim / maxOf(src.width, src.height).toFloat())
+            val qualityDim = if (maxDim > 0f) maxDim else if (hasRadial) 640f else 768f
+            val down = minOf(1f, qualityDim / maxOf(src.width, src.height).toFloat())
             val ww = maxOf(1, (src.width * down).toInt())
             val hh = maxOf(1, (src.height * down).toInt())
             val small = Bitmap.createScaledBitmap(src, ww, hh, true)
