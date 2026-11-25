@@ -72,13 +72,8 @@ class EditorViewModel @Inject constructor(
     val stylePresetRepository: com.mochits.app.style.StylePresetRepository =
         com.mochits.app.style.StylePresetRepository(context),
     val scriptSettingsRepository: com.mochits.app.script.ScriptSettingsRepository =
-        com.mochits.app.script.ScriptSettingsRepository(context),
-    val editorSettingsRepository: EditorSettingsRepository = EditorSettingsRepository(context)
+        com.mochits.app.script.ScriptSettingsRepository(context)
 ) : ViewModel() {
-
-    val snapToCenter: StateFlow<Boolean> = editorSettingsRepository.snapToCenter
-
-    fun setSnapToCenter(enabled: Boolean) = editorSettingsRepository.setSnapToCenter(enabled)
 
     /** fontNameKey yang difavoritkan pengguna. */
     val favoriteFontKeys: StateFlow<Set<String>> = fontRepository.favoriteFontKeys
