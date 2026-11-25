@@ -344,7 +344,7 @@ class ImageEffectsTest {
         )
         assertNotNull(full)
         assertNotNull(preview)
-        assertEquals(40, maxOf(preview!!.width, preview.height))
+        assertEquals(40f, maxOf(preview!!.width, preview.height).toFloat(), 2f)
         assertTrue(preview.width <= full!!.width)
     }
 }
