@@ -68,7 +68,7 @@ fun SettingsScreen(
         Icons.Default.TextFields,
         Icons.Default.Folder,
         Icons.Default.Description,
-        Icons.Default.Build
+        Icons.Default.Info
     )
     val editorSettingsRepo = remember {
         com.mochits.app.settings.EditorSettingsRepository(context)
@@ -1015,7 +1015,7 @@ fun SettingsScreen(
                     6 -> {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             SettingsPageHeader(
-                                icon = Icons.Default.Build,
+                                icon = Icons.Default.Info,
                                 title = "Editor",
                                 subtitle = "Bantuan saat menggeser lapisan."
                             )
