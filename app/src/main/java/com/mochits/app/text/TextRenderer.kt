@@ -1079,7 +1079,11 @@ class TextRenderer(private val context: Context) {
         val maxStroke = style.strokeWidth.coerceAtLeast(0f) +
             (style.extraStrokes.orEmpty().maxOfOrNull { it.width }?.coerceAtLeast(0f) ?: 0f)
         val strokePad = (maxStroke * 0.5f).coerceAtLeast(0f)
-        val pad = stablePad
+        // Bantalan maksimum: motion 100 px, radial strength 1 → 55% sisi teks.
+        // Dikunci agar slider tidak mengubah ukuran bitmap tiap langkah.
+        val pad = ceil(
+            maxOf(100f, maxOf(textW, textH) * 0.55f, strokePad).toDouble()
+        ).toInt() + 4
         val bw = (textW + 2 * pad).toInt().coerceAtLeast(1)
         val bh = (textH + 2 * pad).toInt().coerceAtLeast(1)
         // Kerja di bitmap kecil agar slider tetap mulus. Ukuran & bantalan
@@ -1089,10 +1093,6 @@ class TextRenderer(private val context: Context) {
         val down = minOf(1f, 512f / maxOf(bw, bh).toFloat())
         val ww = maxOf(1, (bw * down).toInt())
         val hh = maxOf(1, (bh * down).toInt())
-        // Bantalan maksimum: motion 100 px, radial strength 1 → 55% sisi teks.
-        val stablePad = ceil(
-            maxOf(100f, maxOf(textW, textH) * 0.55f, strokePad).toDouble()
-        ).toInt() + 4
 
         // Cache-hit: langsung tempel, lewati render + blur yang mahal.
         smearCache[cacheKey]?.let { cached ->
