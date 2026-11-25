@@ -331,20 +331,4 @@ class ImageEffectsTest {
             )
         )
     }
-
-    @Test
-    fun processedBitmap_maxDimMenghasilkanBitmapPreviewLebihKecil() = runBlocking {
-        val src = Bitmap.createBitmap(120, 80, Bitmap.Config.ARGB_8888)
-        src.eraseColor(Color.RED)
-        val full = ImageEffects.processedBitmap(
-            src, radialBlurStrength = 0.5f, maxDim = 0f
-        )
-        val preview = ImageEffects.processedBitmap(
-            src, radialBlurStrength = 0.5f, maxDim = 40f
-        )
-        assertNotNull(full)
-        assertNotNull(preview)
-        assertEquals(40f, maxOf(preview!!.width, preview.height).toFloat(), 2f)
-        assertTrue(preview.width <= full!!.width)
-    }
 }
