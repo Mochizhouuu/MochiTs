@@ -876,7 +876,7 @@ val imageEffectRevision by viewModel.imageEffectRevision.collectAsState()
                         onSliderDragStart = { viewModel.onSliderDragStart() },
                         onSliderDragEnd = { viewModel.onSliderDragEnd() },
                         onStartEyedropper = { onColorSelected -> viewModel.startEyedropper(onColorSelected) },
-                        onUpdateImageLayer = { updated -> viewModel.updateImageLayer(updated, false) },
+                        onUpdateImageLayer = { updated -> viewModel.updateImageLayer(updated) },
                         onUpdateBlendMode = { viewModel.updateSelectedLayerBlendMode(it) },
                         onImportTexture = { uri ->
                             viewModel.importTextureAsset(uri) { name ->
@@ -5244,7 +5244,7 @@ fun EffectToolPanel(
                                         value = selectedLayer.grayscale,
                                         onValueChange = {
                                             onSliderDragStart()
-                                            onUpdateImageLayer(selectedLayer.copy(grayscale = it), false)
+                                            viewModel.updateImageLayer(selectedLayer.copy(grayscale = it), false)
                                         },
                                         onValueChangeFinished = {
                                             onSliderDragEnd()
@@ -5257,7 +5257,7 @@ fun EffectToolPanel(
                                         value = selectedLayer.brightness,
                                         onValueChange = {
                                             onSliderDragStart()
-                                            onUpdateImageLayer(selectedLayer.copy(brightness = it), false)
+                                            viewModel.updateImageLayer(selectedLayer.copy(brightness = it), false)
                                         },
                                         onValueChangeFinished = {
                                             onSliderDragEnd()
@@ -5270,7 +5270,7 @@ fun EffectToolPanel(
                                         value = selectedLayer.contrast,
                                         onValueChange = {
                                             onSliderDragStart()
-                                            onUpdateImageLayer(selectedLayer.copy(contrast = it), false)
+                                            viewModel.updateImageLayer(selectedLayer.copy(contrast = it), false)
                                         },
                                         onValueChangeFinished = {
                                             onSliderDragEnd()
@@ -5281,7 +5281,7 @@ fun EffectToolPanel(
                                     OutlinedButton(
                                         onClick = {
                                             onSliderDragStart()
-                                            onUpdateImageLayer(
+                                            viewModel.updateImageLayer(
                                                 selectedLayer.copy(grayscale = 0f, brightness = 0f, contrast = 1f),
                                                 false
                                             )
@@ -5311,7 +5311,7 @@ fun EffectToolPanel(
                                         value = selectedLayer.motionBlurRadius,
                                         onValueChange = {
                                             onSliderDragStart()
-                                            onUpdateImageLayer(selectedLayer.copy(motionBlurRadius = it), false)
+                                            viewModel.updateImageLayer(selectedLayer.copy(motionBlurRadius = it), false)
                                         },
                                         onValueChangeFinished = {
                                             onSliderDragEnd()
@@ -5324,7 +5324,7 @@ fun EffectToolPanel(
                                         value = selectedLayer.motionBlurAngle,
                                         onValueChange = {
                                             onSliderDragStart()
-                                            onUpdateImageLayer(selectedLayer.copy(motionBlurAngle = it), false)
+                                            viewModel.updateImageLayer(selectedLayer.copy(motionBlurAngle = it), false)
                                         },
                                         onValueChangeFinished = {
                                             onSliderDragEnd()
@@ -5408,7 +5408,7 @@ fun EffectToolPanel(
                                             value = selectedLayer.radialBlurStrength,
                                             onValueChange = {
                                                 onSliderDragStart()
-                                                onUpdateImageLayer(selectedLayer.copy(radialBlurStrength = it), false)
+                                                viewModel.updateImageLayer(selectedLayer.copy(radialBlurStrength = it), false)
                                             },
                                             onValueChangeFinished = { onSliderDragEnd() },
                                             valueRange = 0f..1f
@@ -5418,7 +5418,7 @@ fun EffectToolPanel(
                                             value = selectedLayer.radialBlurCenterX,
                                             onValueChange = {
                                                 onSliderDragStart()
-                                                onUpdateImageLayer(selectedLayer.copy(radialBlurCenterX = it), false)
+                                                viewModel.updateImageLayer(selectedLayer.copy(radialBlurCenterX = it), false)
                                             },
                                             onValueChangeFinished = { onSliderDragEnd() },
                                             valueRange = 0f..1f
@@ -5428,7 +5428,7 @@ fun EffectToolPanel(
                                             value = selectedLayer.radialBlurCenterY,
                                             onValueChange = {
                                                 onSliderDragStart()
-                                                onUpdateImageLayer(selectedLayer.copy(radialBlurCenterY = it), false)
+                                                viewModel.updateImageLayer(selectedLayer.copy(radialBlurCenterY = it), false)
                                             },
                                             onValueChangeFinished = { onSliderDragEnd() },
                                             valueRange = 0f..1f
@@ -5594,7 +5594,7 @@ fun EffectToolPanel(
                                             value = selectedLayer.textureStrength,
                                             onValueChange = {
                                                 onSliderDragStart()
-                                                onUpdateImageLayer(selectedLayer.copy(textureStrength = it), false)
+                                                viewModel.updateImageLayer(selectedLayer.copy(textureStrength = it), false)
                                             },
                                             onValueChangeFinished = { onSliderDragEnd() },
                                             valueRange = 0f..1f
@@ -5604,7 +5604,7 @@ fun EffectToolPanel(
                                             value = selectedLayer.textureScale,
                                             onValueChange = {
                                                 onSliderDragStart()
-                                                onUpdateImageLayer(selectedLayer.copy(textureScale = it), false)
+                                                viewModel.updateImageLayer(selectedLayer.copy(textureScale = it), false)
                                             },
                                             onValueChangeFinished = { onSliderDragEnd() },
                                             valueRange = 0.5f..4f
@@ -5613,7 +5613,7 @@ fun EffectToolPanel(
                                             angleDeg = selectedLayer.textureAngle,
                                             onAngleChange = {
                                                 onSliderDragStart()
-                                                onUpdateImageLayer(selectedLayer.copy(textureAngle = it), false)
+                                                viewModel.updateImageLayer(selectedLayer.copy(textureAngle = it), false)
                                             },
                                             onSliderStart = { onSliderDragStart() },
                                             onSliderEnd = { onSliderDragEnd() }
@@ -5627,16 +5627,16 @@ fun EffectToolPanel(
                                         ColorPickerRow(
                                             selectedColor = selectedLayer.textureColor,
                                             onColorSelected = {
-                                                onUpdateImageLayer(selectedLayer.copy(textureColor = it), false)
+                                                viewModel.updateImageLayer(selectedLayer.copy(textureColor = it), false)
                                             },
                                             onCustomColorChange = {
-                                                onUpdateImageLayer(selectedLayer.copy(textureColor = it), false)
+                                                viewModel.updateImageLayer(selectedLayer.copy(textureColor = it), false)
                                             },
                                             onPickStart = { onSliderDragStart() },
                                             onPickEnd = { onSliderDragEnd() },
                                             onEyedropperClick = {
                                                 onStartEyedropper { c ->
-                                                    onUpdateImageLayer(selectedLayer.copy(textureColor = c), false)
+                                                    viewModel.updateImageLayer(selectedLayer.copy(textureColor = c), false)
                                                 }
                                             }
                                         )
@@ -5736,18 +5736,18 @@ fun EffectToolPanel(
                                         selectedColor = selectedLayer.glowColor,
                                         onColorSelected = { col ->
                                             onSliderDragStart()
-                                            onUpdateImageLayer(selectedLayer.copy(glowColor = col), false)
+                                            viewModel.updateImageLayer(selectedLayer.copy(glowColor = col), false)
                                             onSliderDragEnd()
                                         },
                                         onCustomColorChange = { col ->
-                                            onUpdateImageLayer(selectedLayer.copy(glowColor = col), false)
+                                            viewModel.updateImageLayer(selectedLayer.copy(glowColor = col), false)
                                         },
                                         onPickStart = { onSliderDragStart() },
                                         onPickEnd = { onSliderDragEnd() },
                                         onEyedropperClick = {
                                             onStartEyedropper { sampledCol ->
                                                 onSliderDragStart()
-                                                onUpdateImageLayer(selectedLayer.copy(glowColor = sampledCol), false)
+                                                viewModel.updateImageLayer(selectedLayer.copy(glowColor = sampledCol), false)
                                                 onSliderDragEnd()
                                             }
                                         }
@@ -5759,7 +5759,7 @@ fun EffectToolPanel(
                                         onValueChange = {
                                             onSliderDragStart()
                                             val glowCol = if (it > 0f && selectedLayer.glowColor == AndroidColor.TRANSPARENT) AndroidColor.WHITE else selectedLayer.glowColor
-                                            onUpdateImageLayer(selectedLayer.copy(glowRadius = it, glowColor = glowCol), false)
+                                            viewModel.updateImageLayer(selectedLayer.copy(glowRadius = it, glowColor = glowCol), false)
                                         },
                                         onValueChangeFinished = {
                                             onSliderDragEnd()
