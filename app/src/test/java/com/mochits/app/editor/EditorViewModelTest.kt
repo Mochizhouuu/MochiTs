@@ -118,21 +118,24 @@ class EditorViewModelTest {
     @Test
     fun testSliderUndo_satuLangkahBukanDobel() {
         viewModel.addTextLayer("Awal")
+        val entriesBefore = viewModel.historyEntries.value.size
 
         // Pola slider: snapshot sekali di awal, lalu update tanpa snapshot.
         viewModel.onSliderDragStart()
-        val before = viewModel.layers.value
-        val layer = before.first() as Layer.TextLayer
+        val layer = viewModel.layers.value.first() as Layer.TextLayer
+        val sizeBefore = layer.style.fontSize
         viewModel.updateSelectedTextLayerStyle(
             layer.style.copy(fontSize = 48f), saveUndo = false
         )
         viewModel.onSliderDragEnd()
 
-        // Satu entri undo untuk seluruh gesture slider.
-        assertEquals(2, viewModel.historyEntries.value.size)
+        // Gesture slider hanya menambah SATU entri histori.
+        assertEquals(entriesBefore + 1, viewModel.historyEntries.value.size)
         viewModel.undo()
-        val restored = viewModel.layers.value.first() as Layer.TextLayer
-        assertEquals(36f, restored.style.fontSize, 0.01f)
+        val restored = viewModel.layers.value.firstOrNull { it is Layer.TextLayer }
+            as? Layer.TextLayer
+        assertNotNull(restored)
+        assertEquals(sizeBefore, restored!!.style.fontSize, 0.01f)
     }
 
     @Test
