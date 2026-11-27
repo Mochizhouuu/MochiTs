@@ -738,7 +738,12 @@ data class HistoryManifest(
             if (undoStack.isNotEmpty()) undoStack.removeLast() else null
         }
         if (snapshot != null) {
-            restoreSnapshot(snapshot)
+            // Kembalikan mask juga — rollback dipakai saat gesture dibatalkan
+            // (multi-touch / magic wand gagal). Tanpa ini mask sudah berubah
+            // tapi snapshotnya dibuang, sehingga undo jadi tidak konsisten.
+            snapshot.maskBytes?.let { restoreMaskByteArray(it) }
+                ?: maskSelectionTools?.clearMask()
+            snapshot.rawMaskBytes?.let { restoreRawMaskByteArray(it) }
             updateUndoRedoState()
         }
     }
